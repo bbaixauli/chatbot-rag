@@ -12,7 +12,7 @@ export class ApiError extends Error {
 
 export async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = { Accept: 'application/json' }
-  if (init.body !== undefined) headers['Content-Type'] = 'application/json'
+  if (typeof init.body === 'string') headers['Content-Type'] = 'application/json'
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
     headers: { ...headers, ...(init.headers as Record<string, string> | undefined) },

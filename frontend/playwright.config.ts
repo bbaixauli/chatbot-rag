@@ -31,6 +31,7 @@ export default defineConfig({
         CHATBOT_DATA_DIR: dataDir,
         // Modelo simulado: respuestas deterministas sin depender del servidor de IA.
         CHATBOT_LLM_PROVIDER: 'fake',
+        CHATBOT_EMBEDDING_PROVIDER: 'fake',
         CHATBOT_ADMIN_PASSWORD: ADMIN_PASSWORD,
       },
       reuseExistingServer: !process.env.CI,

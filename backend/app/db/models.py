@@ -46,6 +46,42 @@ class Conversation(Base):
     )
 
 
+class DocumentStatus(StrEnum):
+    """Estado de procesamiento de un documento."""
+
+    PENDING = "pending"
+    PROCESSING = "processing"
+    READY = "ready"
+    ERROR = "error"
+
+
+class DocumentKind(StrEnum):
+    """Formatos admitidos."""
+
+    PDF = "pdf"
+    MARKDOWN = "markdown"
+    HTML = "html"
+
+
+class Document(Base):
+    """Fichero subido para el RAG."""
+
+    __tablename__ = "documents"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    filename: Mapped[str] = mapped_column(String(255))
+    kind: Mapped[str] = mapped_column(String(16))
+    size_bytes: Mapped[int] = mapped_column(Integer)
+    sha256: Mapped[str] = mapped_column(String(64), unique=True)
+    status: Mapped[str] = mapped_column(String(16), default=DocumentStatus.PENDING.value)
+    chunk_count: Mapped[int] = mapped_column(Integer, default=0)
+    error: Mapped[str | None] = mapped_column(Text)
+    embedding_model: Mapped[str | None] = mapped_column(String(255))
+    uploaded_by: Mapped[str] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class SystemPromptVersion(Base):
     """Versión del prompt de sistema. La vigente es la más reciente."""
 

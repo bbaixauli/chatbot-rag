@@ -35,14 +35,20 @@ export function AdminLayout() {
         <div className="flex items-center gap-6">
           <h1 className="text-lg font-semibold">{t.nav.admin}</h1>
           <nav aria-label={t.nav.admin} className="flex gap-2 text-sm">
-            <NavLink
-              to="/admin/prompt"
-              className={({ isActive }) =>
-                `rounded-md px-3 py-1.5 ${isActive ? 'bg-gray-100 font-medium' : 'hover:bg-gray-50'}`
-              }
-            >
-              {t.nav.prompt}
-            </NavLink>
+            {[
+              { to: '/admin/prompt', label: t.nav.prompt },
+              { to: '/admin/documents', label: t.nav.documents },
+            ].map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                className={({ isActive }) =>
+                  `rounded-md px-3 py-1.5 ${isActive ? 'bg-gray-100 font-medium' : 'hover:bg-gray-50'}`
+                }
+              >
+                {item.label}
+              </NavLink>
+            ))}
           </nav>
         </div>
         <div className="flex items-center gap-4 text-sm">

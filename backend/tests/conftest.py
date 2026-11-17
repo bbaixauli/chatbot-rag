@@ -42,7 +42,12 @@ def parse_sse(body: str) -> list[tuple[str, dict[str, Any]]]:
 
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
-    return Settings(environment="test", data_dir=tmp_path / "data", llm_provider="fake")
+    return Settings(
+        environment="test",
+        data_dir=tmp_path / "data",
+        llm_provider="fake",
+        embedding_provider="fake",
+    )
 
 
 @pytest.fixture

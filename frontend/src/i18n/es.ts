@@ -11,6 +11,7 @@ export const t = {
     admin: 'Administración',
     backToChat: 'Volver al chat',
     prompt: 'Prompt de sistema',
+    documents: 'Documentos',
     logout: 'Cerrar sesión',
   },
   login: {
@@ -42,6 +43,52 @@ export const t = {
     restored: 'Versión restaurada.',
     confirmRestore: (id: number) => `¿Restaurar la versión ${id}? Se creará una nueva versión.`,
     by: (author: string, date: string) => `${author} · ${date}`,
+  },
+  documents: {
+    title: 'Documentos',
+    description:
+      'Ficheros que el asistente consulta para responder. Se admiten PDF, Markdown y HTML.',
+    stats: (documents: number, chunks: number) =>
+      `${documents} ${documents === 1 ? 'documento' : 'documentos'} · ${chunks} ${
+        chunks === 1 ? 'fragmento indexado' : 'fragmentos indexados'
+      }`,
+    model: (name: string) => `Modelo de embeddings: ${name}`,
+    reindexAll: 'Reindexar todo',
+    confirmReindexAll:
+      '¿Reindexar todos los documentos? Es necesario si ha cambiado el modelo de embeddings.',
+    dropzone: 'Arrastra aquí ficheros PDF, Markdown o HTML',
+    or: 'o',
+    select: 'Seleccionar ficheros',
+    uploads: 'Subidas',
+    uploading: 'Subiendo…',
+    uploaded: 'Subido',
+    duplicate: 'Ya existía',
+    uploadFailed: 'No se pudo subir',
+    unsupported: 'Tipo de fichero no admitido',
+    empty: 'Todavía no hay documentos.',
+    loadError: 'No se pudieron cargar los documentos.',
+    columns: {
+      name: 'Nombre',
+      kind: 'Tipo',
+      size: 'Tamaño',
+      status: 'Estado',
+      chunks: 'Fragmentos',
+      uploaded: 'Subido',
+      actions: 'Acciones',
+    },
+    kinds: { pdf: 'PDF', markdown: 'Markdown', html: 'HTML' },
+    status: {
+      pending: 'Pendiente',
+      processing: 'Procesando…',
+      ready: 'Indexado',
+      error: 'Error',
+    },
+    download: (name: string) => `Descargar ${name}`,
+    reindex: 'Reindexar',
+    delete: 'Eliminar',
+    confirmDelete: (name: string) =>
+      `¿Eliminar «${name}»? El asistente dejará de usarlo en sus respuestas.`,
+    actionError: 'No se pudo completar la acción.',
   },
   common: {
     loading: 'Cargando…',
