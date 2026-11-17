@@ -52,12 +52,17 @@ export function ChatPage() {
         ) : (
           <ol aria-label={t.chat.messages} className="mx-auto flex max-w-3xl flex-col gap-4">
             {history.map((m) => (
-              <MessageBubble key={m.id} role={m.role} content={m.content} />
+              <MessageBubble key={m.id} role={m.role} content={m.content} sources={m.sources} />
             ))}
             {pending && (
               <>
                 <MessageBubble role="user" content={pending.question} />
-                <MessageBubble role="assistant" content={pending.answer} streaming />
+                <MessageBubble
+                  role="assistant"
+                  content={pending.answer}
+                  sources={pending.sources}
+                  streaming
+                />
               </>
             )}
           </ol>

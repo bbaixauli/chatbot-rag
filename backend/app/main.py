@@ -14,6 +14,7 @@ from app.db.session import build_engine, build_sessionmaker
 from app.services.documents import DocumentService
 from app.services.embeddings import build_embeddings
 from app.services.llm import build_llm_client
+from app.services.rag import Retriever
 from app.services.tasks import InProcessTaskRunner
 from app.services.vectorstore import ChromaVectorStore
 
@@ -36,6 +37,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.llm = build_llm_client(settings)
         app.state.embeddings = build_embeddings(settings)
         app.state.vector_store = ChromaVectorStore(settings.vector_dir)
+        app.state.retriever = Retriever(app.state.embeddings, app.state.vector_store, settings)
         tasks = InProcessTaskRunner()
         app.state.tasks = tasks
         app.state.documents = DocumentService(
@@ -71,6 +73,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         chat.router,
         admin.router,
         documents.router,
+        documents.public_router,
     ):
         app.include_router(router, prefix=API_PREFIX)
     return app

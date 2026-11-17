@@ -145,3 +145,37 @@ async def download_document(document_id: str, _: AdminDep, service: DocumentsDep
         content_disposition_type="attachment",
         headers={"X-Content-Type-Options": "nosniff"},
     )
+
+
+# --- Acceso público a los originales (enlaces de las referencias del chat) ---
+
+public_router = APIRouter(prefix="/documents", tags=["documents"])
+
+# El HTML subido se muestra aislado: sin scripts, sin acceso al origen de la app
+# y sin cargar recursos externos.
+HTML_SANDBOX_CSP = "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'"
+
+_INLINE_TYPES: dict[str, str] = {
+    "pdf": "application/pdf",
+    "markdown": "text/plain; charset=utf-8",
+    "html": "text/html; charset=utf-8",
+}
+
+
+@public_router.get("/{document_id}/file", response_class=FileResponse)
+async def view_document(document_id: str, service: DocumentsDep) -> FileResponse:
+    """Muestra el original en el navegador (los PDF admiten `#page=N`)."""
+    document = await _get_or_404(service, document_id)
+    path = service.file_path(document)
+    if not path.is_file():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "El fichero original no está disponible")
+    headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=300"}
+    if document.kind == "html":
+        headers["Content-Security-Policy"] = HTML_SANDBOX_CSP
+    return FileResponse(
+        path,
+        filename=document.filename,
+        media_type=_INLINE_TYPES[document.kind],
+        content_disposition_type="inline",
+        headers=headers,
+    )

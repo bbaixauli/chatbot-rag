@@ -42,11 +42,29 @@ export interface Conversation {
   updated_at: string
 }
 
+export interface Source {
+  number: number
+  document_id: string | null
+  filename: string
+  page: number | null
+  heading: string | null
+  snippet: string
+  cited: boolean
+}
+
 export interface Message {
   id: number
   role: 'user' | 'assistant'
   content: string
   created_at: string
+  sources?: Source[]
+}
+
+/** URL para ver el original de una fuente (los PDF se abren en la página citada). */
+export function sourceUrl(source: Source): string | null {
+  if (!source.document_id) return null
+  const page = source.page ? `#page=${source.page}` : ''
+  return `${API_BASE}/documents/${source.document_id}/file${page}`
 }
 
 export const listConversations = () => apiGet<Conversation[]>('/conversations')

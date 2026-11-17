@@ -46,6 +46,55 @@ describe('ChatPage', () => {
     expect(await screen.findByRole('link', { name: 'Hola' })).toHaveAttribute('href', '/c/n1')
   })
 
+  it('muestra las fuentes durante el streaming y al recargar el histórico', async () => {
+    const source = {
+      number: 1,
+      document_id: 'd1',
+      filename: 'manual.pdf',
+      page: 2,
+      heading: null,
+      snippet: 'Horario de oficina',
+      cited: true,
+    }
+    let release: () => void = () => {}
+    const gate = new Promise<void>((resolve) => (release = resolve))
+    mockApi({
+      'GET /health': health,
+      'GET /conversations': () => jsonResponse([]),
+      'POST /chat': () =>
+        sseResponse([
+          ['conversation', { id: 's1', title: 'Horario', user_message_id: 1 }],
+          ['token', { content: 'De 8 a 15 [1].' }],
+          ['sources', { sources: [source] }],
+          ['done', { message_id: 2 }],
+        ]),
+      'GET /conversations/s1/messages': async () => {
+        await gate
+        return jsonResponse([
+          msg(1, 'user', 'Horario'),
+          { ...msg(2, 'assistant', 'De 8 a 15 [1].'), sources: [source] },
+        ])
+      },
+    })
+    renderApp()
+    await ask('Horario')
+
+    const link = await screen.findByRole('link', { name: 'Abrir fuente: [1] manual.pdf · pág. 2' })
+    expect(link.closest('li[data-role]')).toHaveAttribute('aria-busy', 'true')
+    release()
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole('link', { name: 'Abrir fuente: [1] manual.pdf · pág. 2' })
+          .closest('li[data-role]'),
+      ).toHaveAttribute('aria-busy', 'false'),
+    )
+    expect(screen.getByRole('link', { name: '[1]' })).toHaveAttribute(
+      'href',
+      '/api/v1/documents/d1/file#page=2',
+    )
+  })
+
   it('carga el histórico y continúa una conversación existente', async () => {
     let messages = [msg(1, 'user', 'Primera'), msg(2, 'assistant', 'Uno')]
     mockApi({

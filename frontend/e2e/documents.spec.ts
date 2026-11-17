@@ -93,3 +93,62 @@ test('descarga, reindexa y elimina un documento', async ({ page }) => {
   await expect(row(page, 'politica-gastos.html')).toHaveCount(0)
   await expect(page.getByTestId('index-stats')).toContainText('2 documentos')
 })
+
+// --- RAG: tras los tests anteriores quedan indexados guia-vacaciones.md y manual-empleado.pdf ---
+
+const answers = (page: Page) =>
+  page.getByRole('list', { name: 'Mensajes' }).locator('li[data-role="assistant"]')
+
+async function ask(page: Page, question: string) {
+  await page.getByLabel('Escribe tu mensaje').fill(question)
+  await page.getByLabel('Escribe tu mensaje').press('Enter')
+  await expect(answers(page).last()).toContainText(question)
+  await expect(page.locator('li[aria-busy="true"]')).toHaveCount(0)
+}
+
+test('el chat responde citando el documento y enlaza al fichero', async ({ page }) => {
+  await page.goto('/')
+  await ask(page, '¿Cuántos días de vacaciones tengo al año?')
+
+  const answer = answers(page).last()
+  const sources = answer.getByRole('region', { name: 'Fuentes' })
+  const link = sources.getByRole('link', {
+    name: 'Abrir fuente: [1] guia-vacaciones.md — Guía de vacaciones',
+  })
+  await expect(link).toBeVisible()
+  await expect(link).toHaveAttribute('href', /^\/api\/v1\/documents\/[0-9a-f-]{36}\/file$/)
+  await expect(answer.getByRole('link', { name: '[1]', exact: true })).toBeVisible()
+
+  const popupPromise = page.waitForEvent('popup')
+  await link.click()
+  const popup = await popupPromise
+  await expect(popup.locator('body')).toContainText('23 días laborables de vacaciones')
+
+  await page.reload()
+  await expect(answers(page).last().getByRole('region', { name: 'Fuentes' })).toContainText(
+    'guia-vacaciones.md',
+  )
+})
+
+test('las referencias a PDF indican la página y abren el PDF en ella', async ({ page }) => {
+  await page.goto('/')
+  await ask(page, '¿Cuál es el horario de oficina?')
+
+  const link = answers(page)
+    .last()
+    .getByRole('link', { name: 'Abrir fuente: [1] manual-empleado.pdf · pág. 2' })
+  await expect(link).toBeVisible()
+  const href = await link.getAttribute('href')
+  expect(href).toMatch(/\/file#page=2$/)
+
+  const response = await page.request.get(href!.replace(/#.*$/, ''))
+  expect(response.headers()['content-type']).toBe('application/pdf')
+  expect(response.headers()['content-disposition']).toMatch(/^inline;/)
+})
+
+test('una pregunta sin relación con los documentos no muestra fuentes', async ({ page }) => {
+  await page.goto('/')
+  await ask(page, 'xyzzy plugh frobozz')
+
+  await expect(answers(page).last().getByRole('region')).toHaveCount(0)
+})

@@ -1,6 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { streamChat } from '../api/chat'
+import { listMessages, type Source } from '../api/client'
 import { t } from '../i18n/es'
 
 export interface PendingExchange {
@@ -8,6 +9,7 @@ export interface PendingExchange {
   answer: string
   /** Id del mensaje del usuario ya guardado; los mensajes desde él se muestran como pendientes. */
   userMessageId: number | null
+  sources: Source[]
 }
 
 interface Options {
@@ -40,7 +42,7 @@ export function useChat({ conversationId, onConversationCreated }: Options) {
       abortRef.current = controller
       streamingFor.current = conversationId
       setError(null)
-      setPending({ question, answer: '', userMessageId: null })
+      setPending({ question, answer: '', userMessageId: null, sources: [] })
       let activeId = conversationId
       try {
         for await (const event of streamChat(question, conversationId, controller.signal)) {
@@ -56,12 +58,24 @@ export function useChat({ conversationId, onConversationCreated }: Options) {
           } else if (event.event === 'token') {
             const delta = event.data.content
             setPending((p) => p && { ...p, answer: p.answer + delta })
+          } else if (event.event === 'sources') {
+            const sources = event.data.sources
+            setPending((p) => p && { ...p, sources })
           } else if (event.event === 'error') {
             setError(event.data.detail)
           }
         }
         if (activeId) {
-          await queryClient.invalidateQueries({ queryKey: ['messages', activeId] })
+          // Se cargan los mensajes guardados antes de retirar el intercambio en curso
+          // (aunque la vista de la conversación nueva aún no se haya montado).
+          const id = activeId
+          await queryClient
+            .fetchQuery({
+              queryKey: ['messages', id],
+              queryFn: () => listMessages(id),
+              staleTime: 0,
+            })
+            .catch(() => queryClient.invalidateQueries({ queryKey: ['messages', id] }))
         }
         setPending(null)
       } catch {
