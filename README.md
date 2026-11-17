@@ -38,6 +38,10 @@ Abre http://localhost:5173.
 Configura en `backend/.env` la URL y el modelo del servidor de IA (`CHATBOT_LLM_*`). Para
 probar la interfaz sin servidor de IA, usa `CHATBOT_LLM_PROVIDER=fake`.
 
+La administración (http://localhost:5173/admin) se habilita definiendo
+`CHATBOT_ADMIN_PASSWORD` (y, recomendado, `CHATBOT_SESSION_SECRET`). Desde ella se edita el
+prompt de sistema, que se guarda con histórico de versiones y se aplica a los mensajes nuevos.
+
 ## API
 
 Documentación interactiva en http://localhost:8000/docs. Endpoints principales:
@@ -49,6 +53,10 @@ Documentación interactiva en http://localhost:8000/docs. Endpoints principales:
 | PATCH/DELETE | `/api/v1/conversations/{id}` | Renombrar / eliminar |
 | GET | `/api/v1/conversations/{id}/messages` | Mensajes de una conversación |
 | POST | `/api/v1/chat` | Envía un mensaje; respuesta en streaming SSE (`conversation`, `token`, `done`, `error`) |
+| GET/POST/DELETE | `/api/v1/admin/session` | Estado / inicio / cierre de sesión de administración |
+| GET/PUT | `/api/v1/admin/prompt` | Prompt de sistema vigente / guardar nueva versión (admin) |
+| GET | `/api/v1/admin/prompt/versions` | Historial de versiones (admin) |
+| POST | `/api/v1/admin/prompt/versions/{id}/restore` | Restaurar una versión (admin) |
 
 ## Calidad y tests
 

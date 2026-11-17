@@ -12,6 +12,7 @@ from app.core.config import Settings
 from app.db.models import Message, MessageRole
 from app.services.conversations import ConversationRepository, make_title
 from app.services.llm import ChatMessage, LLMClient, LLMError
+from app.services.prompts import PromptRepository
 
 logger = logging.getLogger(__name__)
 
@@ -77,13 +78,16 @@ class ChatService:
             history = await repo.recent_messages(
                 conversation.id, self._settings.chat_history_max_messages + 1
             )
+            system_prompt = await PromptRepository(
+                session, self._settings.default_system_prompt
+            ).current()
             await session.commit()
             return PreparedChat(
                 user_id=user_id,
                 conversation_id=conversation.id,
                 title=conversation.title,
                 user_message_id=user_message.id,
-                prompt=build_prompt(self._settings.default_system_prompt, history),
+                prompt=build_prompt(system_prompt.content, history),
             )
 
     async def stream(self, prepared: PreparedChat) -> AsyncIterator[str]:

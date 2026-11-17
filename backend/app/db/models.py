@@ -46,6 +46,17 @@ class Conversation(Base):
     )
 
 
+class SystemPromptVersion(Base):
+    """Versión del prompt de sistema. La vigente es la más reciente."""
+
+    __tablename__ = "system_prompt_versions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    content: Mapped[str] = mapped_column(Text)
+    created_by: Mapped[str] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class Message(Base):
     """Mensaje dentro de una conversación."""
 

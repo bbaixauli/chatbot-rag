@@ -1,5 +1,6 @@
 """Configuración de la aplicación, leída de variables de entorno y de `.env`."""
 
+import secrets
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -38,6 +39,16 @@ class Settings(BaseSettings):
     llm_temperature: float = Field(default=0.2, ge=0, le=2)
     llm_timeout_seconds: float = Field(default=120, gt=0)
     llm_max_retries: int = Field(default=2, ge=0)
+
+    # Administración. Sin contraseña configurada, la administración queda deshabilitada.
+    admin_username: str = "admin"
+    admin_password: SecretStr | None = None
+    # Clave para firmar la cookie de sesión. Si no se define, se genera una aleatoria
+    # al arrancar (las sesiones se pierden al reiniciar).
+    session_secret: SecretStr = Field(default_factory=lambda: SecretStr(secrets.token_urlsafe(32)))
+    session_max_age_seconds: int = Field(default=8 * 3600, gt=0)
+    session_cookie_secure: bool = False
+    system_prompt_max_length: int = Field(default=20_000, gt=0)
 
     # Conversación
     chat_history_max_messages: int = Field(default=20, ge=0)
