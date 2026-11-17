@@ -1,0 +1,15 @@
+# Datos de la aplicación (BD, índice vectorial, ficheros subidos)
+data/
+
+# Entorno
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
