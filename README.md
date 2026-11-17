@@ -35,6 +35,21 @@ npm run dev
 
 Abre http://localhost:5173.
 
+Configura en `backend/.env` la URL y el modelo del servidor de IA (`CHATBOT_LLM_*`). Para
+probar la interfaz sin servidor de IA, usa `CHATBOT_LLM_PROVIDER=fake`.
+
+## API
+
+Documentación interactiva en http://localhost:8000/docs. Endpoints principales:
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| GET | `/api/v1/health` | Estado de la API y de la BD |
+| GET/POST | `/api/v1/conversations` | Listar / crear conversaciones |
+| PATCH/DELETE | `/api/v1/conversations/{id}` | Renombrar / eliminar |
+| GET | `/api/v1/conversations/{id}/messages` | Mensajes de una conversación |
+| POST | `/api/v1/chat` | Envía un mensaje; respuesta en streaming SSE (`conversation`, `token`, `done`, `error`) |
+
 ## Calidad y tests
 
 | | Backend (`backend/`) | Frontend (`frontend/`) |
@@ -45,8 +60,8 @@ Abre http://localhost:5173.
 | Tests unitarios | `uv run pytest` (cobertura ≥ 85 %) | `npm test` (cobertura ≥ 80 %) |
 | Tests de interfaz | — | `npm run test:e2e` (Playwright) |
 
-Los tests E2E levantan automáticamente backend (puerto 8001) y frontend (puerto 5174) con
-una carpeta de datos temporal. La primera vez instala el navegador con
+Los tests E2E levantan automáticamente backend (puerto 8001, con modelo simulado) y frontend
+(puerto 5174) con una carpeta de datos temporal. La primera vez instala el navegador con
 `npx playwright install chromium`.
 
 El CI de GitHub Actions ejecuta todo lo anterior en cada pull request.

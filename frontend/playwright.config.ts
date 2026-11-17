@@ -22,10 +22,15 @@ export default defineConfig({
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: [
     {
-      command: `uv run uvicorn app.main:app --host 127.0.0.1 --port ${API_PORT}`,
+      command: `uv run alembic upgrade head && uv run uvicorn app.main:app --host 127.0.0.1 --port ${API_PORT}`,
       cwd: '../backend',
       url: `http://127.0.0.1:${API_PORT}/api/v1/health`,
-      env: { CHATBOT_ENVIRONMENT: 'test', CHATBOT_DATA_DIR: dataDir },
+      env: {
+        CHATBOT_ENVIRONMENT: 'test',
+        CHATBOT_DATA_DIR: dataDir,
+        // Modelo simulado: respuestas deterministas sin depender del servidor de IA.
+        CHATBOT_LLM_PROVIDER: 'fake',
+      },
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,
     },

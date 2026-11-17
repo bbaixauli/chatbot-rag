@@ -1,0 +1,150 @@
+import { screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { describe, expect, it } from 'vitest'
+import { health, jsonResponse, mockApi, renderApp, sseResponse } from '../test/utils'
+
+const msg = (id: number, role: 'user' | 'assistant', content: string) => ({
+  id,
+  role,
+  content,
+  created_at: '2026-01-01T00:00:00',
+})
+
+async function ask(text: string) {
+  await userEvent.type(screen.getByLabelText('Escribe tu mensaje'), `${text}{Enter}`)
+}
+
+describe('ChatPage', () => {
+  it('crea una conversación nueva, muestra la respuesta y la añade al historial', async () => {
+    let created = false
+    mockApi({
+      'GET /health': health,
+      'GET /conversations': () =>
+        jsonResponse(created ? [{ id: 'n1', title: 'Hola', created_at: '', updated_at: '' }] : []),
+      'POST /chat': (init) => {
+        expect(JSON.parse(init!.body as string)).toEqual({ message: 'Hola', conversation_id: null })
+        created = true
+        return sseResponse([
+          ['conversation', { id: 'n1', title: 'Hola', user_message_id: 1 }],
+          ['token', { content: 'Respuesta ' }],
+          ['token', { content: '**en negrita**' }],
+          ['done', { message_id: 2 }],
+        ])
+      },
+      'GET /conversations/n1/messages': () =>
+        jsonResponse([msg(1, 'user', 'Hola'), msg(2, 'assistant', 'Respuesta **en negrita**')]),
+    })
+    renderApp()
+    expect(await screen.findByText('¿En qué puedo ayudarte?')).toBeInTheDocument()
+
+    await ask('Hola')
+
+    const list = await screen.findByRole('list', { name: 'Mensajes' })
+    expect(await within(list).findByText('en negrita')).toContainHTML('strong')
+    await waitFor(() => expect(list.querySelectorAll('li')).toHaveLength(2))
+    expect(within(list).getAllByText('Hola')).toHaveLength(1)
+    expect(await screen.findByRole('link', { name: 'Hola' })).toHaveAttribute('href', '/c/n1')
+  })
+
+  it('carga el histórico y continúa una conversación existente', async () => {
+    let messages = [msg(1, 'user', 'Primera'), msg(2, 'assistant', 'Uno')]
+    mockApi({
+      'GET /health': health,
+      'GET /conversations': () => jsonResponse([]),
+      'GET /conversations/c1/messages': () => jsonResponse(messages),
+      'POST /chat': (init) => {
+        expect(JSON.parse(init!.body as string).conversation_id).toBe('c1')
+        messages = [...messages, msg(3, 'user', 'Segunda'), msg(4, 'assistant', 'Dos')]
+        return sseResponse([
+          ['conversation', { id: 'c1', title: 'Primera', user_message_id: 3 }],
+          ['token', { content: 'Dos' }],
+          ['done', { message_id: 4 }],
+        ])
+      },
+    })
+    renderApp('/c/c1')
+    expect(await screen.findByText('Primera')).toBeInTheDocument()
+
+    await ask('Segunda')
+
+    const list = screen.getByRole('list', { name: 'Mensajes' })
+    await waitFor(() => expect(list.querySelectorAll('li')).toHaveLength(4))
+    expect(within(list).getByText('Dos')).toBeInTheDocument()
+  })
+
+  it('muestra el error del modelo y conserva la pregunta en el historial', async () => {
+    mockApi({
+      'GET /health': health,
+      'GET /conversations': () => jsonResponse([]),
+      'GET /conversations/c1/messages': () => jsonResponse([msg(1, 'user', 'hola')]),
+      'POST /chat': () =>
+        sseResponse([
+          ['conversation', { id: 'c1', title: 'hola', user_message_id: 1 }],
+          ['error', { detail: 'El modelo no está disponible. Inténtalo de nuevo.' }],
+        ]),
+    })
+    renderApp('/c/c1')
+    await screen.findByText('hola')
+    await userEvent.type(screen.getByLabelText('Escribe tu mensaje'), 'hola{Enter}')
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('El modelo no está disponible')
+  })
+
+  it('muestra un error si falla el envío', async () => {
+    mockApi({
+      'GET /health': health,
+      'GET /conversations': () => jsonResponse([]),
+      'POST /chat': () => jsonResponse({}, 500),
+    })
+    renderApp()
+    await ask('hola')
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('No se pudo enviar el mensaje')
+    expect(screen.getByText('¿En qué puedo ayudarte?')).toBeInTheDocument()
+  })
+
+  it('indica que la conversación no existe y desactiva el envío', async () => {
+    mockApi({
+      'GET /health': health,
+      'GET /conversations': () => jsonResponse([]),
+      'GET /conversations/zz/messages': () => jsonResponse({}, 404),
+    })
+    renderApp('/c/zz')
+
+    expect(await screen.findByText('La conversación no existe.')).toBeInTheDocument()
+    expect(screen.getByLabelText('Escribe tu mensaje')).toBeInTheDocument()
+    await ask('hola')
+    expect(screen.getByRole('button', { name: 'Enviar' })).toBeDisabled()
+  })
+
+  it('muestra error genérico si fallan los mensajes', async () => {
+    mockApi({
+      'GET /health': health,
+      'GET /conversations': () => jsonResponse([]),
+      'GET /conversations/c1/messages': () => jsonResponse({}, 500),
+    })
+    renderApp('/c/c1')
+    expect(await screen.findByText('No se pudieron cargar los mensajes.')).toBeInTheDocument()
+  })
+
+  it('muestra "Pensando…" hasta que llega el primer fragmento', async () => {
+    let release: () => void = () => {}
+    mockApi({
+      'GET /health': health,
+      'GET /conversations': () => jsonResponse([]),
+      'POST /chat': () =>
+        new Promise<Response>((resolve) => {
+          release = () =>
+            resolve(sseResponse([['conversation', { id: 'p1', title: 'x', user_message_id: 1 }]]))
+        }),
+      'GET /conversations/p1/messages': () => jsonResponse([msg(1, 'user', 'x')]),
+    })
+    renderApp()
+    await ask('x')
+
+    expect(await screen.findByText('Pensando…')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Enviar' })).toBeDisabled()
+    release()
+    await waitFor(() => expect(screen.queryByText('Pensando…')).toBeNull())
+  })
+})

@@ -2,8 +2,9 @@
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -27,6 +28,23 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     data_dir: Path = Path("../data")
     database_url: str | None = None
+
+    # Modelo de lenguaje (cualquier servidor compatible con la API de OpenAI).
+    # `fake` usa un modelo simulado sin red, útil para tests E2E y demos.
+    llm_provider: Literal["openai", "fake"] = "openai"
+    llm_base_url: str = "http://localhost:11434/v1"
+    llm_api_key: SecretStr = SecretStr("not-needed")
+    llm_model: str = "llama3.1"
+    llm_temperature: float = Field(default=0.2, ge=0, le=2)
+    llm_timeout_seconds: float = Field(default=120, gt=0)
+    llm_max_retries: int = Field(default=2, ge=0)
+
+    # Conversación
+    chat_history_max_messages: int = Field(default=20, ge=0)
+    chat_max_message_length: int = Field(default=8000, gt=0)
+    default_system_prompt: str = (
+        "Eres un asistente útil. Responde siempre en español, de forma clara y concisa."
+    )
 
     @property
     def resolved_database_url(self) -> str:
