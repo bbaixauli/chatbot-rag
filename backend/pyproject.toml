@@ -7,6 +7,7 @@ dependencies = [
     "aiosqlite>=0.22.1",
     "alembic>=1.20.1",
     "fastapi>=0.163.2",
+    "openai>=3.53.0",
     "pydantic-settings>=2.16.3",
     "sqlalchemy[asyncio]>=2.1.9",
     "uvicorn[standard]>=0.54.0",
@@ -42,6 +43,9 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 addopts = "--cov=app --cov-report=term-missing"
+
+[tool.coverage.run]
+concurrency = ["greenlet", "thread"]
 
 [tool.coverage.report]
 fail_under = 85

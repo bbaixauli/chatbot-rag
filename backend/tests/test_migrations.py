@@ -16,3 +16,5 @@ def test_migrations_upgrade_and_downgrade(tmp_path: Path) -> None:
     command.upgrade(config, "head")
     command.downgrade(config, "base")
     command.upgrade(config, "head")
+    # Falla si los modelos tienen cambios sin migración.
+    command.check(config)
