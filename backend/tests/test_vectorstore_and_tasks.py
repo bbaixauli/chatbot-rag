@@ -80,3 +80,23 @@ async def test_task_runner_cancel_all() -> None:
     await started.wait()
     await runner.cancel_all()
     await runner.drain()
+
+
+async def test_delete_chunks_from_keeps_the_rest(tmp_path: Path) -> None:
+    store = ChromaVectorStore(tmp_path / "chroma")
+    embeddings = FakeEmbeddings()
+    chunks = [Chunk(i, f"texto {i}", page=None, heading=None) for i in range(4)]
+    await store.add("d1", "a.md", chunks, await embeddings.embed([c.text for c in chunks]))
+    await store.add("d2", "b.md", chunks[:1], await embeddings.embed(["texto 0"]))
+
+    await store.delete_chunks_from("d1", 2)
+
+    hits = await store.search((await embeddings.embed(["texto"]))[0], 10)
+    assert sorted((h.document_id, h.chunk_index) for h in hits) == [("d1", 0), ("d1", 1), ("d2", 0)]
+
+
+async def test_in_memory_store_can_be_dropped() -> None:
+    store = ChromaVectorStore(None, collection="temporal")
+    await store.add("d", "a.md", [Chunk(0, "x", None, None)], await FakeEmbeddings().embed(["x"]))
+    assert await store.count() == 1
+    store.drop()

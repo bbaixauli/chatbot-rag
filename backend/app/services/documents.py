@@ -152,8 +152,11 @@ class DocumentService:
                 sections, self._settings.chunk_size_chars, self._settings.chunk_overlap_chars
             )
             vectors = await self._embeddings.embed([chunk.text for chunk in chunks])
-            await self._store.delete_document(document_id)
+            # Se sustituyen los fragmentos sin dejar el documento fuera del índice en ningún
+            # momento (importante al reindexar): primero se escriben y luego se borran los
+            # que sobran de la versión anterior.
             await self._store.add(document_id, filename, chunks, vectors)
+            await self._store.delete_chunks_from(document_id, len(chunks))
             chunk_count = len(chunks)
         except (ParseError, EmbeddingError) as exc:
             error = str(exc)

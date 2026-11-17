@@ -76,8 +76,24 @@ class FakeLLMClient:
 
     async def stream_chat(self, messages: Sequence[ChatMessage]) -> AsyncIterator[str]:
         question = next((m.content for m in reversed(messages) if m.role == "user"), "")
-        answer = f"Respuesta simulada a: **{question}**"
         system = next((m.content for m in messages if m.role == "system"), "")
+        if system.startswith("Reformula la pregunta"):
+            # Reformulación simulada: preguntas anteriores del usuario + la de seguimiento.
+            lines = question.splitlines()
+            asked = [
+                line.removeprefix("Usuario: ") for line in lines if line.startswith("Usuario: ")
+            ]
+            follow_up = next(
+                (
+                    line.removeprefix("Pregunta de seguimiento: ")
+                    for line in lines
+                    if line.startswith("Pregunta de seguimiento: ")
+                ),
+                "",
+            )
+            yield " ".join([*asked, follow_up])
+            return
+        answer = f"Respuesta simulada a: **{question}**"
         if "\n[1] Fuente:" in system:
             answer += " Según la documentación [1]."
         for index, word in enumerate(answer.split(" ")):

@@ -6,10 +6,12 @@ from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import Settings
-from app.db.models import Message, MessageRole, MessageSource
+from app.db.models import Document, Message, MessageRole, MessageSource
+from app.services.condense import condense_question
 from app.services.conversations import ConversationRepository, make_title
 from app.services.llm import ChatMessage, LLMClient, LLMError
 from app.services.prompts import PromptRepository
@@ -131,7 +133,11 @@ class ChatService:
                 "user_message_id": prepared.user_message_id,
             },
         )
-        sources = await self._retriever.retrieve(prepared.question) if self._retriever else []
+        sources = (
+            await self._retriever.retrieve(await self._search_query(prepared))
+            if self._retriever
+            else []
+        )
         prompt = [
             ChatMessage(
                 role="system", content=build_system_prompt(prepared.system_prompt, sources)
@@ -161,10 +167,19 @@ class ChatService:
                 yield sse_event("error", {"detail": "La conversación ya no existe."})
                 return
             message = await repo.add_message(conversation, MessageRole.ASSISTANT, answer)
+            # Un documento puede borrarse mientras se genera la respuesta: su referencia se
+            # guarda sin enlace (si no, la clave foránea impediría guardar la respuesta).
+            existing = set(
+                await session.scalars(
+                    select(Document.id).where(
+                        Document.id.in_({source.document_id for source, _ in shown})
+                    )
+                )
+            )
             session.add_all(
                 MessageSource(
                     message_id=message.id,
-                    document_id=source.document_id,
+                    document_id=source.document_id if source.document_id in existing else None,
                     number=source.number,
                     filename=source.filename,
                     page=source.page,
@@ -178,3 +193,14 @@ class ChatService:
             )
             await session.commit()
         yield sse_event("done", {"message_id": message.id})
+
+    async def _search_query(self, prepared: PreparedChat) -> str:
+        """Consulta para la búsqueda: la pregunta, reformulada si hay historial."""
+        if not self._settings.rag_condense_question or self._retriever is None:
+            return prepared.question
+        # Sin documentos indexados no hay nada que buscar: se ahorra la llamada al modelo.
+        if await self._retriever.is_empty():
+            return prepared.question
+        # El historial incluye la pregunta actual como último mensaje.
+        previous = prepared.history[:-1][-self._settings.rag_condense_history_messages :]
+        return await condense_question(self._llm, previous, prepared.question)

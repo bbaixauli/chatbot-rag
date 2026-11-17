@@ -71,6 +71,11 @@ class Settings(BaseSettings):
     rag_min_score: float = Field(default=0.3, ge=0, le=1)
     # Límite de caracteres de contexto enviados al modelo (protege su ventana de contexto).
     rag_max_context_chars: int = Field(default=12_000, ge=500)
+    # Reescribe las preguntas de seguimiento como preguntas independientes antes de buscar
+    # («¿y en agosto?» → «¿cuántos días de vacaciones hay en agosto?»). Cuesta una llamada
+    # extra al modelo cuando hay historial.
+    rag_condense_question: bool = True
+    rag_condense_history_messages: int = Field(default=6, ge=1)
 
     # Conversación
     chat_history_max_messages: int = Field(default=20, ge=0)

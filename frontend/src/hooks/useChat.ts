@@ -44,6 +44,7 @@ export function useChat({ conversationId, onConversationCreated }: Options) {
       setError(null)
       setPending({ question, answer: '', userMessageId: null, sources: [] })
       let activeId = conversationId
+      let finished = false
       try {
         for await (const event of streamChat(question, conversationId, controller.signal)) {
           if (event.event === 'conversation') {
@@ -62,13 +63,21 @@ export function useChat({ conversationId, onConversationCreated }: Options) {
             const sources = event.data.sources
             setPending((p) => p && { ...p, sources })
           } else if (event.event === 'error') {
+            finished = true
             setError(event.data.detail)
+          } else if (event.event === 'done') {
+            finished = true
           }
         }
+        // La conexión se cortó sin `done` ni `error` (p. ej. fallo del servidor).
+        if (!finished) setError(t.chat.sendError)
         if (activeId) {
           // Se cargan los mensajes guardados antes de retirar el intercambio en curso
           // (aunque la vista de la conversación nueva aún no se haya montado).
+          // Antes se cancela cualquier carga en curso: pudo empezar antes de que se guardara
+          // la respuesta y fetchQuery la reutilizaría.
           const id = activeId
+          await queryClient.cancelQueries({ queryKey: ['messages', id] })
           await queryClient
             .fetchQuery({
               queryKey: ['messages', id],

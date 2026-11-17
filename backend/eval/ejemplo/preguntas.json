@@ -1,0 +1,41 @@
+{
+  "preguntas": [
+    {
+      "pregunta": "¿Cuántos días de vacaciones tengo al año?",
+      "esperado": [{ "fichero": "guia-vacaciones.md", "seccion": "Guía de vacaciones" }]
+    },
+    {
+      "pregunta": "¿Con cuánta antelación hay que pedir las vacaciones?",
+      "esperado": [{ "fichero": "guia-vacaciones.md", "seccion": "Solicitud" }]
+    },
+    {
+      "pregunta": "¿Y dónde se solicitan?",
+      "historial": ["¿Cuántos días de vacaciones tengo al año?"],
+      "esperado": [{ "fichero": "guia-vacaciones.md" }]
+    },
+    {
+      "pregunta": "¿Cuál es la dieta diaria nacional?",
+      "esperado": [{ "fichero": "politica-gastos.html", "seccion": "Dietas" }]
+    },
+    {
+      "pregunta": "¿Cuánto se paga por kilómetro con vehículo propio?",
+      "esperado": [{ "fichero": "politica-gastos.html", "seccion": "Kilometraje" }]
+    },
+    {
+      "pregunta": "¿Cuál es el horario de oficina?",
+      "esperado": [{ "fichero": "manual-empleado.pdf", "pagina": 2 }]
+    },
+    {
+      "pregunta": "¿Cómo se compensan las horas extra?",
+      "esperado": [{ "fichero": "manual-empleado.pdf", "pagina": 3 }]
+    },
+    {
+      "pregunta": "¿Qué tiempo hará mañana en Valencia?",
+      "esperado": []
+    },
+    {
+      "pregunta": "¿Quién ganó la liga de fútbol?",
+      "esperado": []
+    }
+  ]
+}

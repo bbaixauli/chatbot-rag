@@ -139,6 +139,66 @@ describe('ChatPage', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('El modelo no está disponible')
   })
 
+  it('no se queda con una carga de mensajes anterior a la respuesta', async () => {
+    // Como un servidor real: cada carga devuelve lo guardado en el momento de pedirla,
+    // y tarda en responder. La respuesta se guarda justo antes del evento `done`.
+    let saved = false
+    const sse = (event: string, data: unknown) =>
+      new TextEncoder().encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+    mockApi({
+      'GET /health': health,
+      'GET /conversations': () => jsonResponse([]),
+      'POST /chat': () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            async start(controller) {
+              controller.enqueue(
+                sse('conversation', { id: 'r1', title: 'Hola', user_message_id: 1 }),
+              )
+              controller.enqueue(sse('token', { content: 'Respuesta final' }))
+              await new Promise((resolve) => setTimeout(resolve, 50))
+              saved = true
+              controller.enqueue(sse('done', { message_id: 2 }))
+              controller.close()
+            },
+          }),
+          { headers: { 'Content-Type': 'text/event-stream' } },
+        ),
+      'GET /conversations/r1/messages': async () => {
+        const snapshot = saved
+          ? [msg(1, 'user', 'Hola'), msg(2, 'assistant', 'Respuesta final')]
+          : [msg(1, 'user', 'Hola')]
+        await new Promise((resolve) => setTimeout(resolve, 100))
+        return jsonResponse(snapshot)
+      },
+    })
+    renderApp()
+    await ask('Hola')
+
+    const list = await screen.findByRole('list', { name: 'Mensajes' })
+    await waitFor(() => expect(list.querySelectorAll('li[aria-busy="false"]')).toHaveLength(2))
+    await new Promise((resolve) => setTimeout(resolve, 150))
+    expect(within(list).getByText('Respuesta final')).toBeInTheDocument()
+  })
+
+  it('avisa si la respuesta se corta sin terminar', async () => {
+    mockApi({
+      'GET /health': health,
+      'GET /conversations': () => jsonResponse([]),
+      'GET /conversations/c1/messages': () => jsonResponse([msg(1, 'user', 'hola')]),
+      'POST /chat': () =>
+        sseResponse([
+          ['conversation', { id: 'c1', title: 'hola', user_message_id: 1 }],
+          ['token', { content: 'Resp' }],
+        ]),
+    })
+    renderApp('/c/c1')
+    await screen.findByText('hola')
+    await ask('hola')
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('No se pudo enviar el mensaje')
+  })
+
   it('muestra un error si falla el envío', async () => {
     mockApi({
       'GET /health': health,
