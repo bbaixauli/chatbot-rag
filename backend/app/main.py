@@ -5,8 +5,9 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from starlette.middleware.sessions import SessionMiddleware
 
-from app.api import chat, conversations, health
+from app.api import admin, chat, conversations, health
 from app.core.config import Settings, get_settings
 from app.db.session import build_engine, build_sessionmaker
 from app.services.llm import build_llm_client
@@ -31,7 +32,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(title=settings.app_name, version=settings.version, lifespan=lifespan)
     app.state.settings = settings
-    for router in (health.router, conversations.router, chat.router):
+    app.add_middleware(
+        SessionMiddleware,
+        secret_key=settings.session_secret.get_secret_value(),
+        session_cookie="chatbot_session",
+        max_age=settings.session_max_age_seconds,
+        same_site="strict",
+        https_only=settings.session_cookie_secure,
+    )
+    for router in (health.router, conversations.router, chat.router, admin.router):
         app.include_router(router, prefix=API_PREFIX)
     return app
 
