@@ -65,7 +65,11 @@ class OpenAICompatibleClient:
 
 
 class FakeLLMClient:
-    """Modelo simulado y determinista: responde citando la última pregunta."""
+    """Modelo simulado y determinista.
+
+    Repite la última pregunta y, si el prompt de sistema incluye documentación,
+    cita el primer fragmento ([1]).
+    """
 
     def __init__(self, delay_seconds: float = 0.01) -> None:
         self._delay = delay_seconds
@@ -73,6 +77,9 @@ class FakeLLMClient:
     async def stream_chat(self, messages: Sequence[ChatMessage]) -> AsyncIterator[str]:
         question = next((m.content for m in reversed(messages) if m.role == "user"), "")
         answer = f"Respuesta simulada a: **{question}**"
+        system = next((m.content for m in messages if m.role == "system"), "")
+        if "\n[1] Fuente:" in system:
+            answer += " Según la documentación [1]."
         for index, word in enumerate(answer.split(" ")):
             await asyncio.sleep(self._delay)
             yield word if index == 0 else f" {word}"

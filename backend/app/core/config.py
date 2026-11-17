@@ -64,6 +64,14 @@ class Settings(BaseSettings):
     chunk_size_chars: int = Field(default=3000, ge=200)
     chunk_overlap_chars: int = Field(default=400, ge=0)
 
+    # Recuperación (RAG)
+    rag_enabled: bool = True
+    rag_top_k: int = Field(default=5, ge=1, le=50)
+    # Similitud coseno mínima (0-1) para usar un fragmento; depende del modelo de embeddings.
+    rag_min_score: float = Field(default=0.3, ge=0, le=1)
+    # Límite de caracteres de contexto enviados al modelo (protege su ventana de contexto).
+    rag_max_context_chars: int = Field(default=12_000, ge=500)
+
     # Conversación
     chat_history_max_messages: int = Field(default=20, ge=0)
     chat_max_message_length: int = Field(default=8000, gt=0)

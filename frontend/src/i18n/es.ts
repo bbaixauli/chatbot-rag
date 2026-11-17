@@ -116,5 +116,10 @@ export const t = {
     loadError: 'No se pudieron cargar los mensajes.',
     sendError: 'No se pudo enviar el mensaje. Inténtalo de nuevo.',
     notFound: 'La conversación no existe.',
+    sources: 'Fuentes',
+    consultedSources: 'Fuentes consultadas',
+    page: (n: number) => `pág. ${n}`,
+    deletedDocument: 'documento eliminado',
+    openSource: (label: string) => `Abrir fuente: ${label}`,
   },
 } as const

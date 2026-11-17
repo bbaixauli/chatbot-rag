@@ -4,7 +4,7 @@ import uuid
 from datetime import UTC, datetime
 from enum import StrEnum
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -107,3 +107,37 @@ class Message(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     conversation: Mapped[Conversation] = relationship(back_populates="messages")
+    sources: Mapped[list["MessageSource"]] = relationship(
+        back_populates="message",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="MessageSource.number",
+        lazy="selectin",
+    )
+
+
+class MessageSource(Base):
+    """Fragmento de documento usado para generar una respuesta."""
+
+    __tablename__ = "message_sources"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    message_id: Mapped[int] = mapped_column(
+        ForeignKey("messages.id", ondelete="CASCADE"), index=True
+    )
+    # Si se elimina el documento se conserva la referencia (sin enlace).
+    document_id: Mapped[str | None] = mapped_column(
+        ForeignKey("documents.id", ondelete="SET NULL"), index=True
+    )
+    # Número de la cita en la respuesta: [1], [2]…
+    number: Mapped[int] = mapped_column(Integer)
+    filename: Mapped[str] = mapped_column(String(255))
+    page: Mapped[int | None] = mapped_column(Integer)
+    heading: Mapped[str | None] = mapped_column(Text)
+    chunk_index: Mapped[int] = mapped_column(Integer)
+    score: Mapped[float] = mapped_column(Float)
+    snippet: Mapped[str] = mapped_column(Text)
+    # True si el modelo la citó; False si solo se consultó (el modelo no citó nada).
+    cited: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    message: Mapped[Message] = relationship(back_populates="sources")

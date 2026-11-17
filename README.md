@@ -57,6 +57,15 @@ configurado en `CHATBOT_EMBEDDING_*`:
 
 Si se cambia de modelo, pulsa **Reindexar todo** en *Administración → Documentos*.
 
+### Respuestas con referencias
+
+En cada pregunta se recuperan los fragmentos más parecidos (`CHATBOT_RAG_TOP_K`) por encima de
+`CHATBOT_RAG_MIN_SCORE`, se añaden numerados al prompt de sistema y se pide al modelo que cite
+con `[n]`. Bajo la respuesta se muestran las fuentes citadas (fichero y página o sección) con
+enlace al original; los PDF se abren en la página citada. Si el modelo no cita, se muestran
+como «Fuentes consultadas». El umbral adecuado depende del modelo de embeddings: conviene
+ajustarlo con preguntas reales (fase 5).
+
 ## API
 
 Documentación interactiva en http://localhost:8000/docs. Endpoints principales:
@@ -67,7 +76,7 @@ Documentación interactiva en http://localhost:8000/docs. Endpoints principales:
 | GET/POST | `/api/v1/conversations` | Listar / crear conversaciones |
 | PATCH/DELETE | `/api/v1/conversations/{id}` | Renombrar / eliminar |
 | GET | `/api/v1/conversations/{id}/messages` | Mensajes de una conversación |
-| POST | `/api/v1/chat` | Envía un mensaje; respuesta en streaming SSE (`conversation`, `token`, `done`, `error`) |
+| POST | `/api/v1/chat` | Envía un mensaje; respuesta en streaming SSE (`conversation`, `token`, `sources`, `done`, `error`) |
 | GET/POST/DELETE | `/api/v1/admin/session` | Estado / inicio / cierre de sesión de administración |
 | GET/PUT | `/api/v1/admin/prompt` | Prompt de sistema vigente / guardar nueva versión (admin) |
 | GET | `/api/v1/admin/prompt/versions` | Historial de versiones (admin) |
@@ -78,6 +87,7 @@ Documentación interactiva en http://localhost:8000/docs. Endpoints principales:
 | GET/DELETE | `/api/v1/admin/documents/{id}` | Detalle / eliminar (admin) |
 | POST | `/api/v1/admin/documents/{id}/reindex` | Reindexar uno (admin) |
 | GET | `/api/v1/admin/documents/{id}/file` | Descargar el original (admin) |
+| GET | `/api/v1/documents/{id}/file` | Ver el original desde una referencia del chat (PDF en línea, Markdown como texto, HTML en sandbox) |
 
 ## Calidad y tests
 

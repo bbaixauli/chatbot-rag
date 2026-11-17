@@ -23,6 +23,18 @@ class ConversationUpdate(BaseModel):
     title: str = Field(min_length=1, max_length=200)
 
 
+class SourceOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    number: int
+    document_id: str | None
+    filename: str
+    page: int | None
+    heading: str | None
+    snippet: str
+    cited: bool
+
+
 class MessageOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -30,6 +42,7 @@ class MessageOut(BaseModel):
     role: Literal["user", "assistant"]
     content: str
     created_at: datetime
+    sources: list[SourceOut] = []
 
 
 class ChatRequest(BaseModel):

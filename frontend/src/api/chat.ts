@@ -1,8 +1,9 @@
-import { API_BASE, ApiError } from './client'
+import { API_BASE, ApiError, type Source } from './client'
 
 export type ChatEvent =
   | { event: 'conversation'; data: { id: string; title: string; user_message_id: number } }
   | { event: 'token'; data: { content: string } }
+  | { event: 'sources'; data: { sources: Source[] } }
   | { event: 'done'; data: { message_id: number } }
   | { event: 'error'; data: { detail: string } }
 

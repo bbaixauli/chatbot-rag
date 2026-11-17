@@ -9,10 +9,11 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import Settings
-from app.db.models import Message, MessageRole
+from app.db.models import Message, MessageRole, MessageSource
 from app.services.conversations import ConversationRepository, make_title
 from app.services.llm import ChatMessage, LLMClient, LLMError
 from app.services.prompts import PromptRepository
+from app.services.rag import ContextSource, Retriever, build_system_prompt, extract_citations
 
 logger = logging.getLogger(__name__)
 
@@ -26,14 +27,38 @@ def sse_event(event: str, data: dict[str, Any]) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
-def build_prompt(system_prompt: str, history: Sequence[Message]) -> list[ChatMessage]:
-    """Construye la lista de mensajes que se envía al modelo."""
-    messages = [ChatMessage(role="system", content=system_prompt)]
-    messages += [
+def to_chat_messages(history: Sequence[Message]) -> list[ChatMessage]:
+    """Convierte el historial guardado al formato del modelo."""
+    return [
         ChatMessage(role="user" if m.role == MessageRole.USER else "assistant", content=m.content)
         for m in history
     ]
-    return messages
+
+
+def select_sources(
+    sources: Sequence[ContextSource], answer: str
+) -> list[tuple[ContextSource, bool]]:
+    """Fuentes que se muestran con la respuesta y si fueron citadas.
+
+    Si el modelo cita, solo se muestran las citadas. Si no cita nada (habitual en
+    modelos pequeños), se muestran todas como «consultadas».
+    """
+    cited = set(extract_citations(answer, len(sources)))
+    if cited:
+        return [(s, True) for s in sources if s.number in cited]
+    return [(s, False) for s in sources]
+
+
+def source_payload(source: ContextSource, cited: bool) -> dict[str, Any]:
+    return {
+        "number": source.number,
+        "document_id": source.document_id,
+        "filename": source.filename,
+        "page": source.page,
+        "heading": source.heading,
+        "snippet": source.snippet,
+        "cited": cited,
+    }
 
 
 @dataclass(slots=True)
@@ -44,7 +69,9 @@ class PreparedChat:
     conversation_id: str
     title: str
     user_message_id: int
-    prompt: list[ChatMessage]
+    question: str
+    system_prompt: str
+    history: list[ChatMessage]
 
 
 class ChatService:
@@ -55,10 +82,12 @@ class ChatService:
         sessionmaker: async_sessionmaker[AsyncSession],
         llm: LLMClient,
         settings: Settings,
+        retriever: Retriever | None = None,
     ) -> None:
         self._sessionmaker = sessionmaker
         self._llm = llm
         self._settings = settings
+        self._retriever = retriever
 
     async def prepare(self, user_id: str, conversation_id: str | None, text: str) -> PreparedChat:
         """Guarda el mensaje del usuario y prepara el prompt.
@@ -87,7 +116,9 @@ class ChatService:
                 conversation_id=conversation.id,
                 title=conversation.title,
                 user_message_id=user_message.id,
-                prompt=build_prompt(system_prompt.content, history),
+                question=text,
+                system_prompt=system_prompt.content,
+                history=to_chat_messages(history),
             )
 
     async def stream(self, prepared: PreparedChat) -> AsyncIterator[str]:
@@ -100,9 +131,16 @@ class ChatService:
                 "user_message_id": prepared.user_message_id,
             },
         )
+        sources = await self._retriever.retrieve(prepared.question) if self._retriever else []
+        prompt = [
+            ChatMessage(
+                role="system", content=build_system_prompt(prepared.system_prompt, sources)
+            ),
+            *prepared.history,
+        ]
         parts: list[str] = []
         try:
-            async for delta in self._llm.stream_chat(prepared.prompt):
+            async for delta in self._llm.stream_chat(prompt):
                 parts.append(delta)
                 yield sse_event("token", {"content": delta})
         except LLMError:
@@ -113,6 +151,9 @@ class ChatService:
             return
 
         answer = "".join(parts).strip()
+        shown = select_sources(sources, answer)
+        if shown:
+            yield sse_event("sources", {"sources": [source_payload(s, c) for s, c in shown]})
         async with self._sessionmaker() as session:
             repo = ConversationRepository(session)
             conversation = await repo.get_for_user(prepared.conversation_id, prepared.user_id)
@@ -120,5 +161,20 @@ class ChatService:
                 yield sse_event("error", {"detail": "La conversación ya no existe."})
                 return
             message = await repo.add_message(conversation, MessageRole.ASSISTANT, answer)
+            session.add_all(
+                MessageSource(
+                    message_id=message.id,
+                    document_id=source.document_id,
+                    number=source.number,
+                    filename=source.filename,
+                    page=source.page,
+                    heading=source.heading,
+                    chunk_index=source.chunk_index,
+                    score=source.score,
+                    snippet=source.snippet,
+                    cited=cited,
+                )
+                for source, cited in shown
+            )
             await session.commit()
         yield sse_event("done", {"message_id": message.id})

@@ -46,7 +46,9 @@ async def chat(
     if len(text) > settings.chat_max_message_length:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "El mensaje es demasiado largo")
 
-    service = ChatService(request.app.state.sessionmaker, llm, settings)
+    service = ChatService(
+        request.app.state.sessionmaker, llm, settings, request.app.state.retriever
+    )
     try:
         prepared = await service.prepare(user.id, body.conversation_id, text)
     except ConversationNotFoundError as exc:
