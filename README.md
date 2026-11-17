@@ -40,7 +40,22 @@ probar la interfaz sin servidor de IA, usa `CHATBOT_LLM_PROVIDER=fake`.
 
 La administración (http://localhost:5173/admin) se habilita definiendo
 `CHATBOT_ADMIN_PASSWORD` (y, recomendado, `CHATBOT_SESSION_SECRET`). Desde ella se edita el
-prompt de sistema, que se guarda con histórico de versiones y se aplica a los mensajes nuevos.
+prompt de sistema, que se guarda con histórico de versiones y se aplica a los mensajes nuevos,
+y se gestionan los documentos del RAG (PDF, Markdown y HTML).
+
+### Embeddings
+
+Los documentos se trocean y se indexan en ChromaDB (`data/chroma`) con el modelo de embeddings
+configurado en `CHATBOT_EMBEDDING_*`:
+
+- `openai` (por defecto): usa el endpoint `/v1/embeddings` del proxy LiteLLM (misma URL que el
+  chat salvo que se indique `CHATBOT_EMBEDDING_BASE_URL`). `CHATBOT_EMBEDDING_MODEL` debe coincidir
+  con el `model_name` configurado en LiteLLM.
+- `local`: calcula los embeddings en el propio servidor con sentence-transformers
+  (`uv sync --extra local-embeddings`; descarga el modelo la primera vez).
+- `fake`: simulado, sin red (tests y demos).
+
+Si se cambia de modelo, pulsa **Reindexar todo** en *Administración → Documentos*.
 
 ## API
 
@@ -57,6 +72,12 @@ Documentación interactiva en http://localhost:8000/docs. Endpoints principales:
 | GET/PUT | `/api/v1/admin/prompt` | Prompt de sistema vigente / guardar nueva versión (admin) |
 | GET | `/api/v1/admin/prompt/versions` | Historial de versiones (admin) |
 | POST | `/api/v1/admin/prompt/versions/{id}/restore` | Restaurar una versión (admin) |
+| GET/POST | `/api/v1/admin/documents` | Listar / subir documentos (multipart, varios ficheros) (admin) |
+| GET | `/api/v1/admin/documents/stats` | Nº de documentos, fragmentos y modelo de embeddings (admin) |
+| POST | `/api/v1/admin/documents/reindex` | Reindexar todos (admin) |
+| GET/DELETE | `/api/v1/admin/documents/{id}` | Detalle / eliminar (admin) |
+| POST | `/api/v1/admin/documents/{id}/reindex` | Reindexar uno (admin) |
+| GET | `/api/v1/admin/documents/{id}/file` | Descargar el original (admin) |
 
 ## Calidad y tests
 

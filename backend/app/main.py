@@ -5,12 +5,19 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from sqlalchemy.exc import OperationalError
 from starlette.middleware.sessions import SessionMiddleware
 
-from app.api import admin, chat, conversations, health
+from app.api import admin, chat, conversations, documents, health
 from app.core.config import Settings, get_settings
 from app.db.session import build_engine, build_sessionmaker
+from app.services.documents import DocumentService
+from app.services.embeddings import build_embeddings
 from app.services.llm import build_llm_client
+from app.services.tasks import InProcessTaskRunner
+from app.services.vectorstore import ChromaVectorStore
+
+logger = logging.getLogger(__name__)
 
 API_PREFIX = "/api/v1"
 
@@ -27,7 +34,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.engine = engine
         app.state.sessionmaker = build_sessionmaker(engine)
         app.state.llm = build_llm_client(settings)
+        app.state.embeddings = build_embeddings(settings)
+        app.state.vector_store = ChromaVectorStore(settings.vector_dir)
+        tasks = InProcessTaskRunner()
+        app.state.tasks = tasks
+        app.state.documents = DocumentService(
+            app.state.sessionmaker,
+            settings,
+            app.state.embeddings,
+            app.state.vector_store,
+            tasks,
+        )
+        try:
+            resumed = await app.state.documents.resume_pending()
+            if resumed:
+                logger.info("Reanudada la indexación de %d documentos", resumed)
+        except OperationalError:
+            logger.warning("No se pudo consultar la BD al arrancar: ¿falta `alembic upgrade head`?")
         yield
+        await tasks.cancel_all()
         await engine.dispose()
 
     app = FastAPI(title=settings.app_name, version=settings.version, lifespan=lifespan)
@@ -40,7 +65,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         same_site="strict",
         https_only=settings.session_cookie_secure,
     )
-    for router in (health.router, conversations.router, chat.router, admin.router):
+    for router in (
+        health.router,
+        conversations.router,
+        chat.router,
+        admin.router,
+        documents.router,
+    ):
         app.include_router(router, prefix=API_PREFIX)
     return app
 

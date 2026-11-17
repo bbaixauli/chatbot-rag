@@ -50,12 +50,36 @@ class Settings(BaseSettings):
     session_cookie_secure: bool = False
     system_prompt_max_length: int = Field(default=20_000, gt=0)
 
+    # Embeddings. `openai`: endpoint /v1/embeddings (p. ej. LiteLLM); `local`:
+    # sentence-transformers (requiere `uv sync --extra local-embeddings`); `fake`: tests.
+    embedding_provider: Literal["openai", "local", "fake"] = "openai"
+    # Si no se indican, se usan la URL y la clave del modelo de lenguaje.
+    embedding_base_url: str | None = None
+    embedding_api_key: SecretStr | None = None
+    embedding_model: str = "bge-m3"
+    embedding_batch_size: int = Field(default=32, gt=0)
+
+    # Documentos e indexación
+    upload_max_mb: int = Field(default=50, gt=0)
+    chunk_size_chars: int = Field(default=3000, ge=200)
+    chunk_overlap_chars: int = Field(default=400, ge=0)
+
     # Conversación
     chat_history_max_messages: int = Field(default=20, ge=0)
     chat_max_message_length: int = Field(default=8000, gt=0)
     default_system_prompt: str = (
         "Eres un asistente útil. Responde siempre en español, de forma clara y concisa."
     )
+
+    @property
+    def uploads_dir(self) -> Path:
+        """Carpeta donde se guardan los ficheros originales subidos."""
+        return self.data_dir / "uploads"
+
+    @property
+    def vector_dir(self) -> Path:
+        """Carpeta del índice vectorial."""
+        return self.data_dir / "chroma"
 
     @property
     def resolved_database_url(self) -> str:
