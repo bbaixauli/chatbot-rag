@@ -21,19 +21,14 @@ services:
         aliases:
           - ldap.ejemplo.org
     healthcheck:
+      # Por el puerto TLS (636): al arrancar por primera vez, slapd se reinicia tras
+      # configurarse y el puerto 389 responde antes que el 636.
       test:
-        - CMD
-        - ldapsearch
-        - -x
-        - -H
-        - ldap://localhost
-        - -D
-        - cn=admin,dc=ejemplo,dc=org
-        - -w
-        - admin-secreto
-        - -b
-        - ou=groups,dc=ejemplo,dc=org
-        - cn=chatbot-admins
+        - CMD-SHELL
+        - >-
+          LDAPTLS_REQCERT=never ldapsearch -x -H ldaps://localhost:636
+          -D cn=admin,dc=ejemplo,dc=org -w admin-secreto
+          -b ou=groups,dc=ejemplo,dc=org cn=chatbot-admins
       interval: 3s
       retries: 20
 
