@@ -9,7 +9,9 @@ PROJECT=chatbot-rag-smoke
 PORT=${SMOKE_PORT:-18080}
 BASE="http://127.0.0.1:${PORT}"
 WORK=$(mktemp -d)
-ENV_FILE="$WORK/smoke.env"
+# Ruta de WORK para Docker: en Git Bash (Windows) debe tener formato de Windows.
+WORK_HOST=$(cd "$WORK" && (pwd -W 2>/dev/null || pwd))
+ENV_FILE="$WORK_HOST/smoke.env"
 COOKIES="$WORK/cookies.txt"
 
 cat > "$ENV_FILE" <<ENV
@@ -79,13 +81,40 @@ echo "    códigos: $codes"
 [[ "$codes" == *429* ]] || fail "no se aplicó el límite de peticiones"
 
 step "Copia de seguridad"
-compose exec -T backend python -m app.backup create --keep 3 | grep -q 'Copia creada' \
-  || fail "no se creó la copia"
+# Las salidas se guardan antes de comprobarlas: con `grep -q` en una tubería, compose puede
+# recibir SIGPIPE y `pipefail` daría el paso por fallido.
+created=$(compose exec -T backend python -m app.backup create --keep 3)
+echo "$created" | grep -q 'Copia creada' || fail "no se creó la copia: $created"
 
 step "Los datos persisten tras recrear el backend"
 compose up -d --force-recreate --wait --wait-timeout 120 backend
 curl -fsS "$BASE/api/v1/conversations" | grep -q 'Hola desde Docker' || fail "se perdieron los datos"
 compose exec -T backend sh -c 'ls /data/backups/*.tar.gz' >/dev/null || fail "se perdió la copia"
+
+step "Restauración de la copia (procedimiento de docs/despliegue.md)"
+mkdir -p "$WORK/backups"
+compose cp backend:/data/backups/. "$WORK/backups" >/dev/null
+archive=$(cd "$WORK/backups" && ls chatbot-backup-*.tar.gz | head -1)
+# Cambio posterior a la copia: debe desaparecer al restaurar.
+curl -fsS -H 'Content-Type: application/json' -d '{"message":"Posterior a la copia"}' \
+  "$BASE/api/v1/chat" >/dev/null
+compose stop backend >/dev/null
+restored=$(MSYS_NO_PATHCONV=1 compose run --rm -T -v "$WORK_HOST/backups:/restaurar:ro" \
+  --entrypoint python backend -m app.backup restore "/restaurar/$archive" --force)
+echo "$restored" | grep -q 'Copia restaurada' || fail "no se restauró la copia: $restored"
+compose up -d --wait --wait-timeout 120 backend
+curl -fsS "$BASE/api/v1/conversations" > "$WORK/conversations.json"
+grep -q 'Hola desde Docker' "$WORK/conversations.json" || fail "faltan datos restaurados"
+grep -q 'Posterior a la copia' "$WORK/conversations.json" && fail "no se restauró el estado de la copia"
+curl -fsS -c "$COOKIES" -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"smoke-secreto"}' "$BASE/api/v1/admin/session" >/dev/null \
+  || fail "no se pudo iniciar sesión tras restaurar"
+for _ in $(seq 1 30); do
+  curl -fsS -b "$COOKIES" "$BASE/api/v1/admin/documents" | grep -q '"status":"ready"' && break
+  sleep 1
+done
+curl -fsS -b "$COOKIES" "$BASE/api/v1/admin/documents/stats" | grep -q '"chunks":[1-9]' \
+  || fail "el índice no se reconstruyó: $(curl -fsS -b "$COOKIES" "$BASE/api/v1/admin/documents/stats")"
 
 step "Logs en JSON"
 compose logs --no-color backend | grep -q '"logger": "app.access"' || fail "logs sin formato JSON"

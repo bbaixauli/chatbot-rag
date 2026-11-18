@@ -25,7 +25,7 @@ def _record(message: str = "hola %s", **extra: object) -> logging.LogRecord:
 def test_json_formatter_includes_extra_fields_and_request_id() -> None:
     token = request_id_var.set("abc123")
     try:
-        record = _record(conversation_id="c1")
+        record = _record(conversation_id="c1", color_message="[36mhola[0m")
         RequestIdFilter().filter(record)
         payload = json.loads(JsonFormatter().format(record))
     finally:
@@ -36,6 +36,7 @@ def test_json_formatter_includes_extra_fields_and_request_id() -> None:
     assert payload["logger"] == "app.test"
     assert payload["request_id"] == "abc123"
     assert payload["conversation_id"] == "c1"
+    assert "color_message" not in payload
     assert "time" in payload
 
 
@@ -68,6 +69,8 @@ def test_configure_logging_replaces_only_its_own_handler(fmt: str) -> None:
         assert isinstance(own[0].formatter, JsonFormatter) == (fmt == "json")
         assert root.level == logging.INFO
         assert logging.getLogger("uvicorn.access").handlers == []
+        assert logging.getLogger("uvicorn.access").disabled is True
+        assert logging.getLogger("uvicorn.error").propagate is True
     finally:
         root.removeHandler(foreign)
 

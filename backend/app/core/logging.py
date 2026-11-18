@@ -26,7 +26,12 @@ request_id_var: ContextVar[str | None] = ContextVar("request_id", default=None)
 access_logger = logging.getLogger("app.access")
 
 # Atributos estándar de LogRecord: el resto son campos extra (`logger.info(..., extra=...)`).
-_RECORD_ATTRS = frozenset(vars(logging.makeLogRecord({}))) | {"message", "asctime"}
+_RECORD_ATTRS = frozenset(vars(logging.makeLogRecord({}))) | {
+    "message",
+    "asctime",
+    # uvicorn añade una copia del mensaje con códigos de color de terminal.
+    "color_message",
+}
 
 
 class RequestIdFilter(logging.Filter):
@@ -75,10 +80,15 @@ def configure_logging(level: str, fmt: Literal["text", "json"]) -> None:
     root.addHandler(handler)
     root.setLevel(level.upper())
     # uvicorn trae sus propios handlers: se unifican con el formato de la aplicación.
-    for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+    for name in ("uvicorn", "uvicorn.error"):
         uvicorn_logger = logging.getLogger(name)
         uvicorn_logger.handlers.clear()
         uvicorn_logger.propagate = True
+    # Las peticiones ya las registra RequestContextMiddleware (`app.access`), con más datos.
+    access = logging.getLogger("uvicorn.access")
+    access.handlers.clear()
+    access.propagate = False
+    access.disabled = True
 
 
 class RequestContextMiddleware:

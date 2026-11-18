@@ -4,6 +4,5 @@ coverage
 playwright-report
 test-results
 blob-report
-e2e
 Dockerfile
 .dockerignore
