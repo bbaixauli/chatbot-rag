@@ -24,6 +24,10 @@ dependencies = [
 local-embeddings = [
     "sentence-transformers>=6.3.0",
 ]
+escalado = [
+    "arq>=0.26",
+    "qdrant-client>=1.15",
+]
 
 [tool.uv]
 package = false
@@ -60,7 +64,11 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 addopts = "--cov=app --cov-report=term-missing"
 # Avisos internos de ldap3 con versiones recientes de pyasn1.
-filterwarnings = ["ignore:(tagMap|typeMap) is deprecated:DeprecationWarning"]
+filterwarnings = [
+    "ignore:(tagMap|typeMap) is deprecated:DeprecationWarning",
+    # Qdrant en memoria (tests) ignora los índices de payload; el servidor sí los usa.
+    "ignore:Payload indexes have no effect in the local Qdrant:UserWarning",
+]
 
 [tool.coverage.run]
 concurrency = ["greenlet", "thread"]
@@ -70,10 +78,12 @@ fail_under = 85
 
 [dependency-groups]
 dev = [
+    "arq>=0.26",
     "httpx>=0.28.1",
     "mypy>=2.4.1",
     "pytest>=9.2.0",
     "pytest-asyncio>=1.5.0",
     "pytest-cov>=7.1.0",
+    "qdrant-client>=1.15",
     "ruff>=0.17.5",
 ]

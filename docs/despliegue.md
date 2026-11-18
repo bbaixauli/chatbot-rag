@@ -21,8 +21,53 @@ navegador ──► frontend (nginx :8080) ──► /api/* ──► backend (F
 - El servidor de IA (LiteLLM, vLLM, Ollama…) es externo y se configura con `CHATBOT_LLM_*` y
   `CHATBOT_EMBEDDING_*`.
 
-> El backend debe ejecutarse con **una sola réplica**: la cola de indexación y el límite de
-> peticiones se guardan en memoria.
+> El backend (API) debe ejecutarse con **una sola réplica**: el límite de peticiones se guarda
+> en memoria. Para repartir la indexación entre varios procesos, usa el despliegue escalado
+> (ver [Escalado](#escalado-qdrant-y-workers)).
+
+## Escalado: Qdrant y workers
+
+Con muchos documentos, o si la indexación ralentiza la API, el despliegue escalado mueve:
+
+- el **índice vectorial** de ChromaDB (embebido en la API) a un servidor **Qdrant**, y
+- la **indexación** a uno o varios **workers** que leen una cola de **Redis** (arq), de modo que
+  subir o reindexar documentos no consume recursos de la API.
+
+```
+navegador ─► frontend (nginx) ─► backend (API) ──► Redis (cola) ──► worker × N
+                                     │  │                                │  │
+                                     │  └────────── Qdrant (índice) ◄────┘  │
+                                     └──── volumen /data (BD y ficheros) ◄──┘
+```
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.escalado.yml up -d --build
+# Varios workers:
+CHATBOT_WORKERS=3 docker compose -f docker-compose.yml -f docker-compose.escalado.yml up -d
+```
+
+El fichero `docker-compose.escalado.yml` añade Redis, Qdrant y el servicio `worker` (misma imagen
+que el backend con el extra `escalado`), y configura `CHATBOT_VECTOR_STORE=qdrant` y
+`CHATBOT_TASK_RUNNER=arq`. Para no repetir `-f` en cada comando, define en `.env`:
+
+```dotenv
+COMPOSE_FILE=docker-compose.yml:docker-compose.escalado.yml
+```
+
+(en Windows, separa los ficheros con `;`).
+
+Notas:
+
+- **Paso desde el despliegue normal**: tras arrancar el escalado, pulsa **Reindexar todo** en
+  *Administración → Documentos* para llevar el índice a Qdrant.
+- Cada worker indexa hasta `CHATBOT_INDEXING_CONCURRENCY` documentos a la vez (2 por defecto).
+  Si un worker se detiene a mitad de un documento, el trabajo se reintenta (hasta 3 veces).
+- La API y los workers comparten la base de datos SQLite del volumen (en modo WAL). Para
+  Qdrant o Redis externos, cambia `CHATBOT_QDRANT_URL` (y `CHATBOT_QDRANT_API_KEY`, solo con
+  `https://`) y `CHATBOT_REDIS_URL`.
+- Las copias de seguridad funcionan igual. Al restaurar se vacía también la colección de Qdrant,
+  y los workers reindexan los documentos.
+- `scripts/escalado-smoke.sh` comprueba este despliegue con dos workers.
 
 ## Requisitos
 
@@ -173,7 +218,8 @@ docker compose up -d --build
 
 Las migraciones de la base de datos se aplican solas al arrancar el backend. Haz antes una copia
 de seguridad (ver abajo). Si una versión cambia el modelo de embeddings o el troceado, pulsa
-**Reindexar todo** en *Administración → Documentos*.
+**Reindexar todo** en *Administración → Documentos*: vacía el índice y vuelve a indexar todos
+los documentos (mientras tanto, el chat responde sin ellos).
 
 ## Logs
 
@@ -270,6 +316,10 @@ Se ejecuta también en el CI.
 CA de prueba: rechazo de certificados no verificados, inicio de sesión, rol de administración por
 grupo, aislamiento de las conversaciones entre usuarios, intentos de inyección y comportamiento
 cuando el directorio no responde. También se ejecuta en el CI.
+
+`scripts/escalado-smoke.sh` comprueba el despliegue escalado con dos workers: indexación desde
+la cola de Redis, búsqueda en Qdrant, eliminación de documentos y copia y restauración (con la
+colección de Qdrant vaciada y reindexada por los workers). También se ejecuta en el CI.
 
 ## Solución de problemas
 

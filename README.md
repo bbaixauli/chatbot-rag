@@ -23,7 +23,7 @@ frontend/
   docker/            Configuración de nginx para la imagen
 docs/                Guía de despliegue
 scripts/             Prueba de humo del despliegue con Docker
-docker-compose.yml   Despliegue con Docker
+docker-compose.yml   Despliegue con Docker (y docker-compose.escalado.yml: Qdrant, Redis y workers)
 data/                Datos locales: BD, índice y ficheros subidos (no versionado)
 ```
 
@@ -99,7 +99,12 @@ configurado en `CHATBOT_EMBEDDING_*`:
   (`uv sync --extra local-embeddings`; descarga el modelo la primera vez).
 - `fake`: simulado, sin red (tests y demos).
 
-Si se cambia de modelo, pulsa **Reindexar todo** en *Administración → Documentos*.
+Si se cambia de modelo, pulsa **Reindexar todo** en *Administración → Documentos* (vacía el
+índice y vuelve a indexar todos los documentos).
+
+Para volúmenes grandes, el índice puede estar en **Qdrant** y la indexación repartirse entre
+**workers** con una cola en **Redis** (`docker-compose.escalado.yml`, ver la
+[guía de despliegue](docs/despliegue.md#escalado-qdrant-y-workers)).
 
 ### Respuestas con referencias
 
@@ -171,7 +176,7 @@ Documentación interactiva en http://localhost:8000/docs. Endpoints principales:
 | Tipos | `uv run mypy app tests` | `npm run typecheck` |
 | Tests unitarios | `uv run pytest` (cobertura ≥ 85 %) | `npm test` (cobertura ≥ 80 %) |
 | Tests de interfaz | — | `npm run test:e2e` (Playwright) |
-| Despliegue | `scripts/docker-smoke.sh` y `scripts/ldap-smoke.sh` (desde la raíz; requieren Docker) | |
+| Despliegue | `scripts/docker-smoke.sh`, `ldap-smoke.sh` y `escalado-smoke.sh` (desde la raíz; requieren Docker) | |
 
 Los tests E2E levantan automáticamente backend (puerto 8001, con modelo simulado) y frontend
 (puerto 5174) con una carpeta de datos temporal. La primera vez instala el navegador con

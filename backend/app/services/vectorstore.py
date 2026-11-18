@@ -25,6 +25,10 @@ class SearchHit:
     score: float
 
 
+class VectorStoreError(Exception):
+    """Error del índice con un mensaje comprensible para la administración."""
+
+
 class VectorStore(Protocol):
     """Operaciones sobre el índice. Permite cambiar a Qdrant, pgvector, etc."""
 
@@ -46,6 +50,10 @@ class VectorStore(Protocol):
 
     async def count(self) -> int: ...
 
+    async def reset(self) -> None:
+        """Vacía el índice (antes de reindexarlo todo, p. ej. tras cambiar de modelo)."""
+        ...
+
 
 class ChromaVectorStore:
     """ChromaDB persistente en disco, con distancia coseno."""
@@ -62,6 +70,17 @@ class ChromaVectorStore:
             self._client = chromadb.PersistentClient(path=str(path), settings=settings)
         self._collection = self._client.get_or_create_collection(
             collection, metadata={"hnsw:space": "cosine"}, embedding_function=None
+        )
+
+    async def reset(self) -> None:
+        # Se recrea la colección: la nueva no tiene fijada la dimensión de los vectores.
+        name = self._collection.name
+        await asyncio.to_thread(self._client.delete_collection, name)
+        self._collection = await asyncio.to_thread(
+            self._client.get_or_create_collection,
+            name,
+            metadata={"hnsw:space": "cosine"},
+            embedding_function=None,
         )
 
     def drop(self) -> None:

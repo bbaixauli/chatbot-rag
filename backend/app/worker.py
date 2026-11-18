@@ -1,0 +1,72 @@
+"""Worker de arq: indexa los documentos que la API deja en la cola de Redis.
+
+Uso (con CHATBOT_TASK_RUNNER=arq y CHATBOT_VECTOR_STORE=qdrant):
+
+    arq app.worker.WorkerSettings
+
+Se pueden arrancar varios workers; cada uno indexa hasta `CHATBOT_INDEXING_CONCURRENCY`
+documentos a la vez.
+"""
+
+import logging
+from typing import Any
+
+from arq.connections import RedisSettings
+from arq.worker import func
+
+from app.core.config import Settings, get_settings
+from app.core.logging import configure_logging
+from app.db.session import build_engine, build_sessionmaker
+from app.services.backends import build_vector_store, close_vector_store
+from app.services.documents import DocumentService
+from app.services.embeddings import build_embeddings
+from app.services.tasks import INDEX_DOCUMENT, ArqTaskRunner
+
+logger = logging.getLogger(__name__)
+
+
+async def startup(ctx: dict[str, Any]) -> None:
+    settings: Settings = ctx.get("settings") or get_settings()
+    configure_logging(settings.log_level, settings.log_format)
+    engine = build_engine(settings.resolved_database_url)
+    store = build_vector_store(settings)
+    ctx["engine"] = engine
+    ctx["vector_store"] = store
+    # Reindexar desde el worker (no ocurre hoy) volvería a encolar en Redis.
+    ctx["documents"] = DocumentService(
+        build_sessionmaker(engine),
+        settings,
+        build_embeddings(settings),
+        store,
+        ArqTaskRunner(ctx["redis"]),
+    )
+    logger.info("Worker de indexación preparado")
+
+
+async def shutdown(ctx: dict[str, Any]) -> None:
+    await close_vector_store(ctx["vector_store"])
+    await ctx["engine"].dispose()
+
+
+async def index_document(ctx: dict[str, Any], document_id: str) -> None:
+    documents: DocumentService = ctx["documents"]
+    await documents.process(document_id)
+
+
+class WorkerSettings:
+    """Configuración del worker (la lee el comando `arq`)."""
+
+    _settings = get_settings()
+
+    functions = [func(index_document, name=INDEX_DOCUMENT)]  # noqa: RUF012
+    on_startup = startup
+    on_shutdown = shutdown
+    redis_settings = RedisSettings.from_dsn(_settings.redis_url)
+    max_jobs = _settings.indexing_concurrency
+    # Sin guardar resultados: un documento se puede volver a encolar en cuanto termina.
+    keep_result = 0
+    # Documentos grandes con muchos fragmentos: margen amplio para los embeddings.
+    job_timeout = 1800
+    # Si un worker muere a mitad, el trabajo se reintenta.
+    max_tries = 3
+    health_check_interval = 30

@@ -11,10 +11,14 @@ from sqlalchemy.ext.asyncio import (
 )
 
 
-def _enable_sqlite_foreign_keys(dbapi_connection: Any, _record: Any) -> None:
-    # SQLite no aplica las claves foráneas (ni ON DELETE CASCADE) si no se activan.
+def _configure_sqlite(dbapi_connection: Any, _record: Any) -> None:
     cursor = dbapi_connection.cursor()
+    # SQLite no aplica las claves foráneas (ni ON DELETE CASCADE) si no se activan.
     cursor.execute("PRAGMA foreign_keys=ON")
+    # La API y los workers de indexación pueden escribir a la vez: WAL permite leer
+    # mientras otro proceso escribe, y la espera evita errores «database is locked».
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute("PRAGMA busy_timeout=10000")
     cursor.close()
 
 
@@ -22,7 +26,7 @@ def build_engine(database_url: str) -> AsyncEngine:
     """Crea el motor asíncrono para la URL indicada."""
     engine = create_async_engine(database_url)
     if engine.dialect.name == "sqlite":
-        event.listen(engine.sync_engine, "connect", _enable_sqlite_foreign_keys)
+        event.listen(engine.sync_engine, "connect", _configure_sqlite)
     return engine
 
 

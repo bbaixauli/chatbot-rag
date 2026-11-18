@@ -1,26 +1,45 @@
 """Ejecución de tareas en segundo plano.
 
-`InProcessTaskRunner` usa el bucle de eventos de la propia API. Si el volumen crece,
-se puede sustituir por una cola (arq + Redis) implementando la misma interfaz.
+Las tareas se identifican por un nombre de trabajo y argumentos de texto (serializables),
+de modo que pueden ejecutarse en el propio proceso o enviarse a una cola:
+
+- `InProcessTaskRunner` (por defecto): tareas asyncio en el bucle de eventos de la API.
+- `ArqTaskRunner` (`CHATBOT_TASK_RUNNER=arq`): cola en Redis atendida por uno o varios
+  workers (`arq app.worker.WorkerSettings`).
 """
 
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
+
+if TYPE_CHECKING:  # pragma: no cover
+    from arq.connections import ArqRedis
 
 logger = logging.getLogger(__name__)
 
 TaskFactory = Callable[[], Awaitable[None]]
+JobHandler = Callable[[str], Awaitable[None]]
+
+# Trabajos que conoce el worker de arq (ver app/worker.py).
+INDEX_DOCUMENT = "index_document"
 
 
 class TaskRunner(Protocol):
-    def submit(self, name: str, factory: TaskFactory) -> None:
-        """Programa una tarea y vuelve inmediatamente."""
+    def register(self, job: str, handler: JobHandler) -> None:
+        """Asocia un trabajo con la función que lo ejecuta (en el proceso que lo atiende)."""
+        ...
+
+    async def enqueue(self, job: str, argument: str) -> None:
+        """Programa un trabajo y vuelve inmediatamente."""
         ...
 
     async def drain(self) -> None:
-        """Espera a que terminen las tareas en curso."""
+        """Espera a que terminen las tareas en curso (si se ejecutan en este proceso)."""
+        ...
+
+    async def close(self) -> None:
+        """Cancela o libera lo que mantenga abierto el ejecutor."""
         ...
 
 
@@ -30,6 +49,7 @@ class InProcessTaskRunner:
     def __init__(self, max_concurrency: int = 2) -> None:
         self._semaphore = asyncio.Semaphore(max_concurrency)
         self._tasks: set[asyncio.Task[None]] = set()
+        self._handlers: dict[str, JobHandler] = {}
 
     async def _run(self, name: str, factory: TaskFactory) -> None:
         async with self._semaphore:
@@ -43,6 +63,13 @@ class InProcessTaskRunner:
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
 
+    def register(self, job: str, handler: JobHandler) -> None:
+        self._handlers[job] = handler
+
+    async def enqueue(self, job: str, argument: str) -> None:
+        handler = self._handlers[job]
+        self.submit(f"{job}-{argument}", lambda: handler(argument))
+
     async def drain(self) -> None:
         while self._tasks:
             await asyncio.gather(*list(self._tasks))
@@ -51,3 +78,36 @@ class InProcessTaskRunner:
         for task in list(self._tasks):
             task.cancel()
         await asyncio.gather(*list(self._tasks), return_exceptions=True)
+
+    async def close(self) -> None:
+        await self.cancel_all()
+
+
+class ArqTaskRunner:
+    """Envía los trabajos a la cola de Redis; los ejecuta el worker de arq."""
+
+    def __init__(self, pool: "ArqRedis") -> None:
+        self._pool = pool
+
+    @classmethod
+    async def connect(cls, redis_url: str) -> "ArqTaskRunner":
+        from arq import create_pool
+        from arq.connections import RedisSettings
+
+        return cls(await create_pool(RedisSettings.from_dsn(redis_url)))
+
+    def register(self, job: str, handler: JobHandler) -> None:
+        """Los trabajos los ejecuta el worker, que tiene sus propias funciones."""
+
+    async def enqueue(self, job: str, argument: str) -> None:
+        # El id evita encolar dos veces el mismo trabajo mientras está pendiente o en curso
+        # (p. ej. al reiniciar la API con documentos pendientes).
+        queued = await self._pool.enqueue_job(job, argument, _job_id=f"{job}:{argument}")
+        if queued is None:
+            logger.info("El trabajo %s:%s ya estaba en la cola", job, argument)
+
+    async def drain(self) -> None:
+        """Los trabajos se ejecutan en otro proceso: no hay nada que esperar aquí."""
+
+    async def close(self) -> None:
+        await self._pool.aclose()
