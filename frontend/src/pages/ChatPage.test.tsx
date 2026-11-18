@@ -196,4 +196,73 @@ describe('ChatPage', () => {
     release()
     await waitFor(() => expect(screen.queryByText('Pensando…')).toBeNull())
   })
+
+  describe('inicio configurado', () => {
+    const config = {
+      welcome_message: '¡Hola! Soy el asistente de **RR. HH.**',
+      suggested_questions: ['¿Cuántos días de vacaciones tengo?', '¿Cómo pido gastos?'],
+    }
+
+    it('muestra el mensaje inicial y las sugerencias en una conversación nueva', async () => {
+      mockApi({
+        'GET /health': health,
+        'GET /conversations': () => jsonResponse([]),
+        'GET /chat/config': () => jsonResponse(config),
+        'POST /chat': (init) => {
+          expect(JSON.parse(init!.body as string).message).toBe('¿Cómo pido gastos? Urgente')
+          return sseResponse([
+            ['conversation', { id: 'w1', title: 'Gastos', user_message_id: 1 }],
+            ['token', { content: 'Así' }],
+            ['done', { message_id: 2 }],
+          ])
+        },
+        'GET /conversations/w1/messages': () =>
+          jsonResponse([msg(1, 'user', '¿Cómo pido gastos? Urgente'), msg(2, 'assistant', 'Así')]),
+      })
+      renderApp()
+
+      const list = await screen.findByRole('list', { name: 'Mensajes' })
+      expect(await within(list).findByText('RR. HH.')).toContainHTML('strong')
+      expect(screen.queryByText('¿En qué puedo ayudarte?')).toBeNull()
+      const suggestions = screen.getByRole('list', { name: 'Preguntas sugeridas' })
+
+      await userEvent.click(within(suggestions).getByRole('button', { name: '¿Cómo pido gastos?' }))
+      await ask(' Urgente')
+
+      await waitFor(() => expect(list.querySelectorAll('li[data-role]')).toHaveLength(3))
+      expect(list.querySelector('li[data-role]')).toHaveTextContent('Soy el asistente')
+      // Con la conversación empezada ya no se ofrecen sugerencias.
+      expect(screen.queryByRole('list', { name: 'Preguntas sugeridas' })).toBeNull()
+    })
+
+    it('muestra el mensaje inicial también al reabrir una conversación, sin sugerencias', async () => {
+      mockApi({
+        'GET /health': health,
+        'GET /conversations': () => jsonResponse([]),
+        'GET /chat/config': () => jsonResponse(config),
+        'GET /conversations/c1/messages': () =>
+          jsonResponse([msg(1, 'user', 'Primera'), msg(2, 'assistant', 'Uno')]),
+      })
+      renderApp('/c/c1')
+
+      const list = await screen.findByRole('list', { name: 'Mensajes' })
+      await waitFor(() => expect(list.querySelectorAll('li[data-role]')).toHaveLength(3))
+      expect(list.querySelector('li[data-role]')).toHaveAttribute('data-role', 'assistant')
+      expect(list.querySelector('li[data-role]')).toHaveTextContent('Soy el asistente')
+      expect(screen.queryByRole('list', { name: 'Preguntas sugeridas' })).toBeNull()
+    })
+
+    it('solo sugerencias: mantiene la portada vacía y muestra las preguntas', async () => {
+      mockApi({
+        'GET /health': health,
+        'GET /conversations': () => jsonResponse([]),
+        'GET /chat/config': () =>
+          jsonResponse({ welcome_message: null, suggested_questions: ['Una'] }),
+      })
+      renderApp()
+
+      expect(await screen.findByRole('button', { name: 'Una' })).toBeInTheDocument()
+      expect(screen.getByText('¿En qué puedo ayudarte?')).toBeInTheDocument()
+    })
+  })
 })

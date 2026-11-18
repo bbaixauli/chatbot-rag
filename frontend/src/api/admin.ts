@@ -1,4 +1,4 @@
-import { apiGet, apiRequest } from './client'
+import { apiGet, apiRequest, type ChatConfig } from './client'
 
 export interface AdminSession {
   authenticated: boolean
@@ -39,3 +39,8 @@ export const listPromptVersions = () => apiGet<PromptVersion[]>('/admin/prompt/v
 
 export const restorePromptVersion = (id: number) =>
   apiRequest<SystemPrompt>(`/admin/prompt/versions/${id}/restore`, { method: 'POST' })
+
+export const getAdminChatConfig = () => apiGet<ChatConfig>('/admin/chat-config')
+
+export const saveChatConfig = (config: ChatConfig) =>
+  apiRequest<ChatConfig>('/admin/chat-config', { method: 'PUT', body: JSON.stringify(config) })

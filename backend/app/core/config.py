@@ -75,6 +75,9 @@ class Settings(BaseSettings):
     # Conversación
     chat_history_max_messages: int = Field(default=20, ge=0)
     chat_max_message_length: int = Field(default=8000, gt=0)
+    # Inicio del chat configurable desde la administración.
+    chat_welcome_max_length: int = Field(default=2000, gt=0)
+    chat_suggested_question_max_length: int = Field(default=300, gt=0)
     default_system_prompt: str = (
         "Eres un asistente útil. Responde siempre en español, de forma clara y concisa."
     )

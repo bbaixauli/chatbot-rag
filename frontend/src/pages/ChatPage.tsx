@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useCallback, useEffect, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router'
-import { ApiError, listMessages } from '../api/client'
+import { ApiError, getChatConfig, listMessages } from '../api/client'
 import { Composer } from '../components/Composer'
 import { MessageBubble } from '../components/MessageBubble'
 import { useChat } from '../hooks/useChat'
@@ -18,6 +18,14 @@ export function ChatPage() {
     enabled: conversationId !== null,
   })
 
+  // Si no se puede cargar, el chat funciona igual sin mensaje inicial ni sugerencias.
+  const chatConfig = useQuery({
+    queryKey: ['chat-config'],
+    queryFn: getChatConfig,
+    staleTime: 60_000,
+  })
+  const welcome = chatConfig.data?.welcome_message ?? null
+
   const onConversationCreated = useCallback((id: string) => navigate(`/c/${id}`), [navigate])
   const { send, pending, error, isStreaming } = useChat({ conversationId, onConversationCreated })
 
@@ -32,6 +40,7 @@ export function ChatPage() {
 
   const notFound = messages.error instanceof ApiError && messages.error.status === 404
   const isEmpty = history.length === 0 && !pending && !messages.isLoading
+  const suggestions = isEmpty && !notFound ? (chatConfig.data?.suggested_questions ?? []) : []
 
   return (
     <section className="flex min-h-0 flex-1 flex-col">
@@ -44,13 +53,14 @@ export function ChatPage() {
           <p role="alert" className="text-center text-red-700">
             {t.chat.loadError}
           </p>
-        ) : isEmpty ? (
+        ) : isEmpty && !welcome ? (
           <div className="mt-24 text-center">
             <h2 className="text-2xl font-semibold">{t.chat.emptyTitle}</h2>
             <p className="mt-2 text-gray-600">{t.chat.emptyHint}</p>
           </div>
         ) : (
           <ol aria-label={t.chat.messages} className="mx-auto flex max-w-3xl flex-col gap-4">
+            {welcome && !messages.isLoading && <MessageBubble role="assistant" content={welcome} />}
             {history.map((m) => (
               <MessageBubble key={m.id} role={m.role} content={m.content} sources={m.sources} />
             ))}
@@ -74,7 +84,11 @@ export function ChatPage() {
         )}
         <div ref={bottomRef} />
       </div>
-      <Composer disabled={isStreaming || notFound} onSend={(text) => void send(text)} />
+      <Composer
+        disabled={isStreaming || notFound}
+        onSend={(text) => void send(text)}
+        suggestions={suggestions}
+      />
     </section>
   )
 }
