@@ -20,7 +20,21 @@ export default defineConfig({
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  projects: [
+    {
+      name: 'chromium',
+      use: { ...devices['Desktop Chrome'] },
+      testIgnore: /chat-start\.spec\.ts/,
+    },
+    {
+      // Cambia la configuración global del chat (mensaje inicial): se ejecuta después del
+      // resto para no alterar los demás tests, que comparten la base de datos.
+      name: 'chromium-config-global',
+      use: { ...devices['Desktop Chrome'] },
+      testMatch: /chat-start\.spec\.ts/,
+      dependencies: ['chromium'],
+    },
+  ],
   webServer: [
     {
       command: `uv run alembic upgrade head && uv run uvicorn app.main:app --host 127.0.0.1 --port ${API_PORT}`,

@@ -45,6 +45,15 @@ class MessageOut(BaseModel):
     sources: list[SourceOut] = []
 
 
+class ChatConfigOut(BaseModel):
+    """Mensaje inicial y preguntas sugeridas al empezar una conversación."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    welcome_message: str | None
+    suggested_questions: list[str]
+
+
 class ChatRequest(BaseModel):
     conversation_id: str | None = None
     message: str = Field(min_length=1)

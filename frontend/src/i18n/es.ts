@@ -12,6 +12,7 @@ export const t = {
     backToChat: 'Volver al chat',
     prompt: 'Prompt de sistema',
     documents: 'Documentos',
+    chatStart: 'Mensaje inicial',
     logout: 'Cerrar sesión',
   },
   login: {
@@ -43,6 +44,25 @@ export const t = {
     restored: 'Versión restaurada.',
     confirmRestore: (id: number) => `¿Restaurar la versión ${id}? Se creará una nueva versión.`,
     by: (author: string, date: string) => `${author} · ${date}`,
+  },
+  chatStart: {
+    title: 'Mensaje inicial del chat',
+    description:
+      'Personaliza el comienzo de las conversaciones. Se aplica a todos los usuarios y no se envía al modelo.',
+    welcomeLabel: 'Mensaje inicial',
+    welcomeHint:
+      'Si se define, aparece como primer mensaje del asistente en cada conversación. Admite Markdown.',
+    questionsTitle: 'Preguntas sugeridas',
+    questionsHint:
+      'Hasta 5 preguntas que se muestran sobre el campo de texto al empezar una conversación. Al pulsar una, se copia en el campo para poder editarla antes de enviarla.',
+    questionLabel: (n: number) => `Pregunta sugerida ${n}`,
+    save: 'Guardar',
+    saving: 'Guardando…',
+    saved: 'Configuración guardada.',
+    saveError: 'No se pudo guardar la configuración.',
+    loadError: 'No se pudo cargar la configuración.',
+    characters: (n: number, max: number) =>
+      `${n.toLocaleString('es-ES')} / ${max.toLocaleString('es-ES')} caracteres`,
   },
   documents: {
     title: 'Documentos',
@@ -112,6 +132,7 @@ export const t = {
     inputLabel: 'Escribe tu mensaje',
     inputPlaceholder: 'Escribe tu mensaje… (Mayús+Intro para nueva línea)',
     send: 'Enviar',
+    suggestions: 'Preguntas sugeridas',
     thinking: 'Pensando…',
     loadError: 'No se pudieron cargar los mensajes.',
     sendError: 'No se pudo enviar el mensaje. Inténtalo de nuevo.',

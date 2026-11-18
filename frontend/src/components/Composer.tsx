@@ -1,13 +1,17 @@
-import { useState, type FormEvent, type KeyboardEvent } from 'react'
+import { useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { t } from '../i18n/es'
 
 interface Props {
   disabled: boolean
   onSend: (text: string) => void
+  /** Preguntas que, al pulsarlas, sustituyen el texto del campo (editable antes de enviar). */
+  suggestions?: string[]
 }
 
-export function Composer({ disabled, onSend }: Props) {
+export function Composer({ disabled, onSend, suggestions = [] }: Props) {
   const [text, setText] = useState('')
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+  const focusAtEnd = useRef(false)
   const canSend = !disabled && text.trim().length > 0
 
   function submit(event?: FormEvent) {
@@ -24,24 +28,65 @@ export function Composer({ disabled, onSend }: Props) {
     }
   }
 
+  // Tras aplicar una sugerencia, se enfoca el campo con el cursor al final. Se hace en el
+  // mismo commit del renderizado para no interferir con lo que el usuario teclee después.
+  useLayoutEffect(() => {
+    if (!focusAtEnd.current) return
+    focusAtEnd.current = false
+    focusInputAtEnd()
+  })
+
+  function focusInputAtEnd() {
+    const input = inputRef.current
+    if (!input) return
+    input.focus()
+    input.setSelectionRange(input.value.length, input.value.length)
+  }
+
+  function applySuggestion(question: string) {
+    // Si el texto no cambia, React no vuelve a renderizar: se enfoca directamente.
+    if (question === text) return focusInputAtEnd()
+    focusAtEnd.current = true
+    setText(question)
+  }
+
   return (
-    <form onSubmit={submit} className="flex gap-2 border-t border-gray-200 bg-white p-4">
-      <textarea
-        aria-label={t.chat.inputLabel}
-        placeholder={t.chat.inputPlaceholder}
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={onKeyDown}
-        rows={2}
-        className="flex-1 resize-none rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
-      />
-      <button
-        type="submit"
-        disabled={!canSend}
-        className="self-end rounded-lg bg-blue-600 px-4 py-2 font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        {t.chat.send}
-      </button>
+    <form onSubmit={submit} className="border-t border-gray-200 bg-white p-4">
+      {suggestions.length > 0 && (
+        <ul aria-label={t.chat.suggestions} className="mb-3 flex flex-wrap gap-2">
+          {suggestions.map((question, index) => (
+            <li key={`${index}-${question}`}>
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() => applySuggestion(question)}
+                className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1.5 text-left text-sm text-blue-800 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {question}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="flex gap-2">
+        <textarea
+          ref={inputRef}
+          aria-label={t.chat.inputLabel}
+          placeholder={t.chat.inputPlaceholder}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={onKeyDown}
+          rows={2}
+          className="flex-1 resize-none rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
+        />
+        <button
+          type="submit"
+          disabled={!canSend}
+          className="self-end rounded-lg bg-blue-600 px-4 py-2 font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {t.chat.send}
+        </button>
+      </div>
     </form>
   )
 }

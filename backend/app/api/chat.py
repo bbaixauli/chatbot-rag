@@ -5,10 +5,11 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 
-from app.api.deps import SettingsDep
-from app.api.schemas import ChatRequest
+from app.api.deps import DbSession, SettingsDep
+from app.api.schemas import ChatConfigOut, ChatRequest
 from app.core.auth import CurrentUserDep
 from app.services.chat import ChatService, ConversationNotFoundError
+from app.services.chat_config import ChatConfig, ChatConfigRepository
 from app.services.llm import LLMClient
 
 router = APIRouter(tags=["chat"])
@@ -21,6 +22,12 @@ def get_llm(request: Request) -> LLMClient:
 
 
 LLMDep = Annotated[LLMClient, Depends(get_llm)]
+
+
+@router.get("/chat/config", response_model=ChatConfigOut)
+async def get_chat_config(db: DbSession) -> ChatConfig:
+    """Mensaje inicial y preguntas sugeridas configurados en la administración."""
+    return await ChatConfigRepository(db).get()
 
 
 @router.post(

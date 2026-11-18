@@ -38,6 +38,7 @@ export function AdminLayout() {
             {[
               { to: '/admin/prompt', label: t.nav.prompt },
               { to: '/admin/documents', label: t.nav.documents },
+              { to: '/admin/chat', label: t.nav.chatStart },
             ].map((item) => (
               <NavLink
                 key={item.to}

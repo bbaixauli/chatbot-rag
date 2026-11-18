@@ -67,6 +67,14 @@ export function sourceUrl(source: Source): string | null {
   return `${API_BASE}/documents/${source.document_id}/file${page}`
 }
 
+/** Inicio de las conversaciones configurado en la administración. */
+export interface ChatConfig {
+  welcome_message: string | null
+  suggested_questions: string[]
+}
+
+export const getChatConfig = () => apiGet<ChatConfig>('/chat/config')
+
 export const listConversations = () => apiGet<Conversation[]>('/conversations')
 
 export const renameConversation = (id: string, title: string) =>

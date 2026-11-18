@@ -1,4 +1,4 @@
-"""Endpoints de administración: sesión y prompt de sistema."""
+"""Endpoints de administración: sesión, prompt de sistema e inicio del chat."""
 
 import asyncio
 from datetime import datetime
@@ -7,8 +7,10 @@ from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 
 from app.api.deps import DbSession, SettingsDep
+from app.api.schemas import ChatConfigOut
 from app.core.auth import SESSION_ADMIN_KEY, AdminDep, get_admin, verify_admin_credentials
 from app.db.models import SystemPromptVersion
+from app.services.chat_config import MAX_SUGGESTED_QUESTIONS, ChatConfig, ChatConfigRepository
 from app.services.prompts import PromptRepository
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -37,6 +39,11 @@ class PromptOut(BaseModel):
 
 class PromptUpdate(BaseModel):
     content: str = Field(min_length=1)
+
+
+class ChatConfigUpdate(BaseModel):
+    welcome_message: str | None = None
+    suggested_questions: list[str] = Field(default_factory=list, max_length=MAX_SUGGESTED_QUESTIONS)
 
 
 class PromptVersionOut(BaseModel):
@@ -127,3 +134,30 @@ async def restore_prompt_version(
     version = await repo.save(old.content, admin.username)
     await db.commit()
     return _prompt_out(version.content, version)
+
+
+@router.get("/chat-config", response_model=ChatConfigOut)
+async def get_chat_config(_: AdminDep, db: DbSession) -> ChatConfig:
+    return await ChatConfigRepository(db).get()
+
+
+@router.put("/chat-config", response_model=ChatConfigOut)
+async def update_chat_config(
+    body: ChatConfigUpdate, admin: AdminDep, db: DbSession, settings: SettingsDep
+) -> ChatConfig:
+    """Guarda el mensaje inicial y las preguntas sugeridas (los textos vacíos se descartan)."""
+    welcome = (body.welcome_message or "").strip() or None
+    if welcome and len(welcome) > settings.chat_welcome_max_length:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, "El mensaje inicial es demasiado largo"
+        )
+    questions = [q.strip() for q in body.suggested_questions if q.strip()]
+    if any(len(q) > settings.chat_suggested_question_max_length for q in questions):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, "Alguna pregunta sugerida es demasiado larga"
+        )
+    config = await ChatConfigRepository(db).save(
+        ChatConfig(welcome_message=welcome, suggested_questions=questions), admin.username
+    )
+    await db.commit()
+    return config

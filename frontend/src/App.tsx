@@ -6,6 +6,7 @@ import { Sidebar } from './components/Sidebar'
 import { t } from './i18n/es'
 import { ChatPage } from './pages/ChatPage'
 import { AdminLayout } from './pages/admin/AdminLayout'
+import { ChatStartPage } from './pages/admin/ChatStartPage'
 import { DocumentsPage } from './pages/admin/DocumentsPage'
 import { LoginPage } from './pages/admin/LoginPage'
 import { PromptPage } from './pages/admin/PromptPage'
@@ -44,6 +45,7 @@ export function AppRoutes() {
         <Route index element={<Navigate to="prompt" replace />} />
         <Route path="prompt" element={<PromptPage />} />
         <Route path="documents" element={<DocumentsPage />} />
+        <Route path="chat" element={<ChatStartPage />} />
       </Route>
     </Routes>
   )

@@ -2,16 +2,25 @@
 
 Chat conectado a un modelo de IA compatible con la API de OpenAI, con RAG sobre documentos
 (PDF, Markdown y HTML) y referencias a los ficheros de origen. Incluye una zona de
-administración para definir el prompt de sistema y gestionar los documentos.
+administración para definir el prompt de sistema, el mensaje inicial del chat y gestionar los
+documentos.
 
 Desarrollado utilizando Vibe Coding con Claude Code.
 
 ## Estructura
 
 ```
-backend/    API FastAPI (Python 3.12, uv, SQLAlchemy, Alembic)
-frontend/   SPA React + TypeScript (Vite, Tailwind, Vitest, Playwright)
-data/       Datos locales: BD, índice y ficheros subidos (no versionado)
+.github/workflows/   CI de GitHub Actions (backend, frontend y E2E)
+backend/
+  app/api/           Endpoints (chat, conversaciones, documentos, administración)
+  app/services/      Lógica: chat, RAG, embeddings, índice vectorial, ingesta…
+  app/db/            Modelos SQLAlchemy y sesión
+  alembic/           Migraciones de la base de datos
+  tests/             Tests de pytest
+frontend/
+  src/               SPA React + TypeScript (Vite, Tailwind)
+  e2e/               Tests de interfaz con Playwright
+data/                Datos locales: BD, índice y ficheros subidos (no versionado)
 ```
 
 ## Requisitos
@@ -43,7 +52,18 @@ probar la interfaz sin servidor de IA, usa `CHATBOT_LLM_PROVIDER=fake`.
 La administración (http://localhost:5173/admin) se habilita definiendo
 `CHATBOT_ADMIN_PASSWORD` (y, recomendado, `CHATBOT_SESSION_SECRET`). Desde ella se edita el
 prompt de sistema, que se guarda con histórico de versiones y se aplica a los mensajes nuevos,
-y se gestionan los documentos del RAG (PDF, Markdown y HTML).
+se configura el inicio del chat y se gestionan los documentos del RAG (PDF, Markdown y HTML).
+
+### Mensaje inicial y preguntas sugeridas
+
+En *Administración → Mensaje inicial* se puede definir:
+
+- Un **mensaje inicial** (admite Markdown) que aparece como primer mensaje del asistente en cada
+  conversación. Es solo de presentación: no se guarda en la conversación ni se envía al modelo.
+  Si se deja vacío, el chat muestra la portada habitual.
+- Hasta **5 preguntas sugeridas**, que aparecen sobre el campo de texto al empezar una
+  conversación. Al pulsar una, su texto sustituye al que hubiera en el campo y se puede editar
+  antes de enviarlo.
 
 ### Embeddings
 
@@ -104,8 +124,10 @@ Documentación interactiva en http://localhost:8000/docs. Endpoints principales:
 | GET/POST | `/api/v1/conversations` | Listar / crear conversaciones |
 | PATCH/DELETE | `/api/v1/conversations/{id}` | Renombrar / eliminar |
 | GET | `/api/v1/conversations/{id}/messages` | Mensajes de una conversación |
+| GET | `/api/v1/chat/config` | Mensaje inicial y preguntas sugeridas |
 | POST | `/api/v1/chat` | Envía un mensaje; respuesta en streaming SSE (`conversation`, `token`, `sources`, `done`, `error`) |
 | GET/POST/DELETE | `/api/v1/admin/session` | Estado / inicio / cierre de sesión de administración |
+| GET/PUT | `/api/v1/admin/chat-config` | Mensaje inicial y preguntas sugeridas (admin) |
 | GET/PUT | `/api/v1/admin/prompt` | Prompt de sistema vigente / guardar nueva versión (admin) |
 | GET | `/api/v1/admin/prompt/versions` | Historial de versiones (admin) |
 | POST | `/api/v1/admin/prompt/versions/{id}/restore` | Restaurar una versión (admin) |
@@ -129,7 +151,9 @@ Documentación interactiva en http://localhost:8000/docs. Endpoints principales:
 
 Los tests E2E levantan automáticamente backend (puerto 8001, con modelo simulado) y frontend
 (puerto 5174) con una carpeta de datos temporal. La primera vez instala el navegador con
-`npx playwright install chromium`.
+`npx playwright install chromium`. Los tests que cambian la configuración global del chat se
+ejecutan en un proyecto aparte, después del resto. Si en un equipo lento fallan por tiempo de
+espera al ejecutarse en paralelo, prueba con `npm run test:e2e -- --workers=1`.
 
 El CI de GitHub Actions ejecuta todo lo anterior en cada pull request.
 
