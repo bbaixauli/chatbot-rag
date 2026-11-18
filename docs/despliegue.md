@@ -266,6 +266,11 @@ streaming, subida e indexación de un documento, límite de peticiones, copia de
 persistencia de los datos y formato de los logs. Al terminar elimina contenedores y volúmenes.
 Se ejecuta también en el CI.
 
+`scripts/ldap-smoke.sh` comprueba el modo LDAP contra un OpenLDAP real en Docker, con TLS y una
+CA de prueba: rechazo de certificados no verificados, inicio de sesión, rol de administración por
+grupo, aislamiento de las conversaciones entre usuarios, intentos de inyección y comportamiento
+cuando el directorio no responde. También se ejecuta en el CI.
+
 ## Solución de problemas
 
 | Síntoma | Causa probable |

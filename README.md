@@ -171,7 +171,7 @@ Documentación interactiva en http://localhost:8000/docs. Endpoints principales:
 | Tipos | `uv run mypy app tests` | `npm run typecheck` |
 | Tests unitarios | `uv run pytest` (cobertura ≥ 85 %) | `npm test` (cobertura ≥ 80 %) |
 | Tests de interfaz | — | `npm run test:e2e` (Playwright) |
-| Despliegue | `scripts/docker-smoke.sh` (desde la raíz; requiere Docker) | |
+| Despliegue | `scripts/docker-smoke.sh` y `scripts/ldap-smoke.sh` (desde la raíz; requieren Docker) | |
 
 Los tests E2E levantan automáticamente backend (puerto 8001, con modelo simulado) y frontend
 (puerto 5174) con una carpeta de datos temporal. La primera vez instala el navegador con

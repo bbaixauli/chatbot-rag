@@ -9,6 +9,7 @@ Flujo:
 """
 
 import logging
+import math
 import ssl
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -68,17 +69,25 @@ class LdapAuthenticator:
         self, settings: Settings, server: Server | None = None, **connection_options: object
     ):
         self._settings = settings
-        self._server = server or build_server(settings)
+        # Se crea al primer inicio de sesión: un error de configuración TLS (p. ej. falta el
+        # certificado de la CA) no debe impedir que arranque la aplicación.
+        self._server = server
         # Opciones extra para `Connection` (en los tests: client_strategy=MOCK_SYNC).
         self._connection_options = connection_options
+
+    def _get_server(self) -> Server:
+        if self._server is None:
+            self._server = build_server(self._settings)
+        return self._server
 
     def _bind(self, user: str | None, password: str | None) -> Connection | None:
         """Conexión autenticada, o `None` si el directorio rechaza las credenciales."""
         connection = Connection(
-            self._server,
+            self._get_server(),
             user=user,
             password=password,
-            receive_timeout=self._settings.ldap_timeout_seconds,
+            # ldap3 lo aplica al socket con struct.pack: debe ser un entero.
+            receive_timeout=math.ceil(self._settings.ldap_timeout_seconds),
             read_only=True,
             **self._connection_options,
         )
@@ -119,7 +128,7 @@ class LdapAuthenticator:
                 )
             finally:
                 service.unbind()
-        except LDAPException as exc:
+        except (LDAPException, OSError) as exc:
             raise DirectoryUnavailableError(f"{type(exc).__name__}: {exc}") from exc
 
     def _find_user(self, connection: Connection, username: str):  # type: ignore[no-untyped-def]

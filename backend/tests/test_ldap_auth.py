@@ -78,6 +78,17 @@ def test_rejected_service_account_means_directory_unavailable(settings: Settings
         mock_authenticator(broken).authenticate("ana", PASSWORDS["ana"])
 
 
+def test_socket_errors_mean_directory_unavailable(
+    ldap: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fail(*_: Any, **__: Any) -> bool:
+        raise ConnectionResetError("conexión reiniciada")
+
+    monkeypatch.setattr(Connection, "search", fail)
+    with pytest.raises(DirectoryUnavailableError, match="ConnectionResetError"):
+        mock_authenticator(ldap).authenticate("ana", PASSWORDS["ana"])
+
+
 def test_network_errors_mean_directory_unavailable(
     ldap: Settings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -94,8 +105,11 @@ class RecordingConnection:
 
     instances: ClassVar[list["RecordingConnection"]] = []
 
-    def __init__(self, server: Any, user: str | None = None, password: str | None = None, **_: Any):
+    def __init__(
+        self, server: Any, user: str | None = None, password: str | None = None, **options: Any
+    ):
         self.user = user
+        self.options = options
         self.calls: list[str] = []
         self.searches: list[tuple[str, str]] = []
         self.entries: list[Any] = []
@@ -150,6 +164,9 @@ def test_start_tls_and_active_directory_nested_groups(
     assert service.calls == ["open", "start_tls", "bind", "unbind"]
     assert user_connection.calls[:3] == ["open", "start_tls", "bind"]
     assert service.searches[0][1] == "(sAMAccountName=alopez)"
+    # ldap3 exige un entero (lo aplica al socket con struct.pack).
+    assert service.options["receive_timeout"] == 10
+    assert isinstance(service.options["receive_timeout"], int)
     group_base, group_filter = service.searches[1]
     assert group_base == ADMIN_GROUP
     assert group_filter.startswith(f"(member:{AD_IN_CHAIN}:=CN=Ana López")
@@ -185,3 +202,20 @@ async def test_authenticate_async_runs_in_a_thread(ldap: Settings) -> None:
 def test_ldap_mode_requires_valid_settings(overrides: dict[str, Any], message: str) -> None:
     with pytest.raises(ValidationError, match=message):
         Settings(**{"auth_mode": "ldap", "ldap_user_base_dn": "ou=people,dc=x", **overrides})
+
+
+def test_tls_misconfiguration_does_not_prevent_startup(settings: Settings, tmp_path: Any) -> None:
+    from app.main import create_app
+
+    broken = ldap_settings(
+        settings, ldap_url="ldaps://ldap.ejemplo.org", ldap_ca_cert_file=tmp_path / "falta.pem"
+    )
+    app = create_app(broken)  # no falla al arrancar
+
+    with pytest.raises(DirectoryUnavailableError, match="LDAPSSLConfigurationError"):
+        app.state.ldap.authenticate("ana", "x")
+
+    # Se reintenta en el siguiente inicio de sesión (p. ej. tras instalar el certificado).
+    (tmp_path / "falta.pem").write_text("no es un certificado")
+    with pytest.raises(DirectoryUnavailableError):
+        app.state.ldap.authenticate("ana", "x")
