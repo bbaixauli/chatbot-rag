@@ -182,17 +182,29 @@ async def test_delete_removes_file_vectors_and_row(app: FastAPI, admin: AsyncCli
 
 
 async def test_reindex_one_and_all(app: FastAPI, admin: AsyncClient) -> None:
-    [result] = await upload(admin, ("a.md", MARKDOWN.encode()))
+    paragraphs = [f"Norma {i}: " + "texto " * 8 for i in range(12)]
+    long_text = "# Normas\n\n" + "\n\n".join(paragraphs)
+    [result] = await upload(admin, ("a.md", long_text.encode()))
     await drain(app)
     document_id = result["document"]["id"]
     chunks = await app.state.vector_store.count()
 
+    # Con fragmentos más pequeños hay más; al volver a agrandarlos sobran y se eliminan.
+    app.state.settings.chunk_size_chars = 120
     response = await admin.post(f"{URL}/{document_id}/reindex")
     assert response.status_code == 202
     assert response.json()["status"] == "pending"
     await drain(app)
-    assert (await admin.get(f"{URL}/{document_id}")).json()["status"] == "ready"
-    assert await app.state.vector_store.count() == chunks
+    reindexed = (await admin.get(f"{URL}/{document_id}")).json()
+    assert reindexed["status"] == "ready"
+    assert reindexed["chunk_count"] > chunks
+    assert await app.state.vector_store.count() == reindexed["chunk_count"]
+    app.state.settings.chunk_size_chars = 2000
+    await admin.post(f"{URL}/{document_id}/reindex")
+    await drain(app)
+    shrunk = (await admin.get(f"{URL}/{document_id}")).json()["chunk_count"]
+    assert shrunk < chunks
+    assert await app.state.vector_store.count() == shrunk
 
     assert (await admin.post(f"{URL}/reindex")).json() == {"scheduled": 1}
     await drain(app)

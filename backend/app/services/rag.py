@@ -63,6 +63,14 @@ class Retriever:
         self._store = store
         self._settings = settings
 
+    async def is_empty(self) -> bool:
+        """True si no hay nada indexado (o el índice no responde)."""
+        try:
+            return await self._store.count() == 0
+        except Exception:
+            logger.warning("No se pudo consultar el índice", exc_info=True)
+            return True
+
     async def retrieve(self, query: str) -> list[ContextSource]:
         """Fragmentos por encima del umbral, numerados y dentro del límite de contexto.
 

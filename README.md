@@ -65,8 +65,34 @@ En cada pregunta se recuperan los fragmentos más parecidos (`CHATBOT_RAG_TOP_K`
 `CHATBOT_RAG_MIN_SCORE`, se añaden numerados al prompt de sistema y se pide al modelo que cite
 con `[n]`. Bajo la respuesta se muestran las fuentes citadas (fichero y página o sección) con
 enlace al original; los PDF se abren en la página citada. Si el modelo no cita, se muestran
-como «Fuentes consultadas». El umbral adecuado depende del modelo de embeddings: conviene
-ajustarlo con preguntas reales (fase 5).
+como «Fuentes consultadas».
+
+Las preguntas de seguimiento («¿y con cuánta antelación?») se reformulan con el historial antes
+de buscar (`CHATBOT_RAG_CONDENSE_QUESTION`); la respuesta se genera con la pregunta original.
+
+### Calibrar la búsqueda con un conjunto de evaluación
+
+El umbral de similitud, el top-k y el tamaño de fragmento adecuados dependen del modelo de
+embeddings y de los documentos. El script de evaluación los mide con preguntas reales:
+
+```bash
+cd backend
+# Con los documentos de una carpeta…
+uv run python -m app.evaluation --dataset eval/ejemplo/preguntas.json \
+    --documents eval/ejemplo/documentos \
+    --chunk-sizes 1000,2000,3000 --overlaps 200,400 --top-k 3,5,8
+# …o con los documentos ya subidos a la aplicación (omitir --documents)
+uv run python -m app.evaluation --dataset mis-preguntas.json --output informe.json
+```
+
+Usa los modelos configurados en `.env` (p. ej. el de embeddings de LiteLLM). El conjunto es un
+JSON con preguntas y la fuente esperada (`fichero` y, opcionalmente, `pagina` o `seccion`);
+las preguntas con `"esperado": []` no deberían recuperar nada, y las que tienen `historial`
+prueban la reformulación con `--condensar`. Ver [`backend/eval/ejemplo`](backend/eval/ejemplo).
+
+El informe muestra, por configuración, el acierto@k, MRR, recall, precisión y falsos positivos,
+y recomienda los valores de `CHATBOT_CHUNK_*`, `CHATBOT_RAG_TOP_K` y `CHATBOT_RAG_MIN_SCORE`.
+Tras cambiar el troceado hay que reindexar los documentos.
 
 ## API
 

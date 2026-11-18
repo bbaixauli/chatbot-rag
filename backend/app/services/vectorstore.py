@@ -38,6 +38,10 @@ class VectorStore(Protocol):
 
     async def delete_document(self, document_id: str) -> None: ...
 
+    async def delete_chunks_from(self, document_id: str, first_index: int) -> None:
+        """Elimina los fragmentos del documento con índice >= `first_index`."""
+        ...
+
     async def search(self, embedding: Sequence[float], limit: int) -> list[SearchHit]: ...
 
     async def count(self) -> int: ...
@@ -48,14 +52,21 @@ class ChromaVectorStore:
 
     COLLECTION = "chunks"
 
-    def __init__(self, path: Path) -> None:
-        path.mkdir(parents=True, exist_ok=True)
-        self._client = chromadb.PersistentClient(
-            path=str(path), settings=ChromaSettings(anonymized_telemetry=False)
-        )
+    def __init__(self, path: Path | None, collection: str = COLLECTION) -> None:
+        """Índice persistente en `path`, o en memoria si `path` es `None` (evaluación)."""
+        settings = ChromaSettings(anonymized_telemetry=False)
+        if path is None:
+            self._client = chromadb.EphemeralClient(settings=settings)
+        else:
+            path.mkdir(parents=True, exist_ok=True)
+            self._client = chromadb.PersistentClient(path=str(path), settings=settings)
         self._collection = self._client.get_or_create_collection(
-            self.COLLECTION, metadata={"hnsw:space": "cosine"}, embedding_function=None
+            collection, metadata={"hnsw:space": "cosine"}, embedding_function=None
         )
+
+    def drop(self) -> None:
+        """Elimina la colección (índices temporales)."""
+        self._client.delete_collection(self._collection.name)
 
     async def add(
         self,
@@ -88,6 +99,12 @@ class ChromaVectorStore:
 
     async def delete_document(self, document_id: str) -> None:
         await asyncio.to_thread(self._collection.delete, where={"document_id": document_id})
+
+    async def delete_chunks_from(self, document_id: str, first_index: int) -> None:
+        where: Any = {
+            "$and": [{"document_id": document_id}, {"chunk_index": {"$gte": first_index}}]
+        }
+        await asyncio.to_thread(self._collection.delete, where=where)
 
     async def search(self, embedding: Sequence[float], limit: int) -> list[SearchHit]:
         total = await self.count()

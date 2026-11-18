@@ -190,3 +190,23 @@ async def test_public_pdf_view_and_missing_files(
     document = await app.state.documents.get(document_id)
     app.state.documents.file_path(document).unlink()
     assert (await client.get(f"/api/v1/documents/{document_id}/file")).status_code == 404
+
+
+async def test_document_deleted_while_answering_keeps_the_answer(
+    app: FastAPI, client: AsyncClient
+) -> None:
+    document_id = await index(app, "guia.md", MARKDOWN.encode())
+
+    class DeletingLLM:
+        async def stream_chat(self, messages: Any) -> Any:
+            yield "Vacaciones"
+            await app.state.documents.delete(document_id)
+            yield " [1]."
+
+    app.state.llm = DeletingLLM()
+    events = await ask(client, "¿Cuántos días de vacaciones tengo al año?")
+
+    assert events[-1][0] == "done"
+    messages = (await client.get(f"/api/v1/conversations/{events[0][1]['id']}/messages")).json()
+    assert messages[1]["content"] == "Vacaciones [1]."
+    assert messages[1]["sources"][0]["document_id"] is None

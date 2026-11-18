@@ -81,9 +81,21 @@ test('descarga, reindexa y elimina un documento', async ({ page }) => {
   const download = await downloadPromise
   expect(download.suggestedFilename()).toBe('politica-gastos.html')
 
+  // «Indexado» ya era visible antes de reindexar: se espera a la respuesta del servidor
+  // y a que la API confirme que ha terminado.
+  const reindexed = page.waitForResponse(
+    (r) => r.url().includes('/reindex') && r.request().method() === 'POST',
+  )
   await row(page, 'guia-vacaciones.md')
     .getByRole('button', { name: /Reindexar/ })
     .click()
+  expect((await reindexed).status()).toBe(202)
+  await expect
+    .poll(async () => {
+      const documents = await (await page.request.get('/api/v1/admin/documents')).json()
+      return documents.map((d: { status: string }) => d.status)
+    })
+    .toEqual(['ready', 'ready', 'ready'])
   await expect(row(page, 'guia-vacaciones.md').getByText('Indexado')).toBeVisible()
 
   page.once('dialog', (dialog) => void dialog.accept())
