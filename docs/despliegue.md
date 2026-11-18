@@ -74,6 +74,73 @@ Se definen como variables de entorno al ejecutar `docker compose` o en el propio
 Con `CHATBOT_EMBEDDING_PROVIDER=local`, el modelo se descarga la primera vez en
 `/data/modelos` y se conserva entre reinicios.
 
+## Usuarios con LDAP
+
+Por defecto (`CHATBOT_AUTH_MODE=none`) el chat es anónimo: todas las conversaciones forman un
+único historial compartido y la administración usa la cuenta local
+(`CHATBOT_ADMIN_USERNAME`/`CHATBOT_ADMIN_PASSWORD`).
+
+Con `CHATBOT_AUTH_MODE=ldap`:
+
+- Cada usuario inicia sesión con su cuenta del directorio y **solo ve sus conversaciones**.
+- Los miembros del grupo `CHATBOT_LDAP_ADMIN_GROUP_DN` acceden a la administración con su
+  usuario. Las versiones del prompt registran quién las guardó.
+- La cuenta local de administración sigue funcionando si está definida: sirve como acceso de
+  emergencia cuando el directorio no está disponible. Sus credenciales nunca se envían al
+  directorio. Si no se necesita, deja `CHATBOT_ADMIN_PASSWORD` vacío.
+
+El backend busca al usuario con la cuenta de servicio, comprueba la contraseña haciendo *bind*
+con su DN y, después, comprueba la pertenencia al grupo de administración. Los valores
+introducidos se escapan antes de construir los filtros LDAP.
+
+**OpenLDAP**
+
+```dotenv
+CHATBOT_AUTH_MODE=ldap
+CHATBOT_LDAP_URL=ldaps://ldap.ejemplo.org:636
+CHATBOT_LDAP_BIND_DN=cn=chatbot,ou=services,dc=ejemplo,dc=org
+CHATBOT_LDAP_BIND_PASSWORD=...
+CHATBOT_LDAP_USER_BASE_DN=ou=people,dc=ejemplo,dc=org
+CHATBOT_LDAP_USER_FILTER=(uid={username})
+CHATBOT_LDAP_USER_ID_ATTRIBUTE=uid
+CHATBOT_LDAP_DISPLAY_NAME_ATTRIBUTE=cn
+# groupOfNames, groupOfUniqueNames o posixGroup
+CHATBOT_LDAP_ADMIN_GROUP_DN=cn=chatbot-admins,ou=groups,dc=ejemplo,dc=org
+```
+
+**Active Directory**
+
+```dotenv
+CHATBOT_AUTH_MODE=ldap
+CHATBOT_LDAP_URL=ldaps://dc01.empresa.local:636
+CHATBOT_LDAP_BIND_DN=CN=svc-chatbot,OU=Servicios,DC=empresa,DC=local
+CHATBOT_LDAP_BIND_PASSWORD=...
+CHATBOT_LDAP_USER_BASE_DN=OU=Usuarios,DC=empresa,DC=local
+CHATBOT_LDAP_USER_FILTER=(&(objectClass=user)(sAMAccountName={username}))
+CHATBOT_LDAP_USER_ID_ATTRIBUTE=sAMAccountName
+CHATBOT_LDAP_DISPLAY_NAME_ATTRIBUTE=displayName
+CHATBOT_LDAP_ADMIN_GROUP_DN=CN=Chatbot-Admins,OU=Grupos,DC=empresa,DC=local
+CHATBOT_LDAP_NESTED_GROUPS=true
+```
+
+Notas:
+
+- **TLS**: usa `ldaps://` o `CHATBOT_LDAP_START_TLS=true`; el certificado del servidor se
+  verifica siempre. Si la CA es interna, copia su certificado al volumen (por ejemplo
+  `docker compose cp ca.pem backend:/data/ldap-ca.pem`) y define
+  `CHATBOT_LDAP_CA_CERT_FILE=/data/ldap-ca.pem`.
+- El identificador del usuario es el valor de `CHATBOT_LDAP_USER_ID_ATTRIBUTE` en minúsculas.
+  Si se cambia ese atributo, los usuarios dejarán de ver sus conversaciones anteriores.
+- Los permisos se leen al iniciar sesión: si se añade o quita a alguien del grupo de
+  administración, el cambio se aplica en su siguiente inicio de sesión (la sesión dura
+  `CHATBOT_SESSION_MAX_AGE_SECONDS`, 8 horas por defecto).
+- Las conversaciones creadas en modo anónimo pertenecen al usuario `anonymous` y no aparecen
+  en el historial de nadie al activar LDAP.
+- Si el directorio no responde, el inicio de sesión muestra un aviso y el log del backend
+  registra el motivo. Las sesiones ya iniciadas siguen funcionando.
+- Es imprescindible definir `CHATBOT_SESSION_SECRET`; con HTTPS, también
+  `CHATBOT_SESSION_COOKIE_SECURE=true`.
+
 ## HTTPS
 
 El contenedor sirve HTTP. Para HTTPS, coloca delante el proxy inverso de la organización

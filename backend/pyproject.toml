@@ -10,6 +10,7 @@ dependencies = [
     "chromadb>=1.5.9",
     "fastapi>=0.163.2",
     "itsdangerous>=2.2.0",
+    "ldap3>=2.9.1",
     "markdown-it-py>=4.3.0",
     "openai>=3.53.0",
     "pydantic-settings>=2.16.3",
@@ -50,7 +51,7 @@ plugins = ["pydantic.mypy"]
 exclude = ["alembic/"]
 
 [[tool.mypy.overrides]]
-module = ["sentence_transformers.*"]
+module = ["sentence_transformers.*", "ldap3.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
@@ -58,6 +59,8 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 addopts = "--cov=app --cov-report=term-missing"
+# Avisos internos de ldap3 con versiones recientes de pyasn1.
+filterwarnings = ["ignore:(tagMap|typeMap) is deprecated:DeprecationWarning"]
 
 [tool.coverage.run]
 concurrency = ["greenlet", "thread"]
