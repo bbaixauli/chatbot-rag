@@ -63,8 +63,24 @@ describe('Composer', () => {
 
     await userEvent.click(within(list).getByRole('button', { name: 'Otra' }))
     expect(input).toHaveValue('Otra')
-    await userEvent.type(input, ' más{Enter}')
+    // El cursor queda al final en cuanto se pulsa, sin esperar a otro fotograma.
+    expect(input).toHaveProperty('selectionStart', 4)
+    expect(input).toHaveProperty('selectionEnd', 4)
+    await userEvent.type(input, ' más{Enter}', { skipClick: true })
     expect(onSend).toHaveBeenCalledWith('Otra más')
+  })
+
+  it('pulsar de nuevo la misma sugerencia devuelve el foco al final del campo', async () => {
+    render(<Composer disabled={false} onSend={vi.fn()} suggestions={['Una']} />)
+    const input = screen.getByLabelText('Escribe tu mensaje') as HTMLTextAreaElement
+    await userEvent.click(screen.getByRole('button', { name: 'Una' }))
+    input.setSelectionRange(0, 0)
+    input.blur()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Una' }))
+
+    expect(input).toHaveFocus()
+    expect(input.selectionStart).toBe(3)
   })
 
   it('sin sugerencias no muestra la lista y deshabilita las sugerencias si está ocupado', () => {

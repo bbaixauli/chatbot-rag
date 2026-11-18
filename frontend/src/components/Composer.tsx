@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
+import { useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { t } from '../i18n/es'
 
 interface Props {
@@ -11,6 +11,7 @@ interface Props {
 export function Composer({ disabled, onSend, suggestions = [] }: Props) {
   const [text, setText] = useState('')
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const focusAtEnd = useRef(false)
   const canSend = !disabled && text.trim().length > 0
 
   function submit(event?: FormEvent) {
@@ -27,14 +28,26 @@ export function Composer({ disabled, onSend, suggestions = [] }: Props) {
     }
   }
 
-  function applySuggestion(question: string) {
-    setText(question)
+  // Tras aplicar una sugerencia, se enfoca el campo con el cursor al final. Se hace en el
+  // mismo commit del renderizado para no interferir con lo que el usuario teclee después.
+  useLayoutEffect(() => {
+    if (!focusAtEnd.current) return
+    focusAtEnd.current = false
+    focusInputAtEnd()
+  })
+
+  function focusInputAtEnd() {
     const input = inputRef.current
-    if (input) {
-      input.focus()
-      // El cursor se coloca al final tras el renderizado con el nuevo texto.
-      requestAnimationFrame(() => input.setSelectionRange(question.length, question.length))
-    }
+    if (!input) return
+    input.focus()
+    input.setSelectionRange(input.value.length, input.value.length)
+  }
+
+  function applySuggestion(question: string) {
+    // Si el texto no cambia, React no vuelve a renderizar: se enfoca directamente.
+    if (question === text) return focusInputAtEnd()
+    focusAtEnd.current = true
+    setText(question)
   }
 
   return (
