@@ -70,6 +70,18 @@ describe('Login', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('No se pudo iniciar sesión')
   })
 
+  it('avisa si hay demasiados intentos de inicio de sesión', async () => {
+    adminApi({
+      'GET /admin/session': () => jsonResponse(anonymous),
+      'POST /admin/session': () => jsonResponse({}, 429),
+    })
+    renderApp('/admin/login')
+    await userEvent.type(await screen.findByLabelText('Usuario'), 'a')
+    await userEvent.type(screen.getByLabelText('Contraseña'), 'b')
+    await userEvent.click(screen.getByRole('button', { name: 'Entrar' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Demasiados intentos')
+  })
+
   it('avisa si la administración no está configurada', async () => {
     adminApi({ 'GET /admin/session': () => jsonResponse({ ...anonymous, enabled: false }) })
     renderApp('/admin/login')

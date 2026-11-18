@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from app.api.deps import DbSession, SettingsDep
 from app.api.schemas import ChatConfigOut
 from app.core.auth import SESSION_ADMIN_KEY, AdminDep, get_admin, verify_admin_credentials
+from app.core.rate_limit import LoginRateLimit
 from app.db.models import SystemPromptVersion
 from app.services.chat_config import MAX_SUGGESTED_QUESTIONS, ChatConfig, ChatConfigRepository
 from app.services.prompts import PromptRepository
@@ -64,7 +65,9 @@ async def get_session(request: Request, settings: SettingsDep) -> SessionOut:
 
 
 @router.post("/session", response_model=SessionOut)
-async def login(body: LoginRequest, request: Request, settings: SettingsDep) -> SessionOut:
+async def login(
+    body: LoginRequest, request: Request, settings: SettingsDep, _: LoginRateLimit
+) -> SessionOut:
     if settings.admin_password is None:
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE,

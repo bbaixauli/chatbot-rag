@@ -47,6 +47,9 @@ export default defineConfig({
         CHATBOT_LLM_PROVIDER: 'fake',
         CHATBOT_EMBEDDING_PROVIDER: 'fake',
         CHATBOT_ADMIN_PASSWORD: ADMIN_PASSWORD,
+        // Todos los tests comparten IP: sin límite de peticiones.
+        CHATBOT_RATE_LIMIT_CHAT_PER_MINUTE: '0',
+        CHATBOT_RATE_LIMIT_LOGIN_PER_MINUTE: '0',
       },
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,

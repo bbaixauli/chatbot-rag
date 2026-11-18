@@ -149,14 +149,28 @@ class ChatService:
             async for delta in self._llm.stream_chat(prompt):
                 parts.append(delta)
                 yield sse_event("token", {"content": delta})
-        except LLMError:
-            logger.exception("Fallo del modelo en la conversación %s", prepared.conversation_id)
-            yield sse_event(
-                "error", {"detail": "El modelo no está disponible. Inténtalo de nuevo."}
+        except LLMError as exc:
+            logger.error(
+                "Fallo del modelo en la conversación %s: %s",
+                prepared.conversation_id,
+                exc,
+                extra={"conversation_id": prepared.conversation_id, "partial": bool(parts)},
             )
+            yield sse_event("error", {"detail": exc.user_message})
             return
 
         answer = "".join(parts).strip()
+        if not answer:
+            # Respuesta vacía (p. ej. el modelo agotó los tokens o filtró la salida).
+            logger.warning(
+                "El modelo devolvió una respuesta vacía en la conversación %s",
+                prepared.conversation_id,
+            )
+            yield sse_event(
+                "error",
+                {"detail": "El modelo no ha devuelto ninguna respuesta. Inténtalo de nuevo."},
+            )
+            return
         shown = select_sources(sources, answer)
         if shown:
             yield sse_event("sources", {"sources": [source_payload(s, c) for s, c in shown]})

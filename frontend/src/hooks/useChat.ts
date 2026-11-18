@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { streamChat } from '../api/chat'
-import { listMessages, type Source } from '../api/client'
+import { ApiError, listMessages, type Source } from '../api/client'
 import { t } from '../i18n/es'
 
 export interface PendingExchange {
@@ -87,9 +87,10 @@ export function useChat({ conversationId, onConversationCreated }: Options) {
             .catch(() => queryClient.invalidateQueries({ queryKey: ['messages', id] }))
         }
         setPending(null)
-      } catch {
+      } catch (err) {
         if (!controller.signal.aborted) {
-          setError(t.chat.sendError)
+          const limited = err instanceof ApiError && err.status === 429
+          setError(limited ? t.chat.rateLimited : t.chat.sendError)
           setPending(null)
         }
       } finally {

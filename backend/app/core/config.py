@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     version: str = "0.1.0"
     environment: str = Field(default="development", pattern="^(development|test|production)$")
     log_level: str = "INFO"
+    # `text` para leer en consola; `json` (una línea por evento) para Docker y agregadores.
+    log_format: Literal["text", "json"] = "text"
     data_dir: Path = Path("../data")
     database_url: str | None = None
 
@@ -49,6 +51,11 @@ class Settings(BaseSettings):
     session_max_age_seconds: int = Field(default=8 * 3600, gt=0)
     session_cookie_secure: bool = False
     system_prompt_max_length: int = Field(default=20_000, gt=0)
+
+    # Límite de peticiones por IP y minuto (0 = sin límite). Se guarda en memoria: vale
+    # para una única instancia del backend.
+    rate_limit_chat_per_minute: int = Field(default=20, ge=0)
+    rate_limit_login_per_minute: int = Field(default=5, ge=0)
 
     # Embeddings. `openai`: endpoint /v1/embeddings (p. ej. LiteLLM); `local`:
     # sentence-transformers (requiere `uv sync --extra local-embeddings`); `fake`: tests.
