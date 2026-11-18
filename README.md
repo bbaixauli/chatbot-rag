@@ -4,6 +4,8 @@ Chat conectado a un modelo de IA compatible con la API de OpenAI, con RAG sobre 
 (PDF, Markdown y HTML) y referencias a los ficheros de origen. Incluye una zona de
 administración para definir el prompt de sistema y gestionar los documentos.
 
+Desarrollado utilizando Vibe Coding con Claude Code.
+
 ## Estructura
 
 ```
