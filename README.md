@@ -69,6 +69,13 @@ La administración (http://localhost:5173/admin) se habilita definiendo
 prompt de sistema, que se guarda con histórico de versiones y se aplica a los mensajes nuevos,
 se configura el inicio del chat y se gestionan los documentos del RAG (PDF, Markdown y HTML).
 
+### Usuarios
+
+Por defecto el chat es anónimo. Con `CHATBOT_AUTH_MODE=ldap` cada usuario inicia sesión con su
+cuenta del directorio (OpenLDAP o Active Directory) y solo ve sus conversaciones; los miembros
+de `CHATBOT_LDAP_ADMIN_GROUP_DN` administran la aplicación. Configuración y ejemplos en la
+[guía de despliegue](docs/despliegue.md#usuarios-con-ldap).
+
 ### Mensaje inicial y preguntas sugeridas
 
 En *Administración → Mensaje inicial* se puede definir:
@@ -141,6 +148,7 @@ Documentación interactiva en http://localhost:8000/docs. Endpoints principales:
 | GET | `/api/v1/conversations/{id}/messages` | Mensajes de una conversación |
 | GET | `/api/v1/chat/config` | Mensaje inicial y preguntas sugeridas |
 | POST | `/api/v1/chat` | Envía un mensaje; respuesta en streaming SSE (`conversation`, `token`, `sources`, `done`, `error`) |
+| GET/POST/DELETE | `/api/v1/auth/session` | Sesión del usuario del chat (modo LDAP) |
 | GET/POST/DELETE | `/api/v1/admin/session` | Estado / inicio / cierre de sesión de administración |
 | GET/PUT | `/api/v1/admin/chat-config` | Mensaje inicial y preguntas sugeridas (admin) |
 | GET/PUT | `/api/v1/admin/prompt` | Prompt de sistema vigente / guardar nueva versión (admin) |
@@ -163,7 +171,7 @@ Documentación interactiva en http://localhost:8000/docs. Endpoints principales:
 | Tipos | `uv run mypy app tests` | `npm run typecheck` |
 | Tests unitarios | `uv run pytest` (cobertura ≥ 85 %) | `npm test` (cobertura ≥ 80 %) |
 | Tests de interfaz | — | `npm run test:e2e` (Playwright) |
-| Despliegue | `scripts/docker-smoke.sh` (desde la raíz; requiere Docker) | |
+| Despliegue | `scripts/docker-smoke.sh` y `scripts/ldap-smoke.sh` (desde la raíz; requieren Docker) | |
 
 Los tests E2E levantan automáticamente backend (puerto 8001, con modelo simulado) y frontend
 (puerto 5174) con una carpeta de datos temporal. La primera vez instala el navegador con

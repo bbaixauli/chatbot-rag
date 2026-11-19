@@ -26,7 +26,7 @@ LLMDep = Annotated[LLMClient, Depends(get_llm)]
 
 
 @router.get("/chat/config", response_model=ChatConfigOut)
-async def get_chat_config(db: DbSession) -> ChatConfig:
+async def get_chat_config(db: DbSession, _: CurrentUserDep) -> ChatConfig:
     """Mensaje inicial y preguntas sugeridas configurados en la administración."""
     return await ChatConfigRepository(db).get()
 

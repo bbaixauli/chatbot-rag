@@ -23,8 +23,15 @@ export const t = {
     invalid: 'Usuario o contraseña incorrectos.',
     error: 'No se pudo iniciar sesión. Inténtalo de nuevo.',
     tooManyAttempts: 'Demasiados intentos. Espera un minuto antes de volver a intentarlo.',
+    forbidden: 'Tu usuario no tiene permisos de administración.',
+    unavailable: 'No se puede validar el usuario en este momento. Inténtalo más tarde.',
+    adminLdapHint: 'Usa tu usuario corporativo (debe pertenecer al grupo de administración).',
     disabled:
       'La administración no está configurada. Define CHATBOT_ADMIN_PASSWORD en el servidor.',
+  },
+  userLogin: {
+    title: 'Iniciar sesión',
+    hint: 'Accede con tu usuario y contraseña corporativos.',
   },
   prompt: {
     title: 'Prompt de sistema',

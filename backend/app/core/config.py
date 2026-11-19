@@ -5,7 +5,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -52,6 +52,28 @@ class Settings(BaseSettings):
     session_cookie_secure: bool = False
     system_prompt_max_length: int = Field(default=20_000, gt=0)
 
+    # Usuarios del chat: `none` (anónimo, un único historial) o `ldap` (cada usuario inicia
+    # sesión con su cuenta del directorio y ve solo sus conversaciones).
+    auth_mode: Literal["none", "ldap"] = "none"
+    # ldaps://servidor:636 o ldap://servidor:389 (con ldap_start_tls para cifrar).
+    ldap_url: str = "ldap://localhost:389"
+    ldap_start_tls: bool = False
+    # Certificado de la CA del directorio (si no está en el almacén del sistema).
+    ldap_ca_cert_file: Path | None = None
+    ldap_timeout_seconds: float = Field(default=10, gt=0)
+    # Cuenta de servicio para buscar usuarios (vacía = búsqueda anónima).
+    ldap_bind_dn: str | None = None
+    ldap_bind_password: SecretStr | None = None
+    ldap_user_base_dn: str = ""
+    # `{username}` se sustituye (escapado). Active Directory: (sAMAccountName={username})
+    ldap_user_filter: str = "(uid={username})"
+    ldap_user_id_attribute: str = "uid"
+    ldap_display_name_attribute: str = "cn"
+    # Los miembros de este grupo son administradores (vacío = solo la cuenta local).
+    ldap_admin_group_dn: str | None = None
+    # Solo Active Directory: tiene en cuenta grupos anidados.
+    ldap_nested_groups: bool = False
+
     # Límite de peticiones por IP y minuto (0 = sin límite). Se guarda en memoria: vale
     # para una única instancia del backend.
     rate_limit_chat_per_minute: int = Field(default=20, ge=0)
@@ -93,6 +115,17 @@ class Settings(BaseSettings):
     default_system_prompt: str = (
         "Eres un asistente útil. Responde siempre en español, de forma clara y concisa."
     )
+
+    @model_validator(mode="after")
+    def _check_ldap(self) -> "Settings":
+        if self.auth_mode == "ldap":
+            if not self.ldap_user_base_dn:
+                raise ValueError(
+                    "CHATBOT_LDAP_USER_BASE_DN es obligatorio con CHATBOT_AUTH_MODE=ldap"
+                )
+            if "{username}" not in self.ldap_user_filter:
+                raise ValueError("CHATBOT_LDAP_USER_FILTER debe contener {username}")
+        return self
 
     @property
     def uploads_dir(self) -> Path:

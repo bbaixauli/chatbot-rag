@@ -1,10 +1,14 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClientProvider } from '@tanstack/react-query'
 import { useState } from 'react'
-import { BrowserRouter, Link, Navigate, Outlet, Route, Routes } from 'react-router'
+import { BrowserRouter, Navigate, Outlet, Route, Routes } from 'react-router'
+import { RequireUser } from './auth/RequireUser'
 import { HealthBadge } from './components/HealthBadge'
 import { Sidebar } from './components/Sidebar'
+import { UserMenu } from './components/UserMenu'
 import { t } from './i18n/es'
 import { ChatPage } from './pages/ChatPage'
+import { UserLoginPage } from './pages/UserLoginPage'
+import { createQueryClient } from './queryClient'
 import { AdminLayout } from './pages/admin/AdminLayout'
 import { ChatStartPage } from './pages/admin/ChatStartPage'
 import { DocumentsPage } from './pages/admin/DocumentsPage'
@@ -18,9 +22,7 @@ export function Layout() {
         <h1 className="text-lg font-semibold">{t.appName}</h1>
         <div className="flex items-center gap-4">
           <HealthBadge />
-          <Link to="/admin" className="text-sm text-blue-700 hover:underline">
-            {t.nav.admin}
-          </Link>
+          <UserMenu />
         </div>
       </header>
       <div className="flex min-h-0 flex-1">
@@ -36,7 +38,14 @@ export function Layout() {
 export function AppRoutes() {
   return (
     <Routes>
-      <Route element={<Layout />}>
+      <Route path="login" element={<UserLoginPage />} />
+      <Route
+        element={
+          <RequireUser>
+            <Layout />
+          </RequireUser>
+        }
+      >
         <Route index element={<ChatPage />} />
         <Route path="c/:conversationId" element={<ChatPage />} />
       </Route>
@@ -52,8 +61,8 @@ export function AppRoutes() {
 }
 
 export default function App() {
-  const [queryClient] = useState(
-    () => new QueryClient({ defaultOptions: { queries: { retry: 1, staleTime: 5_000 } } }),
+  const [queryClient] = useState(() =>
+    createQueryClient({ defaultOptions: { queries: { retry: 1, staleTime: 5_000 } } }),
   )
   return (
     <QueryClientProvider client={queryClient}>
