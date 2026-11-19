@@ -8,6 +8,40 @@ import { ADMIN_PASSWORD } from './e2e/constants.ts'
 const API_PORT = 8001
 const WEB_PORT = 5174
 const dataDir = mkdtempSync(join(tmpdir(), 'chatbot-e2e-'))
+// Segunda instancia con LDAP (acceso anónimo). El directorio no existe: el acceso anónimo
+// y la cuenta local de administración no lo consultan.
+const LDAP_API_PORT = 8002
+const LDAP_WEB_PORT = 5175
+const ldapDataDir = mkdtempSync(join(tmpdir(), 'chatbot-e2e-ldap-'))
+
+const backendEnv = (dir: string) => ({
+  CHATBOT_ENVIRONMENT: 'test',
+  CHATBOT_DATA_DIR: dir,
+  // Modelo simulado: respuestas deterministas sin depender del servidor de IA.
+  CHATBOT_LLM_PROVIDER: 'fake',
+  CHATBOT_EMBEDDING_PROVIDER: 'fake',
+  CHATBOT_ADMIN_PASSWORD: ADMIN_PASSWORD,
+  // Todos los tests comparten IP: sin límite de peticiones.
+  CHATBOT_RATE_LIMIT_CHAT_PER_MINUTE: '0',
+  CHATBOT_RATE_LIMIT_LOGIN_PER_MINUTE: '0',
+})
+
+const backend = (port: number, env: Record<string, string>) => ({
+  command: `uv run alembic upgrade head && uv run uvicorn app.main:app --host 127.0.0.1 --port ${port}`,
+  cwd: '../backend',
+  url: `http://127.0.0.1:${port}/api/v1/health`,
+  env,
+  reuseExistingServer: !process.env.CI,
+  timeout: 120_000,
+})
+
+const frontend = (port: number, apiPort: number) => ({
+  command: `npm run dev -- --host 127.0.0.1 --port ${port} --strictPort`,
+  url: `http://127.0.0.1:${port}`,
+  env: { API_PROXY_TARGET: `http://127.0.0.1:${apiPort}` },
+  reuseExistingServer: !process.env.CI,
+  timeout: 120_000,
+})
 
 export default defineConfig({
   testDir: './e2e',
@@ -24,7 +58,7 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
-      testIgnore: /chat-start\.spec\.ts/,
+      testIgnore: /(chat-start|ldap-.*)\.spec\.ts/,
     },
     {
       // Cambia la configuración global del chat (mensaje inicial): se ejecuta después del
@@ -34,32 +68,23 @@ export default defineConfig({
       testMatch: /chat-start\.spec\.ts/,
       dependencies: ['chromium'],
     },
+    {
+      // Instancia con LDAP (ver arriba): acceso anónimo.
+      name: 'chromium-ldap',
+      use: { ...devices['Desktop Chrome'], baseURL: `http://127.0.0.1:${LDAP_WEB_PORT}` },
+      testMatch: /ldap-.*\.spec\.ts/,
+    },
   ],
   webServer: [
-    {
-      command: `uv run alembic upgrade head && uv run uvicorn app.main:app --host 127.0.0.1 --port ${API_PORT}`,
-      cwd: '../backend',
-      url: `http://127.0.0.1:${API_PORT}/api/v1/health`,
-      env: {
-        CHATBOT_ENVIRONMENT: 'test',
-        CHATBOT_DATA_DIR: dataDir,
-        // Modelo simulado: respuestas deterministas sin depender del servidor de IA.
-        CHATBOT_LLM_PROVIDER: 'fake',
-        CHATBOT_EMBEDDING_PROVIDER: 'fake',
-        CHATBOT_ADMIN_PASSWORD: ADMIN_PASSWORD,
-        // Todos los tests comparten IP: sin límite de peticiones.
-        CHATBOT_RATE_LIMIT_CHAT_PER_MINUTE: '0',
-        CHATBOT_RATE_LIMIT_LOGIN_PER_MINUTE: '0',
-      },
-      reuseExistingServer: !process.env.CI,
-      timeout: 120_000,
-    },
-    {
-      command: `npm run dev -- --host 127.0.0.1 --port ${WEB_PORT} --strictPort`,
-      url: `http://127.0.0.1:${WEB_PORT}`,
-      env: { API_PROXY_TARGET: `http://127.0.0.1:${API_PORT}` },
-      reuseExistingServer: !process.env.CI,
-      timeout: 120_000,
-    },
+    backend(API_PORT, backendEnv(dataDir)),
+    frontend(WEB_PORT, API_PORT),
+    backend(LDAP_API_PORT, {
+      ...backendEnv(ldapDataDir),
+      CHATBOT_AUTH_MODE: 'ldap',
+      CHATBOT_LDAP_URL: 'ldap://127.0.0.1:1',
+      CHATBOT_LDAP_USER_BASE_DN: 'ou=people,dc=e2e',
+      CHATBOT_LDAP_TIMEOUT_SECONDS: '1',
+    }),
+    frontend(LDAP_WEB_PORT, LDAP_API_PORT),
   ],
 })

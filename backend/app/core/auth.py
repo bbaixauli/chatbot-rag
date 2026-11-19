@@ -6,21 +6,29 @@ Dos modos (`CHATBOT_AUTH_MODE`):
   La administración usa la cuenta local (`CHATBOT_ADMIN_USERNAME`/`CHATBOT_ADMIN_PASSWORD`).
 - `ldap`: cada usuario inicia sesión con su cuenta del directorio y solo ve sus
   conversaciones. Son administradores los miembros de `CHATBOT_LDAP_ADMIN_GROUP_DN`; la
-  cuenta local sigue disponible como acceso de emergencia si está configurada.
+  cuenta local sigue disponible como acceso de emergencia si está configurada. Si la
+  administración lo permite, también se puede entrar de forma anónima: cada acceso recibe
+  un id propio (`anon:<uuid>`), así que solo ve las conversaciones de esa sesión. Las
+  conversaciones se conservan (auditoría) con ese id.
 
 La identidad se guarda en la cookie de sesión firmada.
 """
 
 import secrets
+import uuid
 from dataclasses import dataclass
 from typing import Annotated, Any
 
 from fastapi import Depends, HTTPException, Request, status
 
-from app.api.deps import SettingsDep
+from app.api.deps import DbSession, SettingsDep
 from app.core.config import Settings
+from app.services.access import AccessRepository
 
 ANONYMOUS_USER_ID = "anonymous"
+# Prefijo de los ids de las sesiones anónimas con LDAP (permite localizarlas en auditoría).
+ANONYMOUS_SESSION_PREFIX = "anon:"
+ANONYMOUS_DISPLAY_NAME = "Anónimo"
 SESSION_ADMIN_KEY = "admin"
 SESSION_USER_KEY = "user"
 
@@ -32,9 +40,19 @@ class CurrentUser:
     id: str
     display_name: str
     is_admin: bool = False
+    is_anonymous: bool = False
 
 
-ANONYMOUS_USER = CurrentUser(id=ANONYMOUS_USER_ID, display_name="Anónimo")
+ANONYMOUS_USER = CurrentUser(id=ANONYMOUS_USER_ID, display_name=ANONYMOUS_DISPLAY_NAME)
+
+
+def new_anonymous_user() -> CurrentUser:
+    """Identidad de un acceso anónimo con LDAP: nueva en cada acceso."""
+    return CurrentUser(
+        id=f"{ANONYMOUS_SESSION_PREFIX}{uuid.uuid4().hex}",
+        display_name=ANONYMOUS_DISPLAY_NAME,
+        is_anonymous=True,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,10 +67,15 @@ def session_user(request: Request) -> CurrentUser | None:
     data: Any = request.session.get(SESSION_USER_KEY)
     if not isinstance(data, dict) or not isinstance(data.get("id"), str):
         return None
+    anonymous = data.get("anonymous") is True
+    if anonymous != data["id"].startswith(ANONYMOUS_SESSION_PREFIX):
+        return None  # sesión incoherente: no se confía en ella
     return CurrentUser(
         id=data["id"],
         display_name=str(data.get("name") or data["id"]),
-        is_admin=data.get("admin") is True,
+        # Un acceso anónimo nunca administra.
+        is_admin=data.get("admin") is True and not anonymous,
+        is_anonymous=anonymous,
     )
 
 
@@ -63,14 +86,32 @@ def store_session_user(request: Request, user: CurrentUser) -> None:
         "id": user.id,
         "name": user.display_name,
         "admin": user.is_admin,
+        "anonymous": user.is_anonymous,
     }
 
 
-def get_current_user(request: Request, settings: SettingsDep) -> CurrentUser:
+async def active_session_user(request: Request, db: DbSession) -> CurrentUser | None:
+    """Usuario de la sesión si sigue siendo válida.
+
+    Una sesión anónima deja de valer en cuanto la administración desactiva el acceso
+    anónimo (se comprueba en cada petición), y se descarta.
+    """
+    user = session_user(request)
+    if (
+        user is not None
+        and user.is_anonymous
+        and not (await AccessRepository(db).get()).anonymous_allowed
+    ):
+        request.session.clear()
+        return None
+    return user
+
+
+async def get_current_user(request: Request, settings: SettingsDep, db: DbSession) -> CurrentUser:
     """Usuario de la petición: anónimo sin autenticación, o el de la sesión con LDAP."""
     if settings.auth_mode == "none":
         return ANONYMOUS_USER
-    user = session_user(request)
+    user = await active_session_user(request, db)
     if user is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Se requiere iniciar sesión")
     return user

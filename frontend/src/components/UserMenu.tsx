@@ -13,14 +13,23 @@ export function UserMenu() {
   const signOut = useMutation({
     mutationFn: userLogout,
     onSuccess: () => {
+      const anonymousAllowed = session.data?.anonymous_allowed
       queryClient.clear()
-      queryClient.setQueryData(AUTH_SESSION_KEY, { mode: 'ldap', authenticated: false, user: null })
+      // El login sigue ofreciendo (o no) el acceso anónimo, y se confirma con el servidor.
+      queryClient.setQueryData(AUTH_SESSION_KEY, {
+        mode: 'ldap',
+        authenticated: false,
+        user: null,
+        anonymous_allowed: anonymousAllowed,
+      })
+      void queryClient.invalidateQueries({ queryKey: AUTH_SESSION_KEY })
       navigate('/login')
     },
   })
 
   const user = session.data?.mode === 'ldap' ? session.data.user : null
-  // Sin LDAP, el enlace lleva al acceso con la cuenta local de administración.
+  // Sin LDAP, el enlace lleva al acceso con la cuenta local de administración. Un acceso
+  // anónimo nunca administra.
   const showAdmin = !user || user.is_admin
 
   return (
@@ -32,9 +41,19 @@ export function UserMenu() {
       )}
       {user && (
         <div className="flex items-center gap-3 text-sm">
-          <span className="text-gray-700" title={user.id}>
-            {user.display_name}
-          </span>
+          {user.is_anonymous ? (
+            // El id de un acceso anónimo no dice nada al usuario: se explica la sesión.
+            <span
+              className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-700"
+              title={t.nav.anonymousSession}
+            >
+              {user.display_name}
+            </span>
+          ) : (
+            <span className="text-gray-700" title={user.id}>
+              {user.display_name}
+            </span>
+          )}
           <button
             type="button"
             onClick={() => signOut.mutate()}

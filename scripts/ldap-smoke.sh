@@ -105,6 +105,36 @@ step "Administración según el grupo LDAP"
 [ "$(code -b "$WORK/anaadm" "$BASE/api/v1/admin/prompt")" = 200 ] || fail "ana no accede al prompt"
 [ "$(code -b "$WORK/luis" "$BASE/api/v1/admin/prompt")" = 401 ] || fail "luis accede al prompt"
 
+step "Acceso anónimo: solo con el check, y cada acceso ve solo sus conversaciones"
+access() {  # access <true|false>: lo cambia ana (administradora)
+  code -b "$WORK/anaadm" -X PUT -H 'Content-Type: application/json' \
+    -d "{\"anonymous_allowed\":$1}" "$BASE/api/v1/admin/access"
+}
+anonymous() { code -c "$WORK/$1" -b "$WORK/$1" -X POST "$BASE/api/v1/auth/anonymous"; }
+[ "$(anonymous anon0)" = 403 ] || fail "acceso anónimo sin el check"
+[ "$(code -b "$WORK/anon0" "$BASE/api/v1/conversations")" = 401 ] || fail "chat anónimo sin el check"
+[ "$(code -b "$WORK/luis" -X PUT -H 'Content-Type: application/json' \
+  -d '{"anonymous_allowed":true}' "$BASE/api/v1/admin/access")" = 401 ] || fail "luis cambia el acceso"
+[ "$(access true)" = 200 ] || fail "ana no pudo permitir el acceso anónimo"
+[ "$(anonymous anon1)" = 200 ] || fail "primer acceso anónimo rechazado"
+[ "$(anonymous anon2)" = 200 ] || fail "segundo acceso anónimo rechazado"
+curl -fsS -b "$WORK/anon1" -H 'Content-Type: application/json' -d '{"message":"Pregunta anonima"}' \
+  "$BASE/api/v1/chat" > "$WORK/anon-chat.txt"
+anon_conversation=$(sed -n 's/.*"id": "\([^"]*\)".*/\1/p' "$WORK/anon-chat.txt" | head -1)
+curl -fsS -b "$WORK/anon1" "$BASE/api/v1/conversations" | grep -q 'Pregunta anonima' \
+  || fail "el acceso anónimo no ve su conversación"
+[ "$(curl -fsS -b "$WORK/anon2" "$BASE/api/v1/conversations")" = "[]" ] \
+  || fail "un acceso anónimo ve conversaciones de otro"
+[ "$(code -b "$WORK/anon2" "$BASE/api/v1/conversations/$anon_conversation/messages")" = 404 ] \
+  || fail "un acceso anónimo abre la conversación de otro"
+[ "$(code -b "$WORK/anon1" "$BASE/api/v1/admin/prompt")" = 401 ] || fail "un acceso anónimo administra"
+[ "$(anonymous anon1)" = 200 ] || fail "nuevo acceso anónimo rechazado"
+[ "$(curl -fsS -b "$WORK/anon1" "$BASE/api/v1/conversations")" = "[]" ] \
+  || fail "un nuevo acceso anónimo ve conversaciones anteriores"
+[ "$(access false)" = 200 ] || fail "ana no pudo desactivar el acceso anónimo"
+[ "$(code -b "$WORK/anon2" "$BASE/api/v1/conversations")" = 401 ] \
+  || fail "la sesión anónima sigue abierta tras desactivar el check"
+
 step "Si el directorio no responde, se informa sin bloquear las sesiones abiertas"
 compose stop ldap >/dev/null 2>&1
 [ "$(login x auth/session ana clave-ana)" = 503 ] || fail "se esperaba 503 sin directorio"

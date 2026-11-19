@@ -14,6 +14,8 @@ function api(overrides: Parameters<typeof mockApi>[0] = {}) {
     'GET /admin/session': () => jsonResponse(admin),
     'GET /admin/chat-config': () =>
       jsonResponse({ welcome_message: 'Hola', suggested_questions: ['Una'] }),
+    // Sin LDAP no se ofrece el acceso anónimo.
+    'GET /admin/access': () => jsonResponse({ anonymous_allowed: false, available: false }),
     ...overrides,
   })
 }
@@ -121,5 +123,61 @@ describe('ChatStartPage', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'No se pudo cargar la configuración.',
     )
+  })
+
+  describe('acceso anónimo', () => {
+    const checkbox = () => screen.getByRole('checkbox', { name: 'Permitir el acceso anónimo' })
+
+    it('sin LDAP no se muestra la casilla', async () => {
+      api()
+      renderApp('/admin/chat')
+      await screen.findByLabelText('Mensaje inicial')
+      await waitFor(() => expect(screen.queryByText('Acceso al chat')).toBeNull())
+      expect(screen.queryByRole('checkbox')).toBeNull()
+    })
+
+    it('con LDAP se activa y desactiva al momento', async () => {
+      const sent: boolean[] = []
+      api({
+        'GET /admin/access': () => jsonResponse({ anonymous_allowed: false, available: true }),
+        'PUT /admin/access': (init) => {
+          const { anonymous_allowed } = JSON.parse(init!.body as string)
+          sent.push(anonymous_allowed)
+          return jsonResponse({ anonymous_allowed, available: true })
+        },
+      })
+      renderApp('/admin/chat')
+
+      expect(await screen.findByRole('heading', { name: 'Acceso al chat' })).toBeVisible()
+      expect(checkbox()).not.toBeChecked()
+      expect(screen.getByText(/podrá usar el chat y abrir los documentos/)).toBeVisible()
+
+      await userEvent.click(checkbox())
+      expect(await screen.findByText('Acceso actualizado.')).toBeVisible()
+      expect(checkbox()).toBeChecked()
+
+      await userEvent.click(checkbox())
+      await waitFor(() => expect(checkbox()).not.toBeChecked())
+      expect(sent).toEqual([true, false])
+    })
+
+    it('informa si no se puede guardar o cargar', async () => {
+      api({
+        'GET /admin/access': () => jsonResponse({ anonymous_allowed: false, available: true }),
+        'PUT /admin/access': () => jsonResponse({}, 500),
+      })
+      renderApp('/admin/chat')
+      await userEvent.click(await screen.findByRole('checkbox'))
+      expect(await screen.findByRole('alert')).toHaveTextContent('No se pudo cambiar el acceso.')
+      expect(checkbox()).not.toBeChecked()
+    })
+
+    it('informa si falla la carga', async () => {
+      api({ 'GET /admin/access': () => jsonResponse({}, 500) })
+      renderApp('/admin/chat')
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        'No se pudo cargar la configuración de acceso.',
+      )
+    })
   })
 })

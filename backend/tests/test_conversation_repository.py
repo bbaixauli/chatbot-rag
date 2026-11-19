@@ -31,7 +31,10 @@ async def test_recent_messages_with_zero_limit(app: FastAPI) -> None:
         assert await repo.recent_messages(conversation.id, 0) == []
 
 
-def test_current_user_is_anonymous_without_authentication(settings: Settings) -> None:
+async def test_current_user_is_anonymous_without_authentication(
+    app: FastAPI, settings: Settings
+) -> None:
     request = cast(Request, SimpleNamespace(session={}))
-    assert get_current_user(request, settings) is ANONYMOUS_USER
+    async with app.state.sessionmaker() as db:
+        assert await get_current_user(request, settings, db) is ANONYMOUS_USER
     assert ANONYMOUS_USER.id == "anonymous"

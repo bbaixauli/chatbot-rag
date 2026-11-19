@@ -1,17 +1,27 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
-import { getAdminChatConfig, saveChatConfig } from '../../api/admin'
+import {
+  getAccessConfig,
+  getAdminChatConfig,
+  saveAccessConfig,
+  saveChatConfig,
+} from '../../api/admin'
 import { ApiError, type ChatConfig } from '../../api/client'
 import { t } from '../../i18n/es'
+import { AUTH_SESSION_KEY } from '../../auth/session'
 import { ADMIN_SESSION_KEY } from './session'
 
 const CONFIG_KEY = ['admin', 'chat-config'] as const
+const ACCESS_KEY = ['admin', 'access'] as const
 // Deben coincidir con los límites del servidor (CHATBOT_CHAT_*).
 const MAX_QUESTIONS = 5
 const WELCOME_MAX_LENGTH = 2000
 const QUESTION_MAX_LENGTH = 300
 
-/** Administración del inicio del chat: mensaje de bienvenida y preguntas sugeridas. */
+/**
+ * Administración del inicio del chat: mensaje de bienvenida, preguntas sugeridas y (con
+ * LDAP) si se permite el acceso anónimo.
+ */
 export function ChatStartPage() {
   const queryClient = useQueryClient()
   const config = useQuery({ queryKey: CONFIG_KEY, queryFn: getAdminChatConfig })
@@ -44,7 +54,59 @@ export function ChatStartPage() {
           }}
         />
       )}
+      <AccessSection />
     </div>
+  )
+}
+
+/** Casilla de acceso anónimo; solo se muestra con LDAP (sin LDAP el chat ya es anónimo). */
+function AccessSection() {
+  const queryClient = useQueryClient()
+  const access = useQuery({ queryKey: ACCESS_KEY, queryFn: getAccessConfig })
+  const save = useMutation({
+    mutationFn: saveAccessConfig,
+    onSuccess: (data) => {
+      queryClient.setQueryData(ACCESS_KEY, data)
+      // El login vuelve a consultar si ofrece el acceso anónimo.
+      void queryClient.invalidateQueries({ queryKey: AUTH_SESSION_KEY })
+    },
+  })
+
+  if (access.isPending || (access.isSuccess && !access.data.available)) return null
+  return (
+    <section className="flex flex-col gap-2 border-t border-gray-200 pt-6">
+      <h3 className="font-medium">{t.chatStart.accessTitle}</h3>
+      {access.isError ? (
+        <p role="alert" className="text-sm text-red-700">
+          {t.chatStart.accessLoadError}
+        </p>
+      ) : (
+        <>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={access.data.anonymous_allowed}
+              disabled={save.isPending}
+              onChange={(e) => save.mutate(e.target.checked)}
+              className="h-4 w-4"
+            />
+            {t.chatStart.anonymousLabel}
+          </label>
+          <p className="text-sm text-gray-600">{t.chatStart.anonymousHint}</p>
+          <p className="text-sm text-amber-800">{t.chatStart.anonymousWarning}</p>
+          {save.isSuccess && (
+            <p role="status" className="text-sm text-emerald-700">
+              {t.chatStart.accessSaved}
+            </p>
+          )}
+          {save.isError && (
+            <p role="alert" className="text-sm text-red-700">
+              {t.chatStart.accessSaveError}
+            </p>
+          )}
+        </>
+      )}
+    </section>
   )
 }
 
