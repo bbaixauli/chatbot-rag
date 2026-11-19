@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import pytest
@@ -20,6 +21,16 @@ def test_explicit_database_url_wins() -> None:
 def test_env_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CHATBOT_APP_NAME", "Otro")
     assert Settings().app_name == "Otro"
+
+
+def test_tests_ignore_local_env_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Ver conftest.py: un `.env` local (p. ej. con CHATBOT_ADMIN_PASSWORD) no debe
+    # cambiar el resultado de los tests.
+    (tmp_path / ".env").write_text("CHATBOT_APP_NAME=Desde .env\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    assert Settings().app_name == "Chatbot RAG"
+    assert not [name for name in os.environ if name.upper().startswith("CHATBOT_")]
 
 
 def test_invalid_environment_rejected() -> None:
