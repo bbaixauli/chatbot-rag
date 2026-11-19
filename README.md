@@ -65,7 +65,8 @@ Configura en `backend/.env` la URL y el modelo del servidor de IA (`CHATBOT_LLM_
 probar la interfaz sin servidor de IA, usa `CHATBOT_LLM_PROVIDER=fake`.
 
 La administración (http://localhost:5173/admin) se habilita definiendo
-`CHATBOT_ADMIN_PASSWORD` (y, recomendado, `CHATBOT_SESSION_SECRET`). Desde ella se edita el
+`CHATBOT_ADMIN_PASSWORD` (y, recomendado, `CHATBOT_SESSION_SECRET`, de al menos 16 caracteres;
+en producción es obligatorio y no se admite la contraseña de ejemplo). Desde ella se edita el
 prompt de sistema, que se guarda con histórico de versiones y se aplica a los mensajes nuevos,
 se configura el inicio del chat y se gestionan los documentos del RAG (PDF, Markdown y HTML).
 

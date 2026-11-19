@@ -8,6 +8,16 @@ from typing import Literal
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Con una clave vacía o corta, cualquiera podría firmar cookies de sesión válidas
+# (hacerse pasar por el administrador o por cualquier usuario).
+SESSION_SECRET_MIN_LENGTH = 16
+# Contraseña de ejemplo de `.env.example`: no se admite en producción.
+EXAMPLE_ADMIN_PASSWORD = "cambia-esta-contraseña"  # noqa: S105 (solo para rechazarla)
+
+
+def _random_secret() -> SecretStr:
+    return SecretStr(secrets.token_urlsafe(32))
+
 
 class Settings(BaseSettings):
     """Parámetros configurables de la aplicación.
@@ -45,9 +55,10 @@ class Settings(BaseSettings):
     # Administración. Sin contraseña configurada, la administración queda deshabilitada.
     admin_username: str = "admin"
     admin_password: SecretStr | None = None
-    # Clave para firmar la cookie de sesión. Si no se define, se genera una aleatoria
-    # al arrancar (las sesiones se pierden al reiniciar).
-    session_secret: SecretStr = Field(default_factory=lambda: SecretStr(secrets.token_urlsafe(32)))
+    # Clave para firmar la cookie de sesión. Si no se define (o está vacía), se genera una
+    # aleatoria al arrancar (las sesiones se pierden al reiniciar); en producción es
+    # obligatoria si hay sesiones (administración o LDAP).
+    session_secret: SecretStr = Field(default_factory=_random_secret)
     session_max_age_seconds: int = Field(default=8 * 3600, gt=0)
     session_cookie_secure: bool = False
     system_prompt_max_length: int = Field(default=20_000, gt=0)
@@ -129,7 +140,7 @@ class Settings(BaseSettings):
     )
 
     @model_validator(mode="after")
-    def _check_ldap(self) -> "Settings":
+    def _check_consistency(self) -> "Settings":
         if self.task_runner == "arq" and self.vector_store != "qdrant":
             # ChromaDB embebido vive en un único proceso: los workers no lo comparten.
             raise ValueError("CHATBOT_TASK_RUNNER=arq requiere CHATBOT_VECTOR_STORE=qdrant")
@@ -140,7 +151,40 @@ class Settings(BaseSettings):
                 )
             if "{username}" not in self.ldap_user_filter:
                 raise ValueError("CHATBOT_LDAP_USER_FILTER debe contener {username}")
+        self._check_session_security()
         return self
+
+    @property
+    def uses_sessions(self) -> bool:
+        """True si hay inicio de sesión (administración o usuarios LDAP)."""
+        return self.admin_password is not None or self.auth_mode == "ldap"
+
+    @property
+    def uses_example_admin_password(self) -> bool:
+        """True si la contraseña de administración es la de `.env.example`."""
+        password = self.admin_password
+        return password is not None and password.get_secret_value() == EXAMPLE_ADMIN_PASSWORD
+
+    def _check_session_security(self) -> None:
+        production = self.environment == "production"
+        secret = self.session_secret.get_secret_value().strip()
+        if not secret:
+            # `CHATBOT_SESSION_SECRET=` (vacía) cuenta como no definida: nunca se firma con
+            # una clave vacía.
+            if production and self.uses_sessions:
+                raise ValueError(_missing_secret_message())
+            self.session_secret = _random_secret()
+        elif len(secret) < SESSION_SECRET_MIN_LENGTH:
+            raise ValueError(
+                f"CHATBOT_SESSION_SECRET debe tener al menos {SESSION_SECRET_MIN_LENGTH} "
+                "caracteres. " + _GENERATE_KEY_HINT
+            )
+        elif production and self.uses_sessions and "session_secret" not in self.model_fields_set:
+            raise ValueError(_missing_secret_message())
+        if production and self.uses_example_admin_password:
+            raise ValueError(
+                "CHATBOT_ADMIN_PASSWORD tiene el valor de ejemplo de .env.example: cámbiala."
+            )
 
     @property
     def uploads_dir(self) -> Path:
@@ -158,6 +202,16 @@ class Settings(BaseSettings):
         if self.database_url:
             return self.database_url
         return f"sqlite+aiosqlite:///{(self.data_dir / 'app.db').as_posix()}"
+
+
+_GENERATE_KEY_HINT = 'Genera una con: python -c "import secrets; print(secrets.token_urlsafe(32))"'
+
+
+def _missing_secret_message() -> str:
+    return (
+        "En producción, CHATBOT_SESSION_SECRET es obligatoria cuando hay inicio de sesión "
+        "(administración o LDAP). " + _GENERATE_KEY_HINT
+    )
 
 
 @lru_cache
