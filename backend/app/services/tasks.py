@@ -30,8 +30,13 @@ class TaskRunner(Protocol):
         """Asocia un trabajo con la función que lo ejecuta (en el proceso que lo atiende)."""
         ...
 
-    async def enqueue(self, job: str, argument: str) -> None:
-        """Programa un trabajo y vuelve inmediatamente."""
+    async def enqueue(self, job: str, argument: str, version: str | None = None) -> None:
+        """Programa un trabajo y vuelve inmediatamente.
+
+        `version` identifica la petición: dos trabajos con el mismo argumento y la misma
+        versión son el mismo trabajo (se puede deduplicar); con otra versión, es una
+        petición nueva que no debe descartarse aunque el anterior siga en curso.
+        """
         ...
 
     async def drain(self) -> None:
@@ -66,7 +71,7 @@ class InProcessTaskRunner:
     def register(self, job: str, handler: JobHandler) -> None:
         self._handlers[job] = handler
 
-    async def enqueue(self, job: str, argument: str) -> None:
+    async def enqueue(self, job: str, argument: str, version: str | None = None) -> None:
         handler = self._handlers[job]
         self.submit(f"{job}-{argument}", lambda: handler(argument))
 
@@ -99,12 +104,15 @@ class ArqTaskRunner:
     def register(self, job: str, handler: JobHandler) -> None:
         """Los trabajos los ejecuta el worker, que tiene sus propias funciones."""
 
-    async def enqueue(self, job: str, argument: str) -> None:
+    async def enqueue(self, job: str, argument: str, version: str | None = None) -> None:
         # El id evita encolar dos veces el mismo trabajo mientras está pendiente o en curso
-        # (p. ej. al reiniciar la API con documentos pendientes).
-        queued = await self._pool.enqueue_job(job, argument, _job_id=f"{job}:{argument}")
+        # (p. ej. al reiniciar la API con documentos pendientes). Incluye la versión de la
+        # petición: si no, una reindexación pedida mientras un worker procesa el documento
+        # se descartaría y el índice podría quedarse sin sus fragmentos.
+        job_id = f"{job}:{argument}" if version is None else f"{job}:{argument}:{version}"
+        queued = await self._pool.enqueue_job(job, argument, _job_id=job_id)
         if queued is None:
-            logger.info("El trabajo %s:%s ya estaba en la cola", job, argument)
+            logger.info("El trabajo %s ya estaba en la cola", job_id)
 
     async def drain(self) -> None:
         """Los trabajos se ejecutan en otro proceso: no hay nada que esperar aquí."""

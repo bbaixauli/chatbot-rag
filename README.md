@@ -100,7 +100,7 @@ configurado en `CHATBOT_EMBEDDING_*`:
 - `fake`: simulado, sin red (tests y demos).
 
 Si se cambia de modelo, pulsa **Reindexar todo** en *Administración → Documentos* (vacía el
-índice y vuelve a indexar todos los documentos).
+índice y vuelve a indexar todos los documentos; mientras tanto, el chat responde sin ellos).
 
 Para volúmenes grandes, el índice puede estar en **Qdrant** y la indexación repartirse entre
 **workers** con una cola en **Redis** (`docker-compose.escalado.yml`, ver la

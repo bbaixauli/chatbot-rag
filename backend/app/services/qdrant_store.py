@@ -41,7 +41,6 @@ class QdrantVectorStore:
     def __init__(self, client: AsyncQdrantClient, collection: str) -> None:
         self._client = client
         self._collection = collection
-        self._dimension: int | None = None
 
     @classmethod
     def from_url(cls, url: str, api_key: str | None, collection: str) -> "QdrantVectorStore":
@@ -76,8 +75,9 @@ class QdrantVectorStore:
         return None  # pragma: no cover
 
     async def _ensure_collection(self, dimension: int) -> None:
-        if self._dimension == dimension:
-            return
+        # Se comprueba en cada documento (no se guarda en memoria): otro proceso puede
+        # haber vaciado el índice («Reindexar todo», restaurar una copia) y el worker
+        # debe volver a crear la colección.
         current = await self._collection_dimension()
         if current is None:
             try:
@@ -106,7 +106,6 @@ class QdrantVectorStore:
                 f"El índice tiene vectores de {current} dimensiones y el modelo de embeddings "
                 f"genera {dimension}. Pulsa «Reindexar todo» en la administración."
             )
-        self._dimension = dimension
 
     async def add(
         self,
@@ -176,7 +175,6 @@ class QdrantVectorStore:
         """Elimina la colección (p. ej. al restaurar una copia de seguridad)."""
         if await self._client.collection_exists(self._collection):
             await self._client.delete_collection(self._collection)
-        self._dimension = None
 
 
 def _hit(payload: dict[str, Any], score: float) -> SearchHit:

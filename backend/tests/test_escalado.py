@@ -147,11 +147,51 @@ async def test_api_with_arq_enqueues_instead_of_indexing(app: FastAPI, settings:
     assert result.document is not None
     document_id = result.document.id
 
-    assert pool.jobs == [(INDEX_DOCUMENT, (document_id,), f"index_document:{document_id}")]
+    [(job, args, job_id)] = pool.jobs
+    assert (job, args) == (INDEX_DOCUMENT, (document_id,))
+    assert job_id.startswith(f"index_document:{document_id}:")
     assert (await service.get(document_id)).status == DocumentStatus.PENDING.value  # type: ignore[union-attr]
     # Al reiniciar la API, los pendientes se vuelven a encolar sin duplicarse.
     assert await service.resume_pending() == 1
     assert len(pool.jobs) == 1
+
+
+async def test_reindex_requested_while_a_job_is_running_is_not_lost(
+    app: FastAPI, settings: Settings
+) -> None:
+    """Con arq, un trabajo en curso deduplica su id: una reindexación pedida mientras
+    tanto (p. ej. «Reindexar todo», que vacía el índice) debe encolar otro trabajo."""
+    pool = FakePool()
+    service = DocumentService(
+        app.state.sessionmaker,
+        settings,
+        app.state.embeddings,
+        app.state.vector_store,
+        ArqTaskRunner(pool),  # type: ignore[arg-type]
+    )
+    async with app.state.sessionmaker() as session:
+        document = Document(
+            filename="guia.md",
+            kind="markdown",
+            size_bytes=len(MARKDOWN),
+            sha256="1" * 64,
+            uploaded_by="admin",
+        )
+        session.add(document)
+        await session.commit()
+        document_id = document.id
+
+    # Primer trabajo: sigue en la cola (pendiente o en curso en un worker).
+    await service.reindex(document_id)
+    # Segunda petición mientras tanto: no puede descartarse por tener el mismo id.
+    await service.reindex(document_id)
+
+    ids = [job_id for *_, job_id in pool.jobs]
+    assert len(ids) == 2
+    assert len(set(ids)) == 2
+    # Al reiniciar la API se reconoce el último trabajo encolado y no se duplica.
+    assert await service.resume_pending() == 1
+    assert len(pool.jobs) == 2
 
 
 async def test_worker_indexes_documents_into_qdrant(

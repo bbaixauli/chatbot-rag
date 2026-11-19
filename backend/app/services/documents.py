@@ -5,6 +5,7 @@ import hashlib
 import logging
 import uuid
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
 
@@ -44,6 +45,17 @@ class IndexStats:
     documents: int
     chunks: int
     by_status: dict[str, int]
+
+
+def _request_version(requested_at: datetime) -> str:
+    """Marca estable de una petición de indexación.
+
+    SQLite devuelve las fechas sin zona horaria (guardadas en UTC) y otras bases de datos
+    con ella: se normalizan para que la misma petición genere siempre la misma marca.
+    """
+    if requested_at.tzinfo is None:
+        requested_at = requested_at.replace(tzinfo=UTC)
+    return requested_at.astimezone(UTC).strftime("%Y%m%dT%H%M%S%fZ")
 
 
 def safe_filename(filename: str) -> str:
@@ -108,7 +120,7 @@ class DocumentService:
         finally:
             temp.unlink(missing_ok=True)
 
-        await self._schedule(document.id)
+        await self._schedule(document.id, document.updated_at)
         return UploadResult(document, duplicate=False)
 
     async def _write(self, content: AsyncReadable, target: Path) -> tuple[str, int]:
@@ -126,8 +138,10 @@ class DocumentService:
                 out.write(chunk)
         return sha.hexdigest(), size
 
-    async def _schedule(self, document_id: str) -> None:
-        await self._tasks.enqueue(INDEX_DOCUMENT, document_id)
+    async def _schedule(self, document_id: str, requested_at: datetime) -> None:
+        """Encola la indexación; `requested_at` (el `updated_at` que fijó la petición)
+        distingue una petición nueva de la misma petición reprogramada."""
+        await self._tasks.enqueue(INDEX_DOCUMENT, document_id, _request_version(requested_at))
 
     async def process(self, document_id: str) -> None:
         """Extrae, trocea, calcula embeddings e indexa un documento."""
@@ -209,7 +223,7 @@ class DocumentService:
             document.error = None
             document.updated_at = utcnow()
             await session.commit()
-        await self._schedule(document_id)
+        await self._schedule(document_id, document.updated_at)
         return document
 
     async def reindex_all(self) -> int:
@@ -228,17 +242,19 @@ class DocumentService:
     async def resume_pending(self) -> int:
         """Reprograma documentos que quedaron a medias (p. ej. por un reinicio)."""
         async with self._sessionmaker() as session:
-            result = await session.scalars(
-                select(Document.id).where(
+            result = await session.execute(
+                select(Document.id, Document.updated_at).where(
                     Document.status.in_(
                         [DocumentStatus.PENDING.value, DocumentStatus.PROCESSING.value]
                     )
                 )
             )
-            ids = list(result)
-        for document_id in ids:
-            await self._schedule(document_id)
-        return len(ids)
+            rows = result.all()
+        # Los pendientes conservan la fecha de su petición: con la cola de arq se reconoce
+        # el trabajo ya encolado y no se duplica.
+        for document_id, updated_at in rows:
+            await self._schedule(document_id, updated_at)
+        return len(rows)
 
     async def stats(self) -> IndexStats:
         async with self._sessionmaker() as session:
