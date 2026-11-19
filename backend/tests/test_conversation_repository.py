@@ -1,11 +1,7 @@
-from types import SimpleNamespace
-from typing import cast
-
 import pytest
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 
 from app.core.auth import ANONYMOUS_USER, get_current_user
-from app.core.config import Settings
 from app.services.conversations import ConversationRepository, make_title
 
 
@@ -31,7 +27,6 @@ async def test_recent_messages_with_zero_limit(app: FastAPI) -> None:
         assert await repo.recent_messages(conversation.id, 0) == []
 
 
-def test_current_user_is_anonymous_without_authentication(settings: Settings) -> None:
-    request = cast(Request, SimpleNamespace(session={}))
-    assert get_current_user(request, settings) is ANONYMOUS_USER
+def test_current_user_is_anonymous() -> None:
+    assert get_current_user() is ANONYMOUS_USER
     assert ANONYMOUS_USER.id == "anonymous"

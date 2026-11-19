@@ -6,11 +6,9 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 
-from app.api.auth import ldap_login
 from app.api.deps import DbSession, SettingsDep
 from app.api.schemas import ChatConfigOut
 from app.core.auth import SESSION_ADMIN_KEY, AdminDep, get_admin, verify_admin_credentials
-from app.core.config import Settings
 from app.core.rate_limit import LoginRateLimit
 from app.db.models import SystemPromptVersion
 from app.services.chat_config import MAX_SUGGESTED_QUESTIONS, ChatConfig, ChatConfigRepository
@@ -62,43 +60,25 @@ async def get_session(request: Request, settings: SettingsDep) -> SessionOut:
     return SessionOut(
         authenticated=admin is not None,
         username=admin.username if admin else None,
-        enabled=_admin_enabled(settings),
+        enabled=settings.admin_password is not None,
     )
-
-
-def _admin_enabled(settings: Settings) -> bool:
-    """Hay cuenta local o administradores del directorio."""
-    ldap_admins = settings.auth_mode == "ldap" and bool(settings.ldap_admin_group_dn)
-    return settings.admin_password is not None or ldap_admins
 
 
 @router.post("/session", response_model=SessionOut)
 async def login(
     body: LoginRequest, request: Request, settings: SettingsDep, _: LoginRateLimit
 ) -> SessionOut:
-    """Cuenta local de administración o, con LDAP, usuario del grupo de administración."""
-    if not _admin_enabled(settings):
+    if settings.admin_password is None:
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE,
             "La administración no está configurada (falta CHATBOT_ADMIN_PASSWORD)",
         )
-    is_local = settings.admin_password is not None and body.username == settings.admin_username
-    if is_local or settings.auth_mode != "ldap":
-        # Las credenciales de la cuenta local nunca se envían al directorio.
-        if not verify_admin_credentials(settings, body.username, body.password):
-            await asyncio.sleep(FAILED_LOGIN_DELAY_SECONDS)
-            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Usuario o contraseña incorrectos")
-        request.session.clear()
-        request.session[SESSION_ADMIN_KEY] = body.username
-        return SessionOut(authenticated=True, username=body.username, enabled=True)
-
-    user = await ldap_login(request, body.username, body.password)
-    if not user.is_admin:
-        # La sesión del chat queda iniciada, pero sin acceso a la administración.
-        raise HTTPException(
-            status.HTTP_403_FORBIDDEN, "Tu usuario no tiene permisos de administración"
-        )
-    return SessionOut(authenticated=True, username=user.id, enabled=True)
+    if not verify_admin_credentials(settings, body.username, body.password):
+        await asyncio.sleep(FAILED_LOGIN_DELAY_SECONDS)
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Usuario o contraseña incorrectos")
+    request.session.clear()
+    request.session[SESSION_ADMIN_KEY] = body.username
+    return SessionOut(authenticated=True, username=body.username, enabled=True)
 
 
 @router.delete("/session", status_code=status.HTTP_204_NO_CONTENT)

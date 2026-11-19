@@ -83,4 +83,3 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - run: scripts/docker-smoke.sh
-      - run: scripts/ldap-smoke.sh

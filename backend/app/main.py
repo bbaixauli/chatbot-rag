@@ -8,9 +8,8 @@ from fastapi import FastAPI
 from sqlalchemy.exc import OperationalError
 from starlette.middleware.sessions import SessionMiddleware
 
-from app.api import admin, auth, chat, conversations, documents, health
+from app.api import admin, chat, conversations, documents, health
 from app.core.config import Settings, get_settings
-from app.core.ldap_auth import LdapAuthenticator
 from app.core.logging import RequestContextMiddleware, configure_logging
 from app.core.rate_limit import RateLimiter
 from app.db.session import build_engine, build_sessionmaker
@@ -63,8 +62,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title=settings.app_name, version=settings.version, lifespan=lifespan)
     app.state.settings = settings
     app.state.rate_limiter = RateLimiter()
-    # No abre conexiones al crearse: solo al validar un inicio de sesión.
-    app.state.ldap = LdapAuthenticator(settings) if settings.auth_mode == "ldap" else None
     app.add_middleware(
         SessionMiddleware,
         secret_key=settings.session_secret.get_secret_value(),
@@ -77,7 +74,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_middleware(RequestContextMiddleware)
     for router in (
         health.router,
-        auth.router,
         conversations.router,
         chat.router,
         admin.router,

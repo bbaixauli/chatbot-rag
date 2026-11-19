@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, stat
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict
 
-from app.core.auth import AdminDep, CurrentUserDep
+from app.core.auth import AdminDep
 from app.db.models import Document
 from app.services.documents import DocumentService, UploadError
 
@@ -163,7 +163,7 @@ _INLINE_TYPES: dict[str, str] = {
 
 
 @public_router.get("/{document_id}/file", response_class=FileResponse)
-async def view_document(document_id: str, service: DocumentsDep, _: CurrentUserDep) -> FileResponse:
+async def view_document(document_id: str, service: DocumentsDep) -> FileResponse:
     """Muestra el original en el navegador (los PDF admiten `#page=N`)."""
     document = await _get_or_404(service, document_id)
     path = service.file_path(document)
