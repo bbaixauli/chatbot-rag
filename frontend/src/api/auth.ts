@@ -8,13 +8,18 @@ export interface AuthUser {
   is_anonymous?: boolean
 }
 
-/** Sesión del usuario del chat. Con `mode: 'none'` el chat es anónimo. */
+/**
+ * Sesión del usuario del chat. Con `mode: 'none'` el chat es anónimo: historial compartido o,
+ * con `private_sessions`, una sesión privada por visitante.
+ */
 export interface AuthSession {
   mode: 'none' | 'ldap'
   authenticated: boolean
   user: AuthUser | null
   /** Con LDAP, si el login ofrece entrar de forma anónima (ausente = no). */
   anonymous_allowed?: boolean
+  /** Sin LDAP, si cada visitante usa su propia sesión privada (ausente = no). */
+  private_sessions?: boolean
 }
 
 export const getAuthSession = () => apiGet<AuthSession>('/auth/session')

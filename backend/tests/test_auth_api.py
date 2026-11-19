@@ -55,6 +55,7 @@ async def test_session_lifecycle(client: AsyncClient) -> None:
         "authenticated": False,
         "user": None,
         "anonymous_allowed": False,
+        "private_sessions": False,
     }
 
     body = await login(client, "ana")
@@ -64,6 +65,7 @@ async def test_session_lifecycle(client: AsyncClient) -> None:
         "authenticated": True,
         "user": {"id": "ana", "display_name": "Ana López", "is_admin": True, "is_anonymous": False},
         "anonymous_allowed": False,
+        "private_sessions": False,
     }
     assert body == expected
     assert (await client.get(URL)).json() == expected
@@ -146,6 +148,19 @@ async def test_regular_users_cannot_administer(client: AsyncClient) -> None:
     assert (await client.get("/api/v1/conversations")).status_code == 200
 
 
+async def test_admin_logout_with_ldap_closes_the_chat_session_too(client: AsyncClient) -> None:
+    """Con LDAP, la administración y el chat son la misma sesión del usuario."""
+    response = await client.post(
+        "/api/v1/admin/session", json={"username": "ana", "password": PASSWORDS["ana"]}
+    )
+    assert response.status_code == 200
+
+    assert (await client.delete("/api/v1/admin/session")).status_code == 204
+
+    assert (await client.get("/api/v1/admin/prompt")).status_code == 401
+    assert (await client.get("/api/v1/conversations")).status_code == 401
+
+
 async def test_local_admin_account_still_works_without_asking_the_directory(
     app: FastAPI, client: AsyncClient
 ) -> None:
@@ -193,6 +208,7 @@ async def test_without_ldap_the_chat_stays_anonymous(app: FastAPI, client: Async
         "authenticated": False,
         "user": None,
         "anonymous_allowed": False,
+        "private_sessions": False,
     }
     response = await client.post(URL, json={"username": "ana", "password": PASSWORDS["ana"]})
     assert response.status_code == 409

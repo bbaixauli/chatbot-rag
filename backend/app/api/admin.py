@@ -2,7 +2,9 @@
 
 import asyncio
 import logging
+from dataclasses import replace
 from datetime import datetime
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
@@ -53,13 +55,17 @@ class ChatConfigUpdate(BaseModel):
 
 
 class AccessOut(BaseModel):
+    # Indica qué ajuste se ofrece: `anonymous_allowed` con LDAP, `private_sessions` sin él.
+    mode: Literal["none", "ldap"]
     anonymous_allowed: bool
-    # El acceso anónimo solo tiene sentido con LDAP (sin LDAP, el chat ya es anónimo).
-    available: bool
+    private_sessions: bool
 
 
 class AccessUpdate(BaseModel):
-    anonymous_allowed: bool
+    """Solo se puede cambiar el ajuste que corresponde al modo de autenticación."""
+
+    anonymous_allowed: bool | None = None
+    private_sessions: bool | None = None
 
 
 class PromptVersionOut(BaseModel):
@@ -101,7 +107,11 @@ async def login(
         if not verify_admin_credentials(settings, body.username, body.password):
             await asyncio.sleep(FAILED_LOGIN_DELAY_SECONDS)
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Usuario o contraseña incorrectos")
-        request.session.clear()
+        if settings.auth_mode == "ldap":
+            request.session.clear()
+        else:
+            # Sin LDAP, la sesión privada del chat (si la hay) es independiente: se conserva.
+            request.session.pop(SESSION_ADMIN_KEY, None)
         request.session[SESSION_ADMIN_KEY] = body.username
         return SessionOut(authenticated=True, username=body.username, enabled=True)
 
@@ -115,8 +125,12 @@ async def login(
 
 
 @router.delete("/session", status_code=status.HTTP_204_NO_CONTENT)
-async def logout(request: Request) -> Response:
-    request.session.clear()
+async def logout(request: Request, settings: SettingsDep) -> Response:
+    if settings.auth_mode == "ldap":
+        request.session.clear()
+    else:
+        # Sin LDAP solo se cierra la administración: la sesión privada del chat continúa.
+        request.session.pop(SESSION_ADMIN_KEY, None)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -201,7 +215,9 @@ async def update_chat_config(
 
 def _access_out(settings: Settings, config: AccessConfig) -> AccessOut:
     return AccessOut(
-        anonymous_allowed=config.anonymous_allowed, available=settings.auth_mode == "ldap"
+        mode=settings.auth_mode,
+        anonymous_allowed=config.anonymous_allowed,
+        private_sessions=config.private_sessions,
     )
 
 
@@ -214,19 +230,33 @@ async def get_access(_: AdminDep, db: DbSession, settings: SettingsDep) -> Acces
 async def update_access(
     body: AccessUpdate, admin: AdminDep, db: DbSession, settings: SettingsDep
 ) -> AccessOut:
-    """Permite o impide el acceso anónimo. Al impedirlo, las sesiones anónimas abiertas
-    dejan de funcionar en su siguiente petición."""
-    if settings.auth_mode != "ldap":
+    """Con LDAP, permite o impide el acceso anónimo; sin LDAP, activa o desactiva las
+    sesiones privadas. Al desactivarlos, las sesiones anónimas abiertas dejan de funcionar
+    en su siguiente petición."""
+    ldap = settings.auth_mode == "ldap"
+    if (body.anonymous_allowed is not None and not ldap) or (
+        body.private_sessions is not None and ldap
+    ):
         raise HTTPException(
-            status.HTTP_409_CONFLICT, "El acceso anónimo solo se configura con LDAP"
+            status.HTTP_409_CONFLICT,
+            "El acceso anónimo solo se configura con LDAP y las sesiones privadas sin LDAP",
         )
-    config = await AccessRepository(db).save(
-        AccessConfig(anonymous_allowed=body.anonymous_allowed), admin.username
-    )
+    repo = AccessRepository(db)
+    config = await repo.get()
+    if body.anonymous_allowed is not None:
+        config = replace(config, anonymous_allowed=body.anonymous_allowed)
+        change = ("Acceso anónimo", body.anonymous_allowed)
+    elif body.private_sessions is not None:
+        config = replace(config, private_sessions=body.private_sessions)
+        change = ("Sesiones privadas", body.private_sessions)
+    else:
+        return _access_out(settings, config)
+    config = await repo.save(config, admin.username)
     await db.commit()
     logger.info(
-        "Acceso anónimo %s",
-        "permitido" if config.anonymous_allowed else "desactivado",
+        "%s %s",
+        change[0],
+        "activado" if change[1] else "desactivado",
         extra={"user_id": admin.username},
     )
     return _access_out(settings, config)

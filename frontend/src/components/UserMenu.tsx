@@ -1,10 +1,10 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from 'react-router'
-import { userLogout } from '../api/auth'
+import { anonymousLogin, userLogout } from '../api/auth'
 import { AUTH_SESSION_KEY, useAuthSession } from '../auth/session'
 import { t } from '../i18n/es'
 
-/** Usuario conectado, enlace a la administración y cierre de sesión. */
+/** Usuario conectado (o sesión privada), enlace a la administración y cierre de sesión. */
 export function UserMenu() {
   const session = useAuthSession()
   const queryClient = useQueryClient()
@@ -27,10 +27,21 @@ export function UserMenu() {
     },
   })
 
-  const user = session.data?.mode === 'ldap' ? session.data.user : null
-  // Sin LDAP, el enlace lleva al acceso con la cuenta local de administración. Un acceso
-  // anónimo nunca administra.
-  const showAdmin = !user || user.is_admin
+  // Sin LDAP, «Terminar sesión» empieza otra sesión privada vacía.
+  const restart = useMutation({
+    mutationFn: anonymousLogin,
+    onSuccess: (data) => {
+      queryClient.clear()
+      queryClient.setQueryData(AUTH_SESSION_KEY, data)
+      navigate('/')
+    },
+  })
+
+  const ldap = session.data?.mode === 'ldap'
+  const user = session.data?.user ?? null
+  // Sin LDAP, el enlace lleva al acceso con la cuenta local de administración (también con
+  // sesión privada). Con LDAP, un acceso anónimo nunca administra.
+  const showAdmin = !ldap || !user || user.is_admin
 
   return (
     <>
@@ -39,7 +50,32 @@ export function UserMenu() {
           {t.nav.admin}
         </Link>
       )}
-      {user && (
+      {!ldap && user && (
+        <div className="flex items-center gap-3 text-sm">
+          <span
+            className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-700"
+            title={t.nav.privateSessionHint}
+          >
+            {t.nav.privateSession}
+          </span>
+          <button
+            type="button"
+            disabled={restart.isPending}
+            onClick={() => {
+              if (window.confirm(t.nav.confirmEndPrivateSession)) restart.mutate()
+            }}
+            className="rounded-md border border-gray-300 px-3 py-1.5 hover:bg-gray-50 disabled:opacity-50"
+          >
+            {t.nav.endPrivateSession}
+          </button>
+          {restart.isError && (
+            <span role="alert" className="text-red-700">
+              {t.nav.endPrivateSessionError}
+            </span>
+          )}
+        </div>
+      )}
+      {ldap && user && (
         <div className="flex items-center gap-3 text-sm">
           {user.is_anonymous ? (
             // El id de un acceso anónimo no dice nada al usuario: se explica la sesión.

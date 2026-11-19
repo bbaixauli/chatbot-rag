@@ -1,7 +1,7 @@
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
-import type { AdminSession } from '../../api/admin'
+import type { AccessConfig, AdminSession } from '../../api/admin'
 import type { ChatConfig } from '../../api/client'
 import { health, jsonResponse, mockApi, renderApp } from '../../test/utils'
 
@@ -14,11 +14,17 @@ function api(overrides: Parameters<typeof mockApi>[0] = {}) {
     'GET /admin/session': () => jsonResponse(admin),
     'GET /admin/chat-config': () =>
       jsonResponse({ welcome_message: 'Hola', suggested_questions: ['Una'] }),
-    // Sin LDAP no se ofrece el acceso anónimo.
-    'GET /admin/access': () => jsonResponse({ anonymous_allowed: false, available: false }),
+    'GET /admin/access': () => jsonResponse(access('none')),
     ...overrides,
   })
 }
+
+const access = (mode: 'none' | 'ldap', overrides: Partial<AccessConfig> = {}): AccessConfig => ({
+  mode,
+  anonymous_allowed: false,
+  private_sessions: false,
+  ...overrides,
+})
 
 const question = (n: number) => screen.getByLabelText(`Pregunta sugerida ${n}`)
 
@@ -125,51 +131,69 @@ describe('ChatStartPage', () => {
     )
   })
 
-  describe('acceso anónimo', () => {
-    const checkbox = () => screen.getByRole('checkbox', { name: 'Permitir el acceso anónimo' })
+  describe('acceso al chat', () => {
+    const anonymousBox = () => screen.getByRole('checkbox', { name: 'Permitir el acceso anónimo' })
+    const privateBox = () =>
+      screen.getByRole('checkbox', { name: 'Sesiones privadas y temporales' })
 
-    it('sin LDAP no se muestra la casilla', async () => {
-      api()
-      renderApp('/admin/chat')
-      await screen.findByLabelText('Mensaje inicial')
-      await waitFor(() => expect(screen.queryByText('Acceso al chat')).toBeNull())
-      expect(screen.queryByRole('checkbox')).toBeNull()
-    })
-
-    it('con LDAP se activa y desactiva al momento', async () => {
-      const sent: boolean[] = []
-      api({
-        'GET /admin/access': () => jsonResponse({ anonymous_allowed: false, available: true }),
-        'PUT /admin/access': (init) => {
-          const { anonymous_allowed } = JSON.parse(init!.body as string)
-          sent.push(anonymous_allowed)
-          return jsonResponse({ anonymous_allowed, available: true })
+    function saving(mode: 'none' | 'ldap', sent: object[]) {
+      let current = access(mode)
+      return {
+        'GET /admin/access': () => jsonResponse(current),
+        'PUT /admin/access': (init: RequestInit | undefined) => {
+          const change = JSON.parse(init!.body as string)
+          sent.push(change)
+          current = { ...current, ...change }
+          return jsonResponse(current)
         },
-      })
+      }
+    }
+
+    it('sin LDAP ofrece las sesiones privadas y las activa al momento', async () => {
+      const sent: object[] = []
+      api(saving('none', sent))
       renderApp('/admin/chat')
 
       expect(await screen.findByRole('heading', { name: 'Acceso al chat' })).toBeVisible()
-      expect(checkbox()).not.toBeChecked()
-      expect(screen.getByText(/podrá usar el chat y abrir los documentos/)).toBeVisible()
+      expect(privateBox()).not.toBeChecked()
+      expect(screen.queryByRole('checkbox', { name: 'Permitir el acceso anónimo' })).toBeNull()
+      expect(screen.getByText(/se vuelve al historial compartido/)).toBeVisible()
 
-      await userEvent.click(checkbox())
+      await userEvent.click(privateBox())
       expect(await screen.findByText('Acceso actualizado.')).toBeVisible()
-      expect(checkbox()).toBeChecked()
-
-      await userEvent.click(checkbox())
-      await waitFor(() => expect(checkbox()).not.toBeChecked())
-      expect(sent).toEqual([true, false])
+      expect(privateBox()).toBeChecked()
+      await userEvent.click(privateBox())
+      await waitFor(() => expect(privateBox()).not.toBeChecked())
+      expect(sent).toEqual([{ private_sessions: true }, { private_sessions: false }])
     })
 
-    it('informa si no se puede guardar o cargar', async () => {
+    it('con LDAP ofrece el acceso anónimo y lo activa al momento', async () => {
+      const sent: object[] = []
+      api(saving('ldap', sent))
+      renderApp('/admin/chat')
+
+      expect(await screen.findByRole('heading', { name: 'Acceso al chat' })).toBeVisible()
+      expect(anonymousBox()).not.toBeChecked()
+      expect(screen.queryByRole('checkbox', { name: 'Sesiones privadas y temporales' })).toBeNull()
+      expect(screen.getByText(/podrá usar el chat y abrir los documentos/)).toBeVisible()
+
+      await userEvent.click(anonymousBox())
+      expect(await screen.findByText('Acceso actualizado.')).toBeVisible()
+      expect(anonymousBox()).toBeChecked()
+      await userEvent.click(anonymousBox())
+      await waitFor(() => expect(anonymousBox()).not.toBeChecked())
+      expect(sent).toEqual([{ anonymous_allowed: true }, { anonymous_allowed: false }])
+    })
+
+    it('informa si no se puede guardar', async () => {
       api({
-        'GET /admin/access': () => jsonResponse({ anonymous_allowed: false, available: true }),
+        'GET /admin/access': () => jsonResponse(access('ldap')),
         'PUT /admin/access': () => jsonResponse({}, 500),
       })
       renderApp('/admin/chat')
       await userEvent.click(await screen.findByRole('checkbox'))
       expect(await screen.findByRole('alert')).toHaveTextContent('No se pudo cambiar el acceso.')
-      expect(checkbox()).not.toBeChecked()
+      expect(anonymousBox()).not.toBeChecked()
     })
 
     it('informa si falla la carga', async () => {

@@ -1,4 +1,11 @@
-"""Ajustes de acceso al chat editables desde la administración (con LDAP)."""
+"""Ajustes de acceso al chat editables desde la administración.
+
+- Con LDAP, `anonymous_allowed`: se puede entrar sin cuenta (#30).
+- Sin LDAP, `private_sessions`: cada visitante tiene una sesión privada y temporal en lugar
+  del historial compartido (#33).
+
+En ambos casos la identidad es una sesión anónima `anon:<uuid>` (ver `app.core.auth`).
+"""
 
 from dataclasses import dataclass
 
@@ -11,9 +18,14 @@ ACCESS_KEY = "access"
 
 @dataclass(frozen=True, slots=True)
 class AccessConfig:
-    """Con LDAP, si se permite usar el chat sin iniciar sesión (desactivado por defecto)."""
+    """Ajustes de acceso (todos desactivados por defecto)."""
 
     anonymous_allowed: bool = False
+    private_sessions: bool = False
+
+    def anonymous_sessions_enabled(self, auth_mode: str) -> bool:
+        """Si valen las sesiones anónimas en el modo de autenticación indicado."""
+        return self.anonymous_allowed if auth_mode == "ldap" else self.private_sessions
 
 
 class AccessRepository:
@@ -26,10 +38,17 @@ class AccessRepository:
         setting = await self._session.get(AppSetting, ACCESS_KEY)
         if setting is None:
             return AccessConfig()
-        return AccessConfig(anonymous_allowed=setting.value.get("anonymous_allowed") is True)
+        value = setting.value
+        return AccessConfig(
+            anonymous_allowed=value.get("anonymous_allowed") is True,
+            private_sessions=value.get("private_sessions") is True,
+        )
 
     async def save(self, config: AccessConfig, author: str) -> AccessConfig:
-        value = {"anonymous_allowed": config.anonymous_allowed}
+        value = {
+            "anonymous_allowed": config.anonymous_allowed,
+            "private_sessions": config.private_sessions,
+        }
         setting = await self._session.get(AppSetting, ACCESS_KEY)
         if setting is None:
             self._session.add(AppSetting(key=ACCESS_KEY, value=value, updated_by=author))

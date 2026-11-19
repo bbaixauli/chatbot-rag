@@ -40,19 +40,18 @@ export const listPromptVersions = () => apiGet<PromptVersion[]>('/admin/prompt/v
 export const restorePromptVersion = (id: number) =>
   apiRequest<SystemPrompt>(`/admin/prompt/versions/${id}/restore`, { method: 'POST' })
 
+/** Ajustes de acceso: con LDAP se ofrece `anonymous_allowed`; sin LDAP, `private_sessions`. */
 export interface AccessConfig {
+  mode: 'none' | 'ldap'
   anonymous_allowed: boolean
-  /** Solo con LDAP: sin LDAP el chat ya es anónimo y la opción no se ofrece. */
-  available: boolean
+  private_sessions: boolean
 }
 
 export const getAccessConfig = () => apiGet<AccessConfig>('/admin/access')
 
-export const saveAccessConfig = (anonymous_allowed: boolean) =>
-  apiRequest<AccessConfig>('/admin/access', {
-    method: 'PUT',
-    body: JSON.stringify({ anonymous_allowed }),
-  })
+export const saveAccessConfig = (
+  change: { anonymous_allowed: boolean } | { private_sessions: boolean },
+) => apiRequest<AccessConfig>('/admin/access', { method: 'PUT', body: JSON.stringify(change) })
 
 export const getAdminChatConfig = () => apiGet<ChatConfig>('/admin/chat-config')
 

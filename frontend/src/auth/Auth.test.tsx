@@ -1,6 +1,6 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { AuthSession } from '../api/auth'
 import { health, jsonResponse, mockApi, renderApp } from '../test/utils'
 
@@ -251,5 +251,127 @@ describe('Acceso anónimo con LDAP', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'No se pudo acceder de forma anónima.',
     )
+  })
+})
+
+describe('Sesiones privadas sin LDAP', () => {
+  const shared: AuthSession = { mode: 'none', authenticated: false, user: null }
+  const privateSession = (id: string): AuthSession => ({
+    mode: 'none',
+    authenticated: true,
+    user: { id, display_name: 'Anónimo', is_admin: false, is_anonymous: true },
+    private_sessions: true,
+  })
+  const withoutSession: AuthSession = { ...shared, private_sessions: true }
+
+  /** Servidor simulado: cada POST /auth/anonymous crea una sesión con su historial. */
+  function server(initial: AuthSession, conversations: Record<string, string[]> = {}) {
+    let session = initial
+    let created = 0
+    const fetchMock = mockApi({
+      'GET /health': health,
+      'GET /auth/session': () => jsonResponse(session),
+      'POST /auth/anonymous': () => {
+        created += 1
+        session = privateSession(`anon:${created}`)
+        return jsonResponse(session)
+      },
+      'GET /conversations': () => {
+        if (session.private_sessions && !session.authenticated) return jsonResponse({}, 401)
+        const key = session.user?.id ?? 'compartido'
+        return jsonResponse(
+          (conversations[key] ?? []).map((title, i) => ({
+            id: `${key}-${i}`,
+            title,
+            created_at: '',
+            updated_at: '',
+          })),
+        )
+      },
+      'GET /chat/config': () => jsonResponse({ welcome_message: null, suggested_questions: [] }),
+    })
+    const posts = () =>
+      fetchMock.mock.calls.filter(
+        ([url, init]) => String(url).endsWith('/auth/anonymous') && init?.method === 'POST',
+      ).length
+    return { posts }
+  }
+
+  it('desactivadas: historial compartido, sin sesión privada', async () => {
+    const { posts } = server(shared, { compartido: ['Conversación de todos'] })
+    renderApp()
+
+    expect(await screen.findByRole('link', { name: 'Conversación de todos' })).toBeVisible()
+    const banner = screen.getByRole('banner')
+    expect(within(banner).queryByText('Sesión privada')).toBeNull()
+    expect(within(banner).getByRole('link', { name: 'Administración' })).toBeVisible()
+    expect(posts()).toBe(0)
+  })
+
+  it('activadas: crea la sesión al entrar y solo muestra sus conversaciones', async () => {
+    const { posts } = server(withoutSession, {
+      compartido: ['Conversación de todos'],
+      'anon:1': ['Mi conversación privada'],
+    })
+    renderApp()
+
+    expect(await screen.findByRole('link', { name: 'Mi conversación privada' })).toBeVisible()
+    expect(screen.queryByRole('link', { name: 'Conversación de todos' })).toBeNull()
+    const banner = screen.getByRole('banner')
+    expect(within(banner).getByText('Sesión privada')).toHaveAttribute(
+      'title',
+      expect.stringContaining('Solo tú ves estas conversaciones'),
+    )
+    // Sin LDAP la administración sigue accesible con la cuenta local.
+    expect(within(banner).getByRole('link', { name: 'Administración' })).toBeVisible()
+    expect(posts()).toBe(1)
+  })
+
+  it('«Terminar sesión» pide confirmación y empieza una sesión vacía', async () => {
+    const confirm = vi.spyOn(window, 'confirm')
+    const { posts } = server(privateSession('anon:0'), { 'anon:0': ['Conversación anterior'] })
+    renderApp()
+    const banner = await screen.findByRole('banner')
+    expect(await screen.findByRole('link', { name: 'Conversación anterior' })).toBeVisible()
+
+    confirm.mockReturnValueOnce(false)
+    await userEvent.click(within(banner).getByRole('button', { name: 'Terminar sesión' }))
+    expect(posts()).toBe(0)
+
+    confirm.mockReturnValueOnce(true)
+    await userEvent.click(within(banner).getByRole('button', { name: 'Terminar sesión' }))
+
+    await waitFor(() =>
+      expect(screen.queryByRole('link', { name: 'Conversación anterior' })).toBeNull(),
+    )
+    expect(posts()).toBe(1)
+    expect(within(screen.getByRole('banner')).getByText('Sesión privada')).toBeVisible()
+  })
+
+  it('si no se puede crear la sesión, se informa y se puede reintentar', async () => {
+    let fail = true
+    let session = withoutSession
+    mockApi({
+      'GET /health': health,
+      'GET /auth/session': () => jsonResponse(session),
+      'POST /auth/anonymous': () => {
+        if (fail) return jsonResponse({}, 500)
+        session = privateSession('anon:1')
+        return jsonResponse(session)
+      },
+      'GET /conversations': () => jsonResponse([]),
+      'GET /chat/config': () => jsonResponse({ welcome_message: null, suggested_questions: [] }),
+    })
+    renderApp()
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'No se pudo iniciar la sesión privada.',
+    )
+    fail = false
+    await userEvent.click(screen.getByRole('button', { name: 'Reintentar' }))
+
+    expect(
+      await within(await screen.findByRole('banner')).findByText('Sesión privada'),
+    ).toBeVisible()
   })
 })

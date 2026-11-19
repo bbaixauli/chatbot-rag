@@ -80,6 +80,34 @@ done
 echo "    códigos: $codes"
 [[ "$codes" == *429* ]] || fail "no se aplicó el límite de peticiones"
 
+step "Sesiones privadas: cada visitante ve solo sus conversaciones"
+code() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
+private_sessions() {  # private_sessions <true|false>
+  code -b "$COOKIES" -X PUT -H 'Content-Type: application/json' \
+    -d "{\"private_sessions\":$1}" "$BASE/api/v1/admin/access"
+}
+start_session() { code -c "$WORK/$1" -b "$WORK/$1" -X POST "$BASE/api/v1/auth/anonymous"; }
+[ "$(start_session p0)" = 403 ] || fail "sesión privada sin activarlas"
+[ "$(private_sessions true)" = 200 ] || fail "no se pudieron activar las sesiones privadas"
+[ "$(code "$BASE/api/v1/conversations")" = 401 ] || fail "historial compartido con sesiones privadas"
+# Tienen su propio límite: el de inicios de sesión ya está agotado en este punto.
+[ "$(start_session p1)" = 200 ] || fail "primera sesión privada rechazada"
+[ "$(start_session p2)" = 200 ] || fail "segunda sesión privada rechazada"
+curl -fsS -b "$WORK/p1" -H 'Content-Type: application/json' -d '{"message":"Pregunta privada"}' \
+  "$BASE/api/v1/chat" > "$WORK/private-chat.txt"
+curl -fsS -b "$WORK/p1" "$BASE/api/v1/conversations" | grep -q 'Pregunta privada' \
+  || fail "la sesión privada no ve su conversación"
+[ "$(curl -fsS -b "$WORK/p2" "$BASE/api/v1/conversations")" = "[]" ] \
+  || fail "una sesión privada ve conversaciones de otra"
+[ "$(start_session p1)" = 200 ] || fail "no se pudo terminar la sesión privada"
+[ "$(curl -fsS -b "$WORK/p1" "$BASE/api/v1/conversations")" = "[]" ] \
+  || fail "una sesión nueva ve conversaciones anteriores"
+[ "$(private_sessions false)" = 200 ] || fail "no se pudieron desactivar las sesiones privadas"
+curl -fsS "$BASE/api/v1/conversations" | grep -q 'Hola desde Docker' \
+  || fail "no se volvió al historial compartido"
+curl -fsS "$BASE/api/v1/conversations" | grep -q 'Pregunta privada' \
+  && fail "una conversación privada aparece en el historial compartido"
+
 step "Copia de seguridad"
 # Las salidas se guardan antes de comprobarlas: con `grep -q` en una tubería, compose puede
 # recibir SIGPIPE y `pipefail` daría el paso por fallido.

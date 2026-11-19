@@ -1,4 +1,4 @@
-"""Sesión de los usuarios del chat (modo LDAP, con acceso anónimo opcional)."""
+"""Sesión de los usuarios del chat: LDAP, acceso anónimo opcional y sesiones privadas."""
 
 import asyncio
 import logging
@@ -11,6 +11,7 @@ from app.api.deps import DbSession, SettingsDep
 from app.core.auth import (
     CurrentUser,
     active_session_user,
+    end_session_user,
     new_anonymous_user,
     store_session_user,
 )
@@ -20,7 +21,7 @@ from app.core.ldap_auth import (
     InvalidCredentialsError,
     LdapAuthenticator,
 )
-from app.core.rate_limit import LoginRateLimit
+from app.core.rate_limit import AnonymousSessionRateLimit, LoginRateLimit
 from app.services.access import AccessRepository
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -43,6 +44,8 @@ class AuthSessionOut(BaseModel):
     user: UserOut | None = None
     # Con LDAP: si la pantalla de inicio de sesión ofrece entrar de forma anónima.
     anonymous_allowed: bool = False
+    # Sin LDAP: si cada visitante necesita su sesión privada (la crea el frontend al entrar).
+    private_sessions: bool = False
 
 
 class UserLogin(BaseModel):
@@ -53,10 +56,11 @@ class UserLogin(BaseModel):
 async def _session_out(
     settings: Settings, db: DbSession, user: CurrentUser | None
 ) -> AuthSessionOut:
-    if settings.auth_mode == "none":
+    access = await AccessRepository(db).get()
+    if settings.auth_mode == "none" and not access.private_sessions:
         return AuthSessionOut(mode="none", authenticated=False)
     return AuthSessionOut(
-        mode="ldap",
+        mode=settings.auth_mode,
         authenticated=user is not None,
         user=UserOut(
             id=user.id,
@@ -66,7 +70,8 @@ async def _session_out(
         )
         if user
         else None,
-        anonymous_allowed=(await AccessRepository(db).get()).anonymous_allowed,
+        anonymous_allowed=settings.auth_mode == "ldap" and access.anonymous_allowed,
+        private_sessions=settings.auth_mode == "none",
     )
 
 
@@ -97,7 +102,7 @@ async def ldap_login(request: Request, username: str, password: str) -> CurrentU
 
 @router.get("/session", response_model=AuthSessionOut)
 async def get_session(request: Request, settings: SettingsDep, db: DbSession) -> AuthSessionOut:
-    return await _session_out(settings, db, await active_session_user(request, db))
+    return await _session_out(settings, db, await active_session_user(request, settings, db))
 
 
 @router.post("/session", response_model=AuthSessionOut)
@@ -114,26 +119,36 @@ async def login(
 
 @router.post("/anonymous", response_model=AuthSessionOut)
 async def anonymous_login(
-    request: Request, settings: SettingsDep, db: DbSession, _: LoginRateLimit
+    request: Request, settings: SettingsDep, db: DbSession, _: AnonymousSessionRateLimit
 ) -> AuthSessionOut:
-    """Entra sin cuenta, si la administración lo permite.
+    """Inicia una sesión anónima nueva, si la administración lo permite.
 
-    Cada acceso es una identidad nueva: no se ven las conversaciones de accesos anteriores
+    - Con LDAP: «Acceder de forma anónima» en la pantalla de inicio de sesión.
+    - Sin LDAP, con sesiones privadas: la crea el frontend al entrar y al pulsar «Terminar
+      sesión». Se conserva la sesión de administración de la cuenta local.
+
+    Cada sesión es una identidad nueva: no se ven las conversaciones de sesiones anteriores
     ni las de otras personas. Las conversaciones se conservan para auditoría.
     """
-    if settings.auth_mode != "ldap":
-        raise HTTPException(
-            status.HTTP_409_CONFLICT, "El inicio de sesión de usuarios no está activado"
+    ldap = settings.auth_mode == "ldap"
+    if not (await AccessRepository(db).get()).anonymous_sessions_enabled(settings.auth_mode):
+        detail = (
+            "El acceso anónimo no está permitido"
+            if ldap
+            else "Las sesiones privadas no están activadas"
         )
-    if not (await AccessRepository(db).get()).anonymous_allowed:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "El acceso anónimo no está permitido")
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail)
     user = new_anonymous_user()
-    store_session_user(request, user)
-    logger.info("Acceso anónimo", extra={"user_id": user.id})
+    store_session_user(request, user, keep_admin=not ldap)
+    logger.info("Acceso anónimo" if ldap else "Sesión privada", extra={"user_id": user.id})
     return await _session_out(settings, db, user)
 
 
 @router.delete("/session", status_code=status.HTTP_204_NO_CONTENT)
-async def logout(request: Request) -> Response:
-    request.session.clear()
+async def logout(request: Request, settings: SettingsDep) -> Response:
+    if settings.auth_mode == "ldap":
+        request.session.clear()
+    else:
+        # Sin LDAP, la sesión de administración es independiente de la del chat.
+        end_session_user(request)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

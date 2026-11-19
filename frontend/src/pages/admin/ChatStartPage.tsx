@@ -19,8 +19,8 @@ const WELCOME_MAX_LENGTH = 2000
 const QUESTION_MAX_LENGTH = 300
 
 /**
- * Administración del inicio del chat: mensaje de bienvenida, preguntas sugeridas y (con
- * LDAP) si se permite el acceso anónimo.
+ * Administración del inicio del chat: mensaje de bienvenida, preguntas sugeridas y acceso
+ * (acceso anónimo con LDAP o sesiones privadas sin él).
  */
 export function ChatStartPage() {
   const queryClient = useQueryClient()
@@ -59,7 +59,10 @@ export function ChatStartPage() {
   )
 }
 
-/** Casilla de acceso anónimo; solo se muestra con LDAP (sin LDAP el chat ya es anónimo). */
+/**
+ * Acceso al chat. Con LDAP: permitir el acceso anónimo. Sin LDAP: sesiones privadas y
+ * temporales en lugar del historial compartido.
+ */
 function AccessSection() {
   const queryClient = useQueryClient()
   const access = useQuery({ queryKey: ACCESS_KEY, queryFn: getAccessConfig })
@@ -67,12 +70,24 @@ function AccessSection() {
     mutationFn: saveAccessConfig,
     onSuccess: (data) => {
       queryClient.setQueryData(ACCESS_KEY, data)
-      // El login vuelve a consultar si ofrece el acceso anónimo.
+      // El chat (o el login) vuelve a consultar cómo se accede.
       void queryClient.invalidateQueries({ queryKey: AUTH_SESSION_KEY })
     },
   })
 
-  if (access.isPending || (access.isSuccess && !access.data.available)) return null
+  if (access.isPending) return null
+  const ldap = access.data?.mode === 'ldap'
+  const texts = ldap
+    ? {
+        label: t.chatStart.anonymousLabel,
+        hint: t.chatStart.anonymousHint,
+        warning: t.chatStart.anonymousWarning,
+      }
+    : {
+        label: t.chatStart.privateSessionsLabel,
+        hint: t.chatStart.privateSessionsHint,
+        warning: t.chatStart.privateSessionsWarning,
+      }
   return (
     <section className="flex flex-col gap-2 border-t border-gray-200 pt-6">
       <h3 className="font-medium">{t.chatStart.accessTitle}</h3>
@@ -85,15 +100,21 @@ function AccessSection() {
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"
-              checked={access.data.anonymous_allowed}
+              checked={ldap ? access.data.anonymous_allowed : access.data.private_sessions}
               disabled={save.isPending}
-              onChange={(e) => save.mutate(e.target.checked)}
+              onChange={(e) =>
+                save.mutate(
+                  ldap
+                    ? { anonymous_allowed: e.target.checked }
+                    : { private_sessions: e.target.checked },
+                )
+              }
               className="h-4 w-4"
             />
-            {t.chatStart.anonymousLabel}
+            {texts.label}
           </label>
-          <p className="text-sm text-gray-600">{t.chatStart.anonymousHint}</p>
-          <p className="text-sm text-amber-800">{t.chatStart.anonymousWarning}</p>
+          <p className="text-sm text-gray-600">{texts.hint}</p>
+          <p className="text-sm text-amber-800">{texts.warning}</p>
           {save.isSuccess && (
             <p role="status" className="text-sm text-emerald-700">
               {t.chatStart.accessSaved}

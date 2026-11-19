@@ -4,6 +4,8 @@ Dos modos (`CHATBOT_AUTH_MODE`):
 
 - `none`: el chat es anónimo y todas las conversaciones pertenecen al usuario `anonymous`.
   La administración usa la cuenta local (`CHATBOT_ADMIN_USERNAME`/`CHATBOT_ADMIN_PASSWORD`).
+  Si la administración activa las sesiones privadas, cada visitante recibe en su lugar una
+  sesión anónima propia (`anon:<uuid>`), igual que el acceso anónimo con LDAP.
 - `ldap`: cada usuario inicia sesión con su cuenta del directorio y solo ve sus
   conversaciones. Son administradores los miembros de `CHATBOT_LDAP_ADMIN_GROUP_DN`; la
   cuenta local sigue disponible como acceso de emergencia si está configurada. Si la
@@ -79,9 +81,16 @@ def session_user(request: Request) -> CurrentUser | None:
     )
 
 
-def store_session_user(request: Request, user: CurrentUser) -> None:
-    """Inicia la sesión de un usuario (se descarta cualquier sesión previa)."""
+def store_session_user(request: Request, user: CurrentUser, keep_admin: bool = False) -> None:
+    """Inicia la sesión de un usuario (se descarta cualquier sesión previa).
+
+    Con `keep_admin`, se conserva la sesión de la cuenta local de administración: sin LDAP,
+    el chat y la administración son sesiones independientes en la misma cookie.
+    """
+    admin = request.session.get(SESSION_ADMIN_KEY)
     request.session.clear()
+    if keep_admin and isinstance(admin, str):
+        request.session[SESSION_ADMIN_KEY] = admin
     request.session[SESSION_USER_KEY] = {
         "id": user.id,
         "name": user.display_name,
@@ -90,30 +99,48 @@ def store_session_user(request: Request, user: CurrentUser) -> None:
     }
 
 
-async def active_session_user(request: Request, db: DbSession) -> CurrentUser | None:
+def end_session_user(request: Request) -> None:
+    """Cierra la sesión del chat. La de administración de la cuenta local se conserva."""
+    request.session.pop(SESSION_USER_KEY, None)
+
+
+async def active_session_user(
+    request: Request, settings: Settings, db: DbSession
+) -> CurrentUser | None:
     """Usuario de la sesión si sigue siendo válida.
 
     Una sesión anónima deja de valer en cuanto la administración desactiva el acceso
-    anónimo (se comprueba en cada petición), y se descarta.
+    anónimo (con LDAP) o las sesiones privadas (sin LDAP); se comprueba en cada petición y
+    se descarta. Sin LDAP solo se admiten sesiones anónimas.
     """
     user = session_user(request)
-    if (
-        user is not None
-        and user.is_anonymous
-        and not (await AccessRepository(db).get()).anonymous_allowed
+    if user is None:
+        return None
+    if settings.auth_mode == "none" and not user.is_anonymous:
+        return None  # p. ej. una sesión LDAP anterior a cambiar de modo
+    if user.is_anonymous and not (await AccessRepository(db).get()).anonymous_sessions_enabled(
+        settings.auth_mode
     ):
-        request.session.clear()
+        end_session_user(request)
         return None
     return user
 
 
 async def get_current_user(request: Request, settings: SettingsDep, db: DbSession) -> CurrentUser:
-    """Usuario de la petición: anónimo sin autenticación, o el de la sesión con LDAP."""
-    if settings.auth_mode == "none":
+    """Usuario de la petición.
+
+    - LDAP: el de la sesión (del directorio o anónimo).
+    - Sin LDAP: el historial compartido `anonymous` o, con las sesiones privadas activadas,
+      la sesión privada del visitante.
+    """
+    if settings.auth_mode == "none" and not (await AccessRepository(db).get()).private_sessions:
         return ANONYMOUS_USER
-    user = await active_session_user(request, db)
+    user = await active_session_user(request, settings, db)
     if user is None:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Se requiere iniciar sesión")
+        message = (
+            "Se requiere iniciar sesión" if settings.auth_mode == "ldap" else "Sesión caducada"
+        )
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, message)
     return user
 
 
