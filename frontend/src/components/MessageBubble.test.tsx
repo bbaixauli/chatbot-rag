@@ -77,7 +77,7 @@ describe('MessageBubble con fuentes', () => {
 
     const list = screen.getByRole('region', { name: 'Fuentes' })
     expect(within(list).queryByRole('link')).toBeNull()
-    expect(list).toHaveTextContent('[1] 📄 manual.pdf (documento eliminado)')
+    expect(list).toHaveTextContent('[1] manual.pdf (documento eliminado)')
     expect(screen.queryByRole('link', { name: '[1]' })).toBeNull()
   })
 

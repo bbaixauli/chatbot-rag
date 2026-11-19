@@ -7,6 +7,7 @@ import {
   saveChatConfig,
 } from '../../api/admin'
 import { ApiError, type ChatConfig } from '../../api/client'
+import { usePageTitle } from '../../hooks/usePageTitle'
 import { t } from '../../i18n/es'
 import { AUTH_SESSION_KEY } from '../../auth/session'
 import { ADMIN_SESSION_KEY } from './session'
@@ -23,6 +24,7 @@ const QUESTION_MAX_LENGTH = 300
  * (acceso anónimo con LDAP o sesiones privadas sin él).
  */
 export function ChatStartPage() {
+  usePageTitle(t.chatStart.title)
   const queryClient = useQueryClient()
   const config = useQuery({ queryKey: CONFIG_KEY, queryFn: getAdminChatConfig })
 
@@ -35,13 +37,13 @@ export function ChatStartPage() {
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6">
       <div>
-        <h2 className="text-xl font-semibold">{t.chatStart.title}</h2>
-        <p className="text-sm text-gray-600">{t.chatStart.description}</p>
+        <h1 className="text-2xl font-bold">{t.chatStart.title}</h1>
+        <p className="text-sm text-texto-secundario">{t.chatStart.description}</p>
       </div>
       {config.isPending ? (
-        <p className="text-gray-600">{t.common.loading}</p>
+        <p className="text-texto-secundario">{t.common.loading}</p>
       ) : config.isError ? (
-        <p role="alert" className="text-red-700">
+        <p role="alert" className="text-error">
           {t.chatStart.loadError}
         </p>
       ) : (
@@ -89,10 +91,10 @@ function AccessSection() {
         warning: t.chatStart.privateSessionsWarning,
       }
   return (
-    <section className="flex flex-col gap-2 border-t border-gray-200 pt-6">
-      <h3 className="font-medium">{t.chatStart.accessTitle}</h3>
+    <section className="flex flex-col gap-2 border-t border-borde pt-6">
+      <h2 className="text-lg font-bold">{t.chatStart.accessTitle}</h2>
       {access.isError ? (
-        <p role="alert" className="text-sm text-red-700">
+        <p role="alert" className="text-sm text-error">
           {t.chatStart.accessLoadError}
         </p>
       ) : (
@@ -109,19 +111,19 @@ function AccessSection() {
                     : { private_sessions: e.target.checked },
                 )
               }
-              className="h-4 w-4"
+              className="h-5 w-5 accent-marca"
             />
             {texts.label}
           </label>
-          <p className="text-sm text-gray-600">{texts.hint}</p>
-          <p className="text-sm text-amber-800">{texts.warning}</p>
+          <p className="text-sm text-texto-secundario">{texts.hint}</p>
+          <p className="text-sm text-aviso">{texts.warning}</p>
           {save.isSuccess && (
-            <p role="status" className="text-sm text-emerald-700">
+            <p role="status" className="text-sm text-exito">
               {t.chatStart.accessSaved}
             </p>
           )}
           {save.isError && (
-            <p role="alert" className="text-sm text-red-700">
+            <p role="alert" className="text-sm text-error">
               {t.chatStart.accessSaveError}
             </p>
           )}
@@ -174,7 +176,7 @@ function ChatStartForm(props: { initial: ChatConfig; onSaved: (data: ChatConfig)
         <label htmlFor="welcome-message" className="font-medium">
           {t.chatStart.welcomeLabel}
         </label>
-        <p className="text-sm text-gray-600">{t.chatStart.welcomeHint}</p>
+        <p className="text-sm text-texto-secundario">{t.chatStart.welcomeHint}</p>
         <textarea
           id="welcome-message"
           value={welcome}
@@ -183,10 +185,10 @@ function ChatStartForm(props: { initial: ChatConfig; onSaved: (data: ChatConfig)
             edited()
           }}
           rows={5}
-          className="rounded-lg border border-gray-300 p-3 text-sm focus:border-blue-500 focus:outline-none"
+          className="campo text-sm"
         />
         <span
-          className={`text-xs ${welcome.trim().length > WELCOME_MAX_LENGTH ? 'text-red-700' : 'text-gray-500'}`}
+          className={`text-xs ${welcome.trim().length > WELCOME_MAX_LENGTH ? 'text-error' : 'text-texto-secundario'}`}
         >
           {t.chatStart.characters(welcome.trim().length, WELCOME_MAX_LENGTH)}
         </span>
@@ -194,7 +196,7 @@ function ChatStartForm(props: { initial: ChatConfig; onSaved: (data: ChatConfig)
 
       <fieldset className="flex flex-col gap-2">
         <legend className="font-medium">{t.chatStart.questionsTitle}</legend>
-        <p className="text-sm text-gray-600">{t.chatStart.questionsHint}</p>
+        <p className="text-sm text-texto-secundario">{t.chatStart.questionsHint}</p>
         {questions.map((question, index) => (
           <input
             key={index}
@@ -207,27 +209,23 @@ function ChatStartForm(props: { initial: ChatConfig; onSaved: (data: ChatConfig)
               setQuestions((current) => current.map((q, i) => (i === index ? value : q)))
               edited()
             }}
-            className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+            className="campo text-sm"
           />
         ))}
       </fieldset>
 
       <div className="flex items-center justify-end gap-4">
         {saved && (
-          <p role="status" className="text-sm text-emerald-700">
+          <p role="status" className="text-sm text-exito">
             {t.chatStart.saved}
           </p>
         )}
         {save.isError && (
-          <p role="alert" className="text-sm text-red-700">
+          <p role="alert" className="text-sm text-error">
             {t.chatStart.saveError}
           </p>
         )}
-        <button
-          type="submit"
-          disabled={save.isPending || tooLong}
-          className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-        >
+        <button type="submit" disabled={save.isPending || tooLong} className="btn btn-primario">
           {save.isPending ? t.chatStart.saving : t.chatStart.save}
         </button>
       </div>

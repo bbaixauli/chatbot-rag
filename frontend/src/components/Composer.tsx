@@ -51,7 +51,7 @@ export function Composer({ disabled, onSend, suggestions = [] }: Props) {
   }
 
   return (
-    <form onSubmit={submit} className="border-t border-gray-200 bg-white p-4">
+    <form onSubmit={submit} className="border-t border-borde bg-fondo p-3 md:p-4">
       {suggestions.length > 0 && (
         <ul aria-label={t.chat.suggestions} className="mb-3 flex flex-wrap gap-2">
           {suggestions.map((question, index) => (
@@ -60,7 +60,7 @@ export function Composer({ disabled, onSend, suggestions = [] }: Props) {
                 type="button"
                 disabled={disabled}
                 onClick={() => applySuggestion(question)}
-                className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1.5 text-left text-sm text-blue-800 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
+                className="btn btn-secundario text-left font-normal"
               >
                 {question}
               </button>
@@ -77,16 +77,13 @@ export function Composer({ disabled, onSend, suggestions = [] }: Props) {
           onChange={(e) => setText(e.target.value)}
           onKeyDown={onKeyDown}
           rows={2}
-          className="flex-1 resize-none rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
+          className="campo min-w-0 flex-1 resize-none"
         />
-        <button
-          type="submit"
-          disabled={!canSend}
-          className="self-end rounded-lg bg-blue-600 px-4 py-2 font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
-        >
+        <button type="submit" disabled={!canSend} className="btn btn-primario self-end">
           {t.chat.send}
         </button>
       </div>
+      <p className="mt-2 text-xs text-texto-secundario">{t.chat.aiNotice}</p>
     </form>
   )
 }

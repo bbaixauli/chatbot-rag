@@ -124,7 +124,7 @@ describe('Sidebar', () => {
     renderApp('/c/c1')
     expect(await screen.findByText('hola')).toBeInTheDocument()
 
-    await userEvent.click(screen.getByRole('button', { name: '+ Nueva conversación' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Nueva conversación' }))
 
     expect(await screen.findByText('¿En qué puedo ayudarte?')).toBeInTheDocument()
   })

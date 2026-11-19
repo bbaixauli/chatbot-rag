@@ -1,3 +1,4 @@
+import { FileText } from 'lucide-react'
 import type { ComponentProps } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -26,21 +27,21 @@ export function MessageBubble({ role, content, sources = [], streaming = false }
       className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}
     >
       <div
-        className={`max-w-[80%] rounded-2xl px-4 py-2 ${
-          isUser ? 'bg-blue-600 text-white' : 'border border-gray-200 bg-white text-gray-900'
+        className={`max-w-[90%] min-w-0 rounded-lg px-4 py-2 break-words md:max-w-[80%] ${
+          isUser ? 'bg-marca text-sobre-marca' : 'border border-borde bg-fondo text-texto'
         }`}
       >
         <span className="sr-only">{isUser ? t.chat.you : t.chat.assistant}: </span>
         {isUser ? (
           <p className="whitespace-pre-wrap">{content}</p>
         ) : content ? (
-          <div className="prose prose-sm max-w-none [&_a]:text-blue-700 [&_a]:hover:underline [&_ol]:list-decimal [&_ol]:pl-5 [&_pre]:overflow-x-auto [&_ul]:list-disc [&_ul]:pl-5">
+          <div className="max-w-none [&_code]:font-mono [&_ol]:list-decimal [&_ol]:pl-5 [&_pre]:overflow-x-auto [&_pre]:font-mono [&_ul]:list-disc [&_ul]:pl-5">
             <Markdown remarkPlugins={[remarkGfm]} components={{ a: ExternalLink }}>
               {linkCitations(content, sources)}
             </Markdown>
           </div>
         ) : (
-          <p className="text-gray-500 italic">{t.chat.thinking}</p>
+          <p className="text-texto-secundario italic">{t.chat.thinking}</p>
         )}
         {!isUser && sources.length > 0 && <SourceList sources={sources} />}
       </div>
@@ -51,19 +52,20 @@ export function MessageBubble({ role, content, sources = [], streaming = false }
 function SourceList({ sources }: { sources: Source[] }) {
   const title = sources.some((s) => s.cited) ? t.chat.sources : t.chat.consultedSources
   return (
-    <section aria-label={title} className="mt-3 border-t border-gray-100 pt-2">
-      <h4 className="mb-1 text-xs font-semibold text-gray-500 uppercase">{title}</h4>
+    <section aria-label={title} className="mt-3 border-t border-borde pt-2">
+      <h3 className="mb-1 text-xs font-semibold text-texto-secundario">{title}</h3>
       <ul className="flex flex-wrap gap-2">
         {sources.map((source) => {
           const url = sourceUrl(source)
           const label = sourceLabel(source)
           const chip = (
             <>
-              <span className="font-semibold">[{source.number}]</span> 📄 {label}
+              <span className="font-semibold">[{source.number}]</span>{' '}
+              <FileText aria-hidden size={14} className="inline align-[-2px]" /> {label}
             </>
           )
           return (
-            <li key={source.number} className="text-xs">
+            <li key={source.number} className="max-w-full text-xs">
               {url ? (
                 <a
                   href={url}
@@ -71,14 +73,14 @@ function SourceList({ sources }: { sources: Source[] }) {
                   rel="noopener noreferrer"
                   title={source.snippet}
                   aria-label={t.chat.openSource(`[${source.number}] ${label}`)}
-                  className="inline-block rounded-full border border-gray-200 bg-gray-50 px-2 py-1 text-gray-700 hover:border-blue-300 hover:bg-blue-50"
+                  className="inline-block max-w-full rounded border border-borde-control bg-fondo-alt px-2 py-1 break-words hover:bg-marca-suave"
                 >
                   {chip}
                 </a>
               ) : (
                 <span
                   title={source.snippet}
-                  className="inline-block rounded-full border border-dashed border-gray-200 px-2 py-1 text-gray-500"
+                  className="inline-block max-w-full rounded border border-dashed border-borde-control px-2 py-1 break-words text-texto-secundario"
                 >
                   {chip} ({t.chat.deletedDocument})
                 </span>

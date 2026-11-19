@@ -51,17 +51,13 @@ function StartPrivateSession() {
   }, [mutate])
 
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-gray-600">
+    <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-texto-secundario">
       {start.isError ? (
         <>
-          <p role="alert" className="text-red-700">
+          <p role="alert" className="text-error">
             {t.privateSession.error}
           </p>
-          <button
-            type="button"
-            onClick={() => mutate()}
-            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50"
-          >
+          <button type="button" onClick={() => mutate()} className="btn btn-secundario">
             {t.privateSession.retry}
           </button>
         </>

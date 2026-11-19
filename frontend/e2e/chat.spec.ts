@@ -50,7 +50,7 @@ test('continúa una conversación existente desde el historial', async ({ page }
   await ask(page, first)
   await waitForAnswer(page, first)
 
-  await history(page).getByRole('button', { name: '+ Nueva conversación' }).click()
+  await history(page).getByRole('button', { name: 'Nueva conversación' }).click()
   await expect(page).toHaveURL(/\/$/)
   await expect(page.getByRole('heading', { name: '¿En qué puedo ayudarte?' })).toBeVisible()
 

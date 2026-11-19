@@ -5,10 +5,12 @@ import { ApiError } from '../../api/client'
 import { AUTH_SESSION_KEY, useAuthSession } from '../../auth/session'
 import { LoginForm } from '../../components/LoginForm'
 import { loginErrorMessage } from '../../components/loginError'
+import { usePageTitle } from '../../hooks/usePageTitle'
 import { t } from '../../i18n/es'
 import { ADMIN_SESSION_KEY, useAdminSession } from './session'
 
 export function LoginPage() {
+  usePageTitle(t.login.title)
   const session = useAdminSession()
   const auth = useAuthSession()
   const queryClient = useQueryClient()
@@ -41,7 +43,7 @@ export function LoginPage() {
       pending={signIn.isPending}
       onSubmit={(username, password) => signIn.mutate({ username, password })}
       footer={
-        <Link to="/" className="text-center text-sm text-blue-700 hover:underline">
+        <Link to="/" className="text-center text-sm">
           {t.nav.backToChat}
         </Link>
       }

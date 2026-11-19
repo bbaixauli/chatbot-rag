@@ -146,6 +146,17 @@ El informe muestra, por configuración, el acierto@k, MRR, recall, precisión y 
 y recomienda los valores de `CHATBOT_CHUNK_*`, `CHATBOT_RAG_TOP_K` y `CHATBOT_RAG_MIN_SCORE`.
 Tras cambiar el troceado hay que reindexar los documentos.
 
+### Estilos y accesibilidad
+
+La interfaz sigue el *Manual de estilos para aplicaciones internas* (WCAG 2.1 AA). Los colores
+y tipos de letra son variables CSS (tokens) definidas en `frontend/src/index.css`, con los
+nombres del manual (`--color-marca`, `--color-enlace`, `--color-texto-secundario`…); los
+componentes no usan colores literales (lo comprueba `src/styles.test.ts`). Cada página tiene
+enlace para saltar al contenido, un único `h1`, título de pestaña propio, pie con la versión y
+foco visible; por debajo de 768 px la navegación se pliega tras el botón «Menú». Los E2E pasan
+axe-core en las pantallas principales (a 1280 y 320 px) y fallan con incidencias graves o
+críticas (`e2e/accessibility.spec.ts`).
+
 ## API
 
 Documentación interactiva en http://localhost:8000/docs. Endpoints principales:

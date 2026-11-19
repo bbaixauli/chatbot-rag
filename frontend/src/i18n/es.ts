@@ -1,6 +1,12 @@
 // Textos de la interfaz centralizados para facilitar una futura traducción.
 export const t = {
   appName: 'Chatbot RAG',
+  a11y: {
+    skipToContent: 'Saltar al contenido principal',
+  },
+  footer: {
+    version: (version: string) => `versión ${version}`,
+  },
   health: {
     checking: 'Comprobando conexión…',
     ok: 'Servicio disponible',
@@ -9,6 +15,7 @@ export const t = {
   },
   nav: {
     admin: 'Administración',
+    menu: 'Menú',
     backToChat: 'Volver al chat',
     prompt: 'Prompt de sistema',
     documents: 'Documentos',
@@ -126,6 +133,7 @@ export const t = {
     uploadFailed: 'No se pudo subir',
     unsupported: 'Tipo de fichero no admitido',
     empty: 'Todavía no hay documentos.',
+    tableCaption: 'Documentos subidos',
     loadError: 'No se pudieron cargar los documentos.',
     columns: {
       name: 'Nombre',
@@ -164,6 +172,10 @@ export const t = {
     confirmDelete: (title: string) => `¿Eliminar la conversación «${title}»?`,
   },
   chat: {
+    newConversation: 'Nueva conversación',
+    conversation: 'Conversación',
+    aiNotice:
+      'Las respuestas las genera un sistema de inteligencia artificial y pueden contener errores. Comprueba la información importante en las fuentes citadas.',
     emptyTitle: '¿En qué puedo ayudarte?',
     emptyHint: 'Escribe una pregunta para empezar una conversación.',
     messages: 'Mensajes',

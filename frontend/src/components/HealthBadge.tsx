@@ -4,11 +4,12 @@ import { t } from '../i18n/es'
 
 type State = 'checking' | 'ok' | 'degraded' | 'offline'
 
+// Siempre con texto: el color no es el único indicador (WCAG 1.4.1).
 const styles: Record<State, string> = {
-  checking: 'bg-gray-100 text-gray-600',
-  ok: 'bg-emerald-100 text-emerald-800',
-  degraded: 'bg-amber-100 text-amber-800',
-  offline: 'bg-red-100 text-red-800',
+  checking: 'border-borde bg-fondo-alt text-texto-secundario',
+  ok: 'border-exito bg-exito-suave text-exito',
+  degraded: 'border-aviso bg-aviso-suave text-aviso',
+  offline: 'border-error bg-error-suave text-error',
 }
 
 export function HealthBadge() {
@@ -28,7 +29,7 @@ export function HealthBadge() {
     <span
       role="status"
       data-state={state}
-      className={`rounded-full px-3 py-1 text-xs font-medium ${styles[state]}`}
+      className={`rounded border px-2 py-1 text-xs font-semibold ${styles[state]}`}
     >
       {t.health[state]}
     </span>
