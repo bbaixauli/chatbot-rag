@@ -83,7 +83,8 @@ export const t = {
     model: (name: string) => `Modelo de embeddings: ${name}`,
     reindexAll: 'Reindexar todo',
     confirmReindexAll:
-      '¿Reindexar todos los documentos? Es necesario si ha cambiado el modelo de embeddings.',
+      '¿Reindexar todos los documentos? Es necesario si ha cambiado el modelo de embeddings. ' +
+      'Hasta que termine, el chat responderá sin ellos.',
     dropzone: 'Arrastra aquí ficheros PDF, Markdown o HTML',
     or: 'o',
     select: 'Seleccionar ficheros',

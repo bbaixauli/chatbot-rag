@@ -129,6 +129,21 @@ async def test_reset(store: QdrantVectorStore) -> None:
     assert await store.count() == 1
 
 
+async def test_worker_recreates_a_collection_reset_by_another_process(
+    client: AsyncQdrantClient,
+) -> None:
+    # La API vacía el índice («Reindexar todo») mientras los workers siguen en marcha:
+    # un worker que ya había indexado no debe dar por hecho que la colección existe.
+    worker = QdrantVectorStore(client, "compartida")
+    api = QdrantVectorStore(client, "compartida")
+    await _add(worker, "d1", CHUNKS)
+
+    await api.reset()
+    await _add(worker, "d1", CHUNKS)
+
+    assert await api.count() == 3
+
+
 def test_point_ids_are_stable_uuids() -> None:
     assert point_id("d1", 0) == point_id("d1", 0)
     assert point_id("d1", 0) != point_id("d1", 1)

@@ -80,6 +80,16 @@ curl -fsS -N -H 'Content-Type: application/json' \
   -d '{"message":"normas de teletrabajo para la plantilla"}' "$BASE/api/v1/chat" > "$WORK/chat2.txt"
 grep -q 'teletrabajo.md' "$WORK/chat2.txt" && fail "el documento eliminado sigue en el índice"
 
+step "«Reindexar todo» con los workers en marcha (la API vacía Qdrant y ellos lo rellenan)"
+admin -X POST "$BASE/api/v1/admin/documents/reindex" | grep -q '"scheduled":2' \
+  || fail "no se programó la reindexación"
+wait_ready 2
+stats | grep -q '"error"' && fail "documentos con error tras reindexar: $(stats)"
+stats | grep -q '"chunks":[1-9]' || fail "Qdrant quedó vacío tras reindexar: $(stats)"
+curl -fsS -N -H 'Content-Type: application/json' \
+  -d '{"message":"normas de vacaciones para la plantilla"}' "$BASE/api/v1/chat" > "$WORK/chat3.txt"
+grep -q 'vacaciones.md' "$WORK/chat3.txt" || fail "sin fuentes tras reindexar: $(cat "$WORK/chat3.txt")"
+
 step "Copia de seguridad y restauración (vacía Qdrant y reindexan los workers)"
 created=$(compose exec -T backend python -m app.backup create)
 echo "$created" | grep -q 'Copia creada' || fail "no se creó la copia: $created"
