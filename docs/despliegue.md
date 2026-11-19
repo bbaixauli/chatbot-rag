@@ -125,6 +125,18 @@ Por defecto (`CHATBOT_AUTH_MODE=none`) el chat es anónimo: todas las conversaci
 único historial compartido y la administración usa la cuenta local
 (`CHATBOT_ADMIN_USERNAME`/`CHATBOT_ADMIN_PASSWORD`).
 
+**Sesiones privadas (sin LDAP)**: en *Administración → Mensaje inicial → Acceso al chat* se
+puede marcar «Sesiones privadas y temporales» (desactivado por defecto). Cada visitante recibe
+al entrar su propia sesión (`anon:<uuid>`), sin pantalla de inicio de sesión: solo ve sus
+conversaciones y, al pulsar «Terminar sesión» (o al caducar la sesión,
+`CHATBOT_SESSION_MAX_AGE_SECONDS`), empieza una nueva sin conversaciones. Mientras esté
+activado, el historial compartido no se muestra (no se borra) y vuelve a verse al desactivarlo;
+las conversaciones privadas no aparecen en él. Todas se conservan en la base de datos para
+auditoría y cada sesión queda en el log («Sesión privada», con su `user_id`). Crear sesiones
+privadas tiene su propio límite por IP (el de `CHATBOT_RATE_LIMIT_CHAT_PER_MINUTE`), no el de
+los inicios de sesión, para no bloquear a varias personas detrás de una misma IP. La sesión de
+administración y la sesión privada son independientes: entrar o salir de una no cierra la otra.
+
 Con `CHATBOT_AUTH_MODE=ldap`:
 
 - Cada usuario inicia sesión con su cuenta del directorio y **solo ve sus conversaciones**.

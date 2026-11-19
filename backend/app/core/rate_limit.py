@@ -62,10 +62,16 @@ def client_key(request: Request) -> str:
 
 def rate_limit(scope: str, limit_of: Callable[[Settings], int]) -> Callable[..., None]:
     """Dependencia que aplica el límite `limit_of(settings)` al ámbito indicado."""
+    return scoped_rate_limit(lambda settings: (scope, limit_of(settings)))
+
+
+def scoped_rate_limit(select: Callable[[Settings], tuple[str, int]]) -> Callable[..., None]:
+    """Como `rate_limit`, pero el ámbito y el límite dependen de la configuración."""
 
     def dependency(request: Request, settings: SettingsDep) -> None:
         limiter: RateLimiter = request.app.state.rate_limiter
-        retry_after = limiter.hit(f"{scope}:{client_key(request)}", limit_of(settings))
+        scope, limit = select(settings)
+        retry_after = limiter.hit(f"{scope}:{client_key(request)}", limit)
         if retry_after is not None:
             raise HTTPException(
                 status.HTTP_429_TOO_MANY_REQUESTS,
@@ -80,3 +86,15 @@ ChatRateLimit = Annotated[None, Depends(rate_limit("chat", lambda s: s.rate_limi
 LoginRateLimit = Annotated[
     None, Depends(rate_limit("login", lambda s: s.rate_limit_login_per_minute))
 ]
+
+
+def _anonymous_session_limit(settings: Settings) -> tuple[str, int]:
+    # Con LDAP, entrar de forma anónima cuenta como un inicio de sesión más. Sin LDAP, cada
+    # visitante crea su sesión privada al entrar: varias personas detrás de una misma IP
+    # (p. ej. una oficina) superarían enseguida el límite de los inicios de sesión.
+    if settings.auth_mode == "ldap":
+        return "login", settings.rate_limit_login_per_minute
+    return "private-session", settings.rate_limit_chat_per_minute
+
+
+AnonymousSessionRateLimit = Annotated[None, Depends(scoped_rate_limit(_anonymous_session_limit))]

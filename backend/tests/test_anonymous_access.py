@@ -50,7 +50,11 @@ async def admin_client(app: FastAPI) -> AsyncIterator[AsyncClient]:
 async def allow_anonymous(admin_client: AsyncClient, allowed: bool) -> None:
     response = await admin_client.put(ACCESS, json={"anonymous_allowed": allowed})
     assert response.status_code == 200, response.text
-    assert response.json() == {"anonymous_allowed": allowed, "available": True}
+    assert response.json() == {
+        "mode": "ldap",
+        "anonymous_allowed": allowed,
+        "private_sessions": False,
+    }
 
 
 async def enter_anonymously(client: AsyncClient) -> str:
@@ -84,8 +88,9 @@ async def test_anonymous_access_is_disabled_by_default(
 ) -> None:
     assert (await client.get(SESSION)).json()["anonymous_allowed"] is False
     assert (await admin_client.get(ACCESS)).json() == {
+        "mode": "ldap",
         "anonymous_allowed": False,
-        "available": True,
+        "private_sessions": False,
     }
 
     response = await client.post(ANONYMOUS)
@@ -129,10 +134,10 @@ async def test_without_ldap_there_is_no_anonymous_login(
     await allow_anonymous(admin_client, True)
     app.state.settings.auth_mode = "none"
 
-    assert (await client.post(ANONYMOUS)).status_code == 409
+    # Sin LDAP el permiso de acceso anónimo no cuenta (allí se usan las sesiones privadas).
+    assert (await client.post(ANONYMOUS)).status_code == 403
     assert (await client.get(SESSION)).json()["anonymous_allowed"] is False
-    # Sin LDAP la casilla no se ofrece ni se puede cambiar (el chat ya es anónimo).
-    assert (await admin_client.get(ACCESS)).json()["available"] is False
+    assert (await admin_client.get(ACCESS)).json()["mode"] == "none"
     assert (await admin_client.put(ACCESS, json={"anonymous_allowed": False})).status_code == 409
 
 

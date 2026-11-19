@@ -16,6 +16,18 @@ export const t = {
     logout: 'Cerrar sesión',
     anonymousSession:
       'Acceso anónimo: al cerrar sesión no podrás volver a ver estas conversaciones.',
+    privateSession: 'Sesión privada',
+    privateSessionHint:
+      'Solo tú ves estas conversaciones. Al terminar la sesión no podrás volver a verlas.',
+    endPrivateSession: 'Terminar sesión',
+    confirmEndPrivateSession:
+      '¿Terminar la sesión privada? Empezarás una nueva y no podrás volver a ver estas conversaciones.',
+    endPrivateSessionError: 'No se pudo terminar la sesión. Inténtalo de nuevo.',
+  },
+  privateSession: {
+    starting: 'Preparando tu sesión privada…',
+    error: 'No se pudo iniciar la sesión privada.',
+    retry: 'Reintentar',
   },
   login: {
     title: 'Acceso de administración',
@@ -85,6 +97,11 @@ export const t = {
     accessSaved: 'Acceso actualizado.',
     accessSaveError: 'No se pudo cambiar el acceso.',
     accessLoadError: 'No se pudo cargar la configuración de acceso.',
+    privateSessionsLabel: 'Sesiones privadas y temporales',
+    privateSessionsHint:
+      'Cada visitante tiene su propia sesión: solo ve sus conversaciones y deja de verlas al terminarla. Mientras esté activado, el historial compartido no se muestra (no se borra). Las conversaciones se conservan en el servidor para auditoría.',
+    privateSessionsWarning:
+      'Al desactivarlo se vuelve al historial compartido y las sesiones privadas abiertas se cierran.',
   },
   documents: {
     title: 'Documentos',
