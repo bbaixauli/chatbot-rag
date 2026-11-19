@@ -5,7 +5,7 @@ import hashlib
 import logging
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Protocol
 
@@ -47,15 +47,27 @@ class IndexStats:
     by_status: dict[str, int]
 
 
-def _request_version(requested_at: datetime) -> str:
-    """Marca estable de una petición de indexación.
+def _as_utc(moment: datetime) -> datetime:
+    """SQLite devuelve las fechas sin zona horaria (guardadas en UTC) y otras bases de
+    datos con ella: se normalizan para poder compararlas."""
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=UTC)
+    return moment.astimezone(UTC)
 
-    SQLite devuelve las fechas sin zona horaria (guardadas en UTC) y otras bases de datos
-    con ella: se normalizan para que la misma petición genere siempre la misma marca.
+
+def _request_version(requested_at: datetime) -> str:
+    """Marca estable de una petición de indexación (la misma petición, la misma marca)."""
+    return _as_utc(requested_at).strftime("%Y%m%dT%H%M%S%fZ")
+
+
+def _next_request_time(previous: datetime) -> datetime:
+    """Fecha de una petición nueva, siempre posterior a la anterior del documento.
+
+    El reloj puede tener poca resolución (unos 15 ms en Windows): dos reindexaciones
+    seguidas tendrían la misma fecha y, con ella, la misma marca, y la cola descartaría la
+    segunda como duplicada.
     """
-    if requested_at.tzinfo is None:
-        requested_at = requested_at.replace(tzinfo=UTC)
-    return requested_at.astimezone(UTC).strftime("%Y%m%dT%H%M%S%fZ")
+    return max(utcnow(), _as_utc(previous) + timedelta(microseconds=1))
 
 
 def safe_filename(filename: str) -> str:
@@ -221,7 +233,7 @@ class DocumentService:
                 return None
             document.status = DocumentStatus.PENDING.value
             document.error = None
-            document.updated_at = utcnow()
+            document.updated_at = _next_request_time(document.updated_at)
             await session.commit()
         await self._schedule(document_id, document.updated_at)
         return document

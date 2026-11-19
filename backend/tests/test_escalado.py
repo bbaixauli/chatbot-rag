@@ -1,6 +1,7 @@
 """Cola de tareas con arq, worker de indexación y selección de backends."""
 
 import logging
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +15,7 @@ from app import backup, worker
 from app.core.config import Settings
 from app.db.models import Document, DocumentStatus
 from app.services import backends
+from app.services import documents as documents_service
 from app.services.documents import DocumentService
 from app.services.qdrant_store import QdrantVectorStore
 from app.services.tasks import INDEX_DOCUMENT, ArqTaskRunner, InProcessTaskRunner
@@ -157,10 +159,15 @@ async def test_api_with_arq_enqueues_instead_of_indexing(app: FastAPI, settings:
 
 
 async def test_reindex_requested_while_a_job_is_running_is_not_lost(
-    app: FastAPI, settings: Settings
+    app: FastAPI, settings: Settings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Con arq, un trabajo en curso deduplica su id: una reindexación pedida mientras
-    tanto (p. ej. «Reindexar todo», que vacía el índice) debe encolar otro trabajo."""
+    tanto (p. ej. «Reindexar todo», que vacía el índice) debe encolar otro trabajo.
+
+    El reloj se congela: con poca resolución (Windows), dos peticiones seguidas pueden
+    tener la misma hora y aun así deben ser trabajos distintos."""
+    frozen = datetime(2026, 11, 19, 12, 0, tzinfo=UTC)
+    monkeypatch.setattr(documents_service, "utcnow", lambda: frozen)
     pool = FakePool()
     service = DocumentService(
         app.state.sessionmaker,
