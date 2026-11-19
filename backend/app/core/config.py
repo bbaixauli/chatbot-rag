@@ -93,6 +93,18 @@ class Settings(BaseSettings):
     chunk_size_chars: int = Field(default=3000, ge=200)
     chunk_overlap_chars: int = Field(default=400, ge=0)
 
+    # Escalado (requiere `uv sync --extra escalado`). Por defecto, ChromaDB embebido y
+    # tareas en el proceso de la API. Con `arq`, la indexación la hacen workers aparte
+    # (`arq app.worker.WorkerSettings`) que leen la cola de Redis.
+    vector_store: Literal["chroma", "qdrant"] = "chroma"
+    qdrant_url: str = "http://localhost:6333"
+    qdrant_api_key: SecretStr | None = None
+    qdrant_collection: str = "chatbot_chunks"
+    task_runner: Literal["inprocess", "arq"] = "inprocess"
+    redis_url: str = "redis://localhost:6379/0"
+    # Documentos que indexa a la vez cada proceso (API o worker).
+    indexing_concurrency: int = Field(default=2, ge=1)
+
     # Recuperación (RAG)
     rag_enabled: bool = True
     rag_top_k: int = Field(default=5, ge=1, le=50)
@@ -118,6 +130,9 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _check_ldap(self) -> "Settings":
+        if self.task_runner == "arq" and self.vector_store != "qdrant":
+            # ChromaDB embebido vive en un único proceso: los workers no lo comparten.
+            raise ValueError("CHATBOT_TASK_RUNNER=arq requiere CHATBOT_VECTOR_STORE=qdrant")
         if self.auth_mode == "ldap":
             if not self.ldap_user_base_dn:
                 raise ValueError(

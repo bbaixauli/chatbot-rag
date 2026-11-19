@@ -11,13 +11,14 @@ ENV UV_COMPILE_BYTECODE=1 \
 
 WORKDIR /app
 
-# Extras opcionales, p. ej. --build-arg UV_EXTRAS=local-embeddings
+# Extras opcionales separados por espacios, p. ej. --build-arg UV_EXTRAS="escalado"
+# o "local-embeddings escalado".
 ARG UV_EXTRAS=""
 
 # Primero solo las dependencias, para aprovechar la caché de capas.
 COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-dev --no-install-project ${UV_EXTRAS:+--extra $UV_EXTRAS}
+    uv sync --locked --no-dev --no-install-project         $(for extra in $UV_EXTRAS; do printf -- '--extra %s ' "$extra"; done)
 
 COPY alembic.ini ./
 COPY alembic ./alembic

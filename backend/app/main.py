@@ -14,12 +14,11 @@ from app.core.ldap_auth import LdapAuthenticator
 from app.core.logging import RequestContextMiddleware, configure_logging
 from app.core.rate_limit import RateLimiter
 from app.db.session import build_engine, build_sessionmaker
+from app.services.backends import build_task_runner, build_vector_store, close_vector_store
 from app.services.documents import DocumentService
 from app.services.embeddings import build_embeddings
 from app.services.llm import build_llm_client
 from app.services.rag import Retriever
-from app.services.tasks import InProcessTaskRunner
-from app.services.vectorstore import ChromaVectorStore
 
 logger = logging.getLogger(__name__)
 
@@ -39,9 +38,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.sessionmaker = build_sessionmaker(engine)
         app.state.llm = build_llm_client(settings)
         app.state.embeddings = build_embeddings(settings)
-        app.state.vector_store = ChromaVectorStore(settings.vector_dir)
+        app.state.vector_store = build_vector_store(settings)
         app.state.retriever = Retriever(app.state.embeddings, app.state.vector_store, settings)
-        tasks = InProcessTaskRunner()
+        tasks = await build_task_runner(settings)
         app.state.tasks = tasks
         app.state.documents = DocumentService(
             app.state.sessionmaker,
@@ -57,7 +56,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except OperationalError:
             logger.warning("No se pudo consultar la BD al arrancar: ¿falta `alembic upgrade head`?")
         yield
-        await tasks.cancel_all()
+        await tasks.close()
+        await close_vector_store(app.state.vector_store)
         await engine.dispose()
 
     app = FastAPI(title=settings.app_name, version=settings.version, lifespan=lifespan)

@@ -211,6 +211,29 @@ async def test_reindex_one_and_all(app: FastAPI, admin: AsyncClient) -> None:
     assert (await admin.post(f"{URL}/nope/reindex")).status_code == 404
 
 
+async def test_reindex_all_after_changing_the_embedding_model(
+    app: FastAPI, admin: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Con otro modelo cambia la dimensión de los vectores: el índice se vacía antes."""
+    from app.services.embeddings import FakeEmbeddings
+
+    await upload(admin, ("guia.md", MARKDOWN.encode()), ("gastos.html", HTML.encode()))
+    await drain(app)
+    # Un fragmento de un documento que ya no está en la BD no debe sobrevivir.
+    from app.services.ingestion.chunker import Chunk
+
+    [vector] = await app.state.embeddings.embed(["texto huérfano"])
+    await app.state.vector_store.add("huerfano", "x.md", [Chunk(0, "texto", None, None)], [vector])
+
+    monkeypatch.setattr(app.state.documents, "_embeddings", FakeEmbeddings(dimensions=64))
+    assert (await admin.post(f"{URL}/reindex")).json() == {"scheduled": 2}
+    await drain(app)
+
+    documents = (await admin.get(URL)).json()
+    assert {d["status"] for d in documents} == {"ready"}
+    assert await app.state.vector_store.count() == sum(d["chunk_count"] for d in documents)
+
+
 async def test_download_is_always_an_attachment(app: FastAPI, admin: AsyncClient) -> None:
     [result] = await upload(admin, ("página.html", HTML.encode()))
     document_id = result["document"]["id"]

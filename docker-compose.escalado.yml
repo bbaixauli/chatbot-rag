@@ -1,0 +1,72 @@
+# Despliegue escalado: índice en Qdrant e indexación en workers con cola en Redis.
+# Uso: docker compose -f docker-compose.yml -f docker-compose.escalado.yml up -d --build
+# Ver docs/despliegue.md, sección «Escalado».
+
+x-escalado-env: &escalado-env
+  CHATBOT_DATA_DIR: /data
+  CHATBOT_VECTOR_STORE: qdrant
+  CHATBOT_QDRANT_URL: http://qdrant:6333
+  CHATBOT_TASK_RUNNER: arq
+  CHATBOT_REDIS_URL: redis://redis:6379/0
+
+services:
+  backend:
+    build:
+      args:
+        UV_EXTRAS: ${CHATBOT_UV_EXTRAS:-escalado}
+    environment: *escalado-env
+    depends_on:
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+
+  worker:
+    image: chatbot-rag-backend:${CHATBOT_IMAGE_TAG:-latest}
+    env_file:
+      - path: ${CHATBOT_ENV_FILE:-.env}
+        required: true
+    environment: *escalado-env
+    entrypoint: ["arq", "app.worker.WorkerSettings"]
+    volumes:
+      - chatbot-data:/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "arq", "--check", "app.worker.WorkerSettings"]
+      interval: 30s
+      timeout: 10s
+      start_period: 20s
+    depends_on:
+      # El backend aplica las migraciones al arrancar.
+      backend:
+        condition: service_healthy
+    deploy:
+      replicas: ${CHATBOT_WORKERS:-1}
+    restart: unless-stopped
+
+  redis:
+    image: redis:8.2-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 12
+    restart: unless-stopped
+
+  qdrant:
+    image: qdrant/qdrant:v1.20.0
+    volumes:
+      - qdrant-data:/qdrant/storage
+    healthcheck:
+      # La imagen no incluye curl ni wget.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/6333"]
+      interval: 5s
+      retries: 12
+    restart: unless-stopped
+
+volumes:
+  redis-data:
+  qdrant-data:

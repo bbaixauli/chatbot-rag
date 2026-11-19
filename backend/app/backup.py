@@ -12,6 +12,7 @@ Uso (desde `backend/`, o con `docker compose exec backend` en Docker):
 """
 
 import argparse
+import asyncio
 import logging
 import shutil
 import sqlite3
@@ -129,6 +130,21 @@ def restore_backup(settings: Settings, archive: Path, force: bool = False) -> in
     return pending
 
 
+async def reset_external_index(settings: Settings) -> None:
+    """Vacía el índice de Qdrant: sin esto quedarían fragmentos de documentos que no
+    están en la copia. (El índice de ChromaDB ya se borra con los datos locales.)"""
+    if settings.vector_store != "qdrant":
+        return
+    from app.services.qdrant_store import QdrantVectorStore
+
+    api_key = settings.qdrant_api_key.get_secret_value() if settings.qdrant_api_key else None
+    store = QdrantVectorStore.from_url(settings.qdrant_url, api_key, settings.qdrant_collection)
+    try:
+        await store.reset()
+    finally:
+        await store.close()
+
+
 def main(argv: Sequence[str] | None = None, settings: Settings | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m app.backup", description=__doc__.split("\n")[0]
@@ -151,6 +167,8 @@ def main(argv: Sequence[str] | None = None, settings: Settings | None = None) ->
             print(f"Copia creada: {path}")
         else:
             pending = restore_backup(settings, args.archive, args.force)
+            if settings.vector_store == "qdrant":
+                asyncio.run(reset_external_index(settings))
             print(
                 f"Copia restaurada. {pending} documentos se reindexarán al arrancar la aplicación."
             )

@@ -5,6 +5,7 @@ import hashlib
 import logging
 import uuid
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
 
@@ -16,8 +17,8 @@ from app.db.models import Document, DocumentKind, DocumentStatus, utcnow
 from app.services.embeddings import EmbeddingError, Embeddings
 from app.services.ingestion.chunker import chunk_sections
 from app.services.ingestion.parsers import ParseError, kind_for_filename, parse_document
-from app.services.tasks import TaskRunner
-from app.services.vectorstore import VectorStore
+from app.services.tasks import INDEX_DOCUMENT, TaskRunner
+from app.services.vectorstore import VectorStore, VectorStoreError
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,17 @@ class IndexStats:
     by_status: dict[str, int]
 
 
+def _request_version(requested_at: datetime) -> str:
+    """Marca estable de una petición de indexación.
+
+    SQLite devuelve las fechas sin zona horaria (guardadas en UTC) y otras bases de datos
+    con ella: se normalizan para que la misma petición genere siempre la misma marca.
+    """
+    if requested_at.tzinfo is None:
+        requested_at = requested_at.replace(tzinfo=UTC)
+    return requested_at.astimezone(UTC).strftime("%Y%m%dT%H%M%S%fZ")
+
+
 def safe_filename(filename: str) -> str:
     """Nombre visible del fichero sin rutas ni caracteres de control."""
     name = Path(filename.replace("\\", "/")).name
@@ -69,6 +81,7 @@ class DocumentService:
         self._embeddings = embeddings
         self._store = vector_store
         self._tasks = tasks
+        tasks.register(INDEX_DOCUMENT, self.process)
 
     def file_path(self, document: Document) -> Path:
         """Ruta del original en disco (nombrado por id para evitar colisiones)."""
@@ -107,7 +120,7 @@ class DocumentService:
         finally:
             temp.unlink(missing_ok=True)
 
-        self._schedule(document.id)
+        await self._schedule(document.id, document.updated_at)
         return UploadResult(document, duplicate=False)
 
     async def _write(self, content: AsyncReadable, target: Path) -> tuple[str, int]:
@@ -125,8 +138,10 @@ class DocumentService:
                 out.write(chunk)
         return sha.hexdigest(), size
 
-    def _schedule(self, document_id: str) -> None:
-        self._tasks.submit(f"indexar-{document_id}", lambda: self.process(document_id))
+    async def _schedule(self, document_id: str, requested_at: datetime) -> None:
+        """Encola la indexación; `requested_at` (el `updated_at` que fijó la petición)
+        distingue una petición nueva de la misma petición reprogramada."""
+        await self._tasks.enqueue(INDEX_DOCUMENT, document_id, _request_version(requested_at))
 
     async def process(self, document_id: str) -> None:
         """Extrae, trocea, calcula embeddings e indexa un documento."""
@@ -158,7 +173,7 @@ class DocumentService:
             await self._store.add(document_id, filename, chunks, vectors)
             await self._store.delete_chunks_from(document_id, len(chunks))
             chunk_count = len(chunks)
-        except (ParseError, EmbeddingError) as exc:
+        except (ParseError, EmbeddingError, VectorStoreError) as exc:
             error = str(exc)
         except Exception:
             logger.exception("Error inesperado indexando %s", document_id)
@@ -208,10 +223,17 @@ class DocumentService:
             document.error = None
             document.updated_at = utcnow()
             await session.commit()
-        self._schedule(document_id)
+        await self._schedule(document_id, document.updated_at)
         return document
 
     async def reindex_all(self) -> int:
+        """Vacía el índice y vuelve a indexar todos los documentos.
+
+        Vaciarlo antes es imprescindible tras cambiar el modelo de embeddings (cambia la
+        dimensión de los vectores) y evita que varios workers lo hagan a la vez. Hasta que
+        terminen, el chat responde sin esos documentos.
+        """
+        await self._store.reset()
         documents = await self.list()
         for document in documents:
             await self.reindex(document.id)
@@ -220,17 +242,19 @@ class DocumentService:
     async def resume_pending(self) -> int:
         """Reprograma documentos que quedaron a medias (p. ej. por un reinicio)."""
         async with self._sessionmaker() as session:
-            result = await session.scalars(
-                select(Document.id).where(
+            result = await session.execute(
+                select(Document.id, Document.updated_at).where(
                     Document.status.in_(
                         [DocumentStatus.PENDING.value, DocumentStatus.PROCESSING.value]
                     )
                 )
             )
-            ids = list(result)
-        for document_id in ids:
-            self._schedule(document_id)
-        return len(ids)
+            rows = result.all()
+        # Los pendientes conservan la fecha de su petición: con la cola de arq se reconoce
+        # el trabajo ya encolado y no se duplica.
+        for document_id, updated_at in rows:
+            await self._schedule(document_id, updated_at)
+        return len(rows)
 
     async def stats(self) -> IndexStats:
         async with self._sessionmaker() as session:

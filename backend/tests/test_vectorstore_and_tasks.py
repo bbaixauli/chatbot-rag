@@ -100,3 +100,18 @@ async def test_in_memory_store_can_be_dropped() -> None:
     await store.add("d", "a.md", [Chunk(0, "x", None, None)], await FakeEmbeddings().embed(["x"]))
     assert await store.count() == 1
     store.drop()
+
+
+async def test_chroma_reset_allows_a_new_embedding_dimension(tmp_path: Path) -> None:
+    """Tras cambiar el modelo de embeddings, «Reindexar todo» vacía el índice primero."""
+    store = ChromaVectorStore(tmp_path / "chroma")
+    chunk = Chunk(index=0, text="texto", page=None, heading=None)
+    await store.add("d1", "a.md", [chunk], [[0.1] * 32])
+
+    with pytest.raises(Exception, match="dimension"):
+        await store.add("d1", "a.md", [chunk], [[0.1] * 16])
+
+    await store.reset()
+    assert await store.count() == 0
+    await store.add("d1", "a.md", [chunk], [[0.1] * 16])
+    assert await store.count() == 1
