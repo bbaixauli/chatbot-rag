@@ -181,6 +181,17 @@ Notas:
   `CHATBOT_SESSION_MAX_AGE_SECONDS`, 8 horas por defecto).
 - Las conversaciones creadas en modo anónimo pertenecen al usuario `anonymous` y no aparecen
   en el historial de nadie al activar LDAP.
+- **Acceso anónimo opcional**: en *Administración → Mensaje inicial → Acceso al chat* se puede
+  marcar «Permitir el acceso anónimo» (desactivado por defecto). La pantalla de inicio de
+  sesión muestra entonces «Acceder de forma anónima». Cada acceso anónimo recibe un id propio
+  (`anon:<uuid>`): solo ve sus conversaciones, no las de otras personas anónimas ni las de los
+  usuarios del directorio, y al cerrar sesión (o caducar la sesión) deja de verlas; un nuevo
+  acceso empieza sin conversaciones. Las conversaciones se **conservan** en la base de datos
+  para auditoría (`user_id` empieza por `anon:`) y cada acceso queda en el log («Acceso
+  anónimo», con su `user_id`). Un acceso anónimo nunca administra. Al desmarcar la casilla, las
+  sesiones anónimas abiertas dejan de funcionar en su siguiente petición. Ten en cuenta que,
+  activado, cualquiera que llegue a la aplicación puede usar el chat y abrir los documentos
+  citados en las respuestas.
 - Si el directorio no responde, el inicio de sesión muestra un aviso y el log del backend
   registra el motivo. Las sesiones ya iniciadas siguen funcionando.
 - Es imprescindible definir `CHATBOT_SESSION_SECRET`; con HTTPS, también

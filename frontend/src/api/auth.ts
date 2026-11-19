@@ -4,6 +4,8 @@ export interface AuthUser {
   id: string
   display_name: string
   is_admin: boolean
+  /** Acceso anónimo (con LDAP): sus conversaciones solo se ven durante esta sesión. */
+  is_anonymous?: boolean
 }
 
 /** Sesión del usuario del chat. Con `mode: 'none'` el chat es anónimo. */
@@ -11,6 +13,8 @@ export interface AuthSession {
   mode: 'none' | 'ldap'
   authenticated: boolean
   user: AuthUser | null
+  /** Con LDAP, si el login ofrece entrar de forma anónima (ausente = no). */
+  anonymous_allowed?: boolean
 }
 
 export const getAuthSession = () => apiGet<AuthSession>('/auth/session')
@@ -20,5 +24,7 @@ export const userLogin = (username: string, password: string) =>
     method: 'POST',
     body: JSON.stringify({ username, password }),
   })
+
+export const anonymousLogin = () => apiRequest<AuthSession>('/auth/anonymous', { method: 'POST' })
 
 export const userLogout = () => apiRequest<void>('/auth/session', { method: 'DELETE' })

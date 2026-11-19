@@ -172,3 +172,84 @@ describe('Administración con LDAP', () => {
     expect(screen.getByText('ana')).toBeVisible()
   })
 })
+
+describe('Acceso anónimo con LDAP', () => {
+  const anonymous: AuthSession = {
+    mode: 'ldap',
+    authenticated: true,
+    user: { id: 'anon:1', display_name: 'Anónimo', is_admin: false, is_anonymous: true },
+    anonymous_allowed: true,
+  }
+
+  function api(session: () => AuthSession, extra: Parameters<typeof mockApi>[0] = {}) {
+    return mockApi({
+      'GET /health': health,
+      'GET /auth/session': () => jsonResponse(session()),
+      'GET /conversations': () => jsonResponse([]),
+      'GET /chat/config': () => jsonResponse({ welcome_message: null, suggested_questions: [] }),
+      ...extra,
+    })
+  }
+
+  it('sin permiso no se ofrece el enlace', async () => {
+    api(() => ({ ...loggedOut, anonymous_allowed: false }))
+    renderApp()
+
+    expect(await screen.findByRole('heading', { name: 'Iniciar sesión' })).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'Acceder de forma anónima' })).toBeNull()
+  })
+
+  it('con permiso se entra sin cuenta y se muestra la sesión anónima', async () => {
+    let session: AuthSession = { ...loggedOut, anonymous_allowed: true }
+    const fetchMock = api(() => session, {
+      'POST /auth/anonymous': () => {
+        session = anonymous
+        return jsonResponse(anonymous)
+      },
+    })
+    renderApp('/login')
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Acceder de forma anónima' }))
+
+    const banner = await screen.findByRole('banner')
+    const badge = await within(banner).findByText('Anónimo')
+    expect(badge).toHaveAttribute('title', expect.stringContaining('no podrás volver a ver'))
+    // Un acceso anónimo no administra.
+    expect(within(banner).queryByRole('link', { name: 'Administración' })).toBeNull()
+    expect(
+      fetchMock.mock.calls.some(
+        ([url, init]) => String(url).endsWith('/auth/anonymous') && init?.method === 'POST',
+      ),
+    ).toBe(true)
+  })
+
+  it('al cerrar la sesión anónima se vuelve al login, que sigue ofreciendo el acceso', async () => {
+    let session = anonymous
+    api(() => session, {
+      'DELETE /auth/session': () => {
+        session = { ...loggedOut, anonymous_allowed: true }
+        return jsonResponse(null, 204)
+      },
+    })
+    renderApp()
+
+    const banner = await screen.findByRole('banner')
+    await userEvent.click(await within(banner).findByRole('button', { name: 'Cerrar sesión' }))
+
+    expect(await screen.findByRole('heading', { name: 'Iniciar sesión' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Acceder de forma anónima' })).toBeVisible()
+  })
+
+  it('si el servidor lo rechaza, se informa', async () => {
+    api(() => ({ ...loggedOut, anonymous_allowed: true }), {
+      'POST /auth/anonymous': () => jsonResponse({}, 403),
+    })
+    renderApp('/login')
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Acceder de forma anónima' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'No se pudo acceder de forma anónima.',
+    )
+  })
+})

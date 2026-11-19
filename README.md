@@ -74,8 +74,10 @@ se configura el inicio del chat y se gestionan los documentos del RAG (PDF, Mark
 
 Por defecto el chat es anónimo. Con `CHATBOT_AUTH_MODE=ldap` cada usuario inicia sesión con su
 cuenta del directorio (OpenLDAP o Active Directory) y solo ve sus conversaciones; los miembros
-de `CHATBOT_LDAP_ADMIN_GROUP_DN` administran la aplicación. Configuración y ejemplos en la
-[guía de despliegue](docs/despliegue.md#usuarios-con-ldap).
+de `CHATBOT_LDAP_ADMIN_GROUP_DN` administran la aplicación. Con LDAP, la administración puede
+permitir además el acceso anónimo (*Mensaje inicial → Acceso al chat*): cada acceso anónimo
+solo ve sus conversaciones durante esa sesión, y se conservan para auditoría. Configuración y
+ejemplos en la [guía de despliegue](docs/despliegue.md#usuarios-con-ldap).
 
 ### Mensaje inicial y preguntas sugeridas
 
@@ -155,8 +157,10 @@ Documentación interactiva en http://localhost:8000/docs. Endpoints principales:
 | GET | `/api/v1/chat/config` | Mensaje inicial y preguntas sugeridas |
 | POST | `/api/v1/chat` | Envía un mensaje; respuesta en streaming SSE (`conversation`, `token`, `sources`, `done`, `error`) |
 | GET/POST/DELETE | `/api/v1/auth/session` | Sesión del usuario del chat (modo LDAP) |
+| POST | `/api/v1/auth/anonymous` | Acceso anónimo (modo LDAP, si la administración lo permite) |
 | GET/POST/DELETE | `/api/v1/admin/session` | Estado / inicio / cierre de sesión de administración |
 | GET/PUT | `/api/v1/admin/chat-config` | Mensaje inicial y preguntas sugeridas (admin) |
+| GET/PUT | `/api/v1/admin/access` | Permitir el acceso anónimo con LDAP (admin) |
 | GET/PUT | `/api/v1/admin/prompt` | Prompt de sistema vigente / guardar nueva versión (admin) |
 | GET | `/api/v1/admin/prompt/versions` | Historial de versiones (admin) |
 | POST | `/api/v1/admin/prompt/versions/{id}/restore` | Restaurar una versión (admin) |

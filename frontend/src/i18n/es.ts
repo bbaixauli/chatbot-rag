@@ -14,6 +14,8 @@ export const t = {
     documents: 'Documentos',
     chatStart: 'Mensaje inicial',
     logout: 'Cerrar sesión',
+    anonymousSession:
+      'Acceso anónimo: al cerrar sesión no podrás volver a ver estas conversaciones.',
   },
   login: {
     title: 'Acceso de administración',
@@ -32,6 +34,9 @@ export const t = {
   userLogin: {
     title: 'Iniciar sesión',
     hint: 'Accede con tu usuario y contraseña corporativos.',
+    anonymous: 'Acceder de forma anónima',
+    anonymousHint: 'Sin cuenta: tus conversaciones solo estarán disponibles durante esta sesión.',
+    anonymousError: 'No se pudo acceder de forma anónima. Inténtalo de nuevo.',
   },
   prompt: {
     title: 'Prompt de sistema',
@@ -71,6 +76,15 @@ export const t = {
     loadError: 'No se pudo cargar la configuración.',
     characters: (n: number, max: number) =>
       `${n.toLocaleString('es-ES')} / ${max.toLocaleString('es-ES')} caracteres`,
+    accessTitle: 'Acceso al chat',
+    anonymousLabel: 'Permitir el acceso anónimo',
+    anonymousHint:
+      'Muestra «Acceder de forma anónima» en la pantalla de inicio de sesión. Cada acceso anónimo solo ve sus propias conversaciones y deja de verlas al cerrar sesión; se conservan en el servidor para auditoría.',
+    anonymousWarning:
+      'Cualquiera que llegue a la aplicación podrá usar el chat y abrir los documentos citados en las respuestas. Al desactivarlo, las sesiones anónimas abiertas se cierran.',
+    accessSaved: 'Acceso actualizado.',
+    accessSaveError: 'No se pudo cambiar el acceso.',
+    accessLoadError: 'No se pudo cargar la configuración de acceso.',
   },
   documents: {
     title: 'Documentos',

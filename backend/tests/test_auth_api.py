@@ -50,14 +50,20 @@ async def test_chat_requires_login(client: AsyncClient, method: str, path: str) 
 
 
 async def test_session_lifecycle(client: AsyncClient) -> None:
-    assert (await client.get(URL)).json() == {"mode": "ldap", "authenticated": False, "user": None}
+    assert (await client.get(URL)).json() == {
+        "mode": "ldap",
+        "authenticated": False,
+        "user": None,
+        "anonymous_allowed": False,
+    }
 
     body = await login(client, "ana")
 
     expected = {
         "mode": "ldap",
         "authenticated": True,
-        "user": {"id": "ana", "display_name": "Ana López", "is_admin": True},
+        "user": {"id": "ana", "display_name": "Ana López", "is_admin": True, "is_anonymous": False},
+        "anonymous_allowed": False,
     }
     assert body == expected
     assert (await client.get(URL)).json() == expected
@@ -182,7 +188,12 @@ async def test_user_login_is_rate_limited(app: FastAPI, client: AsyncClient) -> 
 async def test_without_ldap_the_chat_stays_anonymous(app: FastAPI, client: AsyncClient) -> None:
     app.state.settings.auth_mode = "none"
 
-    assert (await client.get(URL)).json() == {"mode": "none", "authenticated": False, "user": None}
+    assert (await client.get(URL)).json() == {
+        "mode": "none",
+        "authenticated": False,
+        "user": None,
+        "anonymous_allowed": False,
+    }
     response = await client.post(URL, json={"username": "ana", "password": PASSWORDS["ana"]})
     assert response.status_code == 409
     assert (await client.get("/api/v1/conversations")).status_code == 200

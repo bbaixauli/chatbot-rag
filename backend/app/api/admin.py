@@ -1,6 +1,7 @@
-"""Endpoints de administración: sesión, prompt de sistema e inicio del chat."""
+"""Endpoints de administración: sesión, prompt de sistema, inicio del chat y acceso."""
 
 import asyncio
+import logging
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
@@ -13,10 +14,12 @@ from app.core.auth import SESSION_ADMIN_KEY, AdminDep, get_admin, verify_admin_c
 from app.core.config import Settings
 from app.core.rate_limit import LoginRateLimit
 from app.db.models import SystemPromptVersion
+from app.services.access import AccessConfig, AccessRepository
 from app.services.chat_config import MAX_SUGGESTED_QUESTIONS, ChatConfig, ChatConfigRepository
 from app.services.prompts import PromptRepository
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+logger = logging.getLogger(__name__)
 
 # Pausa tras un intento fallido para dificultar ataques de fuerza bruta.
 FAILED_LOGIN_DELAY_SECONDS = 0.5
@@ -47,6 +50,16 @@ class PromptUpdate(BaseModel):
 class ChatConfigUpdate(BaseModel):
     welcome_message: str | None = None
     suggested_questions: list[str] = Field(default_factory=list, max_length=MAX_SUGGESTED_QUESTIONS)
+
+
+class AccessOut(BaseModel):
+    anonymous_allowed: bool
+    # El acceso anónimo solo tiene sentido con LDAP (sin LDAP, el chat ya es anónimo).
+    available: bool
+
+
+class AccessUpdate(BaseModel):
+    anonymous_allowed: bool
 
 
 class PromptVersionOut(BaseModel):
@@ -184,3 +197,36 @@ async def update_chat_config(
     )
     await db.commit()
     return config
+
+
+def _access_out(settings: Settings, config: AccessConfig) -> AccessOut:
+    return AccessOut(
+        anonymous_allowed=config.anonymous_allowed, available=settings.auth_mode == "ldap"
+    )
+
+
+@router.get("/access", response_model=AccessOut)
+async def get_access(_: AdminDep, db: DbSession, settings: SettingsDep) -> AccessOut:
+    return _access_out(settings, await AccessRepository(db).get())
+
+
+@router.put("/access", response_model=AccessOut)
+async def update_access(
+    body: AccessUpdate, admin: AdminDep, db: DbSession, settings: SettingsDep
+) -> AccessOut:
+    """Permite o impide el acceso anónimo. Al impedirlo, las sesiones anónimas abiertas
+    dejan de funcionar en su siguiente petición."""
+    if settings.auth_mode != "ldap":
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "El acceso anónimo solo se configura con LDAP"
+        )
+    config = await AccessRepository(db).save(
+        AccessConfig(anonymous_allowed=body.anonymous_allowed), admin.username
+    )
+    await db.commit()
+    logger.info(
+        "Acceso anónimo %s",
+        "permitido" if config.anonymous_allowed else "desactivado",
+        extra={"user_id": admin.username},
+    )
+    return _access_out(settings, config)
