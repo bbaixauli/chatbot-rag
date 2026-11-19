@@ -8,6 +8,7 @@ from fastapi.responses import StreamingResponse
 from app.api.deps import DbSession, SettingsDep
 from app.api.schemas import ChatConfigOut, ChatRequest
 from app.core.auth import CurrentUserDep
+from app.core.rate_limit import ChatRateLimit
 from app.services.chat import ChatService, ConversationNotFoundError
 from app.services.chat_config import ChatConfig, ChatConfigRepository
 from app.services.llm import LLMClient
@@ -41,6 +42,7 @@ async def chat(
     user: CurrentUserDep,
     settings: SettingsDep,
     llm: LLMDep,
+    _: ChatRateLimit,
 ) -> StreamingResponse:
     """Envía un mensaje y devuelve la respuesta como eventos SSE.
 

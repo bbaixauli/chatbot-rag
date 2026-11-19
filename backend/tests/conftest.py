@@ -21,6 +21,7 @@ class ScriptedLLM:
     def __init__(self, chunks: Sequence[str] = ("Hola", ", ", "mundo"), fail: bool = False):
         self.chunks = list(chunks)
         self.fail = fail
+        self.error = LLMError("caído")
         self.calls: list[list[ChatMessage]] = []
 
     async def stream_chat(self, messages: Sequence[ChatMessage]) -> AsyncIterator[str]:
@@ -28,7 +29,7 @@ class ScriptedLLM:
         for chunk in self.chunks:
             yield chunk
         if self.fail:
-            raise LLMError("caído")
+            raise self.error
 
 
 def parse_sse(body: str) -> list[tuple[str, dict[str, Any]]]:

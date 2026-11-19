@@ -212,6 +212,18 @@ describe('ChatPage', () => {
     expect(screen.getByText('¿En qué puedo ayudarte?')).toBeInTheDocument()
   })
 
+  it('avisa si se supera el límite de mensajes', async () => {
+    mockApi({
+      'GET /health': health,
+      'GET /conversations': () => jsonResponse([]),
+      'POST /chat': () => jsonResponse({ detail: 'Demasiadas peticiones' }, 429),
+    })
+    renderApp()
+    await ask('hola')
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('muchos mensajes seguidos')
+  })
+
   it('indica que la conversación no existe y desactiva el envío', async () => {
     mockApi({
       'GET /health': health,
