@@ -20,40 +20,8 @@ class ChatMessage:
     content: str
 
 
-DEFAULT_USER_MESSAGE = "El modelo no está disponible. Inténtalo de nuevo."
-
-
 class LLMError(Exception):
-    """Error al comunicarse con el modelo de lenguaje.
-
-    `user_message` es apto para mostrarlo en el chat; el detalle técnico queda en el log.
-    """
-
-    def __init__(self, message: str, user_message: str = DEFAULT_USER_MESSAGE) -> None:
-        super().__init__(message)
-        self.user_message = user_message
-
-
-_CONTEXT_LENGTH_HINTS = ("context length", "context_length", "maximum context", "too many tokens")
-
-
-def user_message_for(exc: openai.OpenAIError) -> str:
-    """Mensaje comprensible para el usuario según el tipo de error del servidor de IA."""
-    if isinstance(exc, openai.APITimeoutError):
-        return "El modelo ha tardado demasiado en responder. Inténtalo de nuevo."
-    if isinstance(exc, openai.APIConnectionError):
-        return "No se pudo conectar con el modelo. Inténtalo de nuevo en unos minutos."
-    if isinstance(exc, openai.RateLimitError):
-        return "El modelo está saturado. Espera unos segundos e inténtalo de nuevo."
-    if isinstance(exc, openai.AuthenticationError | openai.PermissionDeniedError):
-        return "El servidor de IA ha rechazado la conexión. Avisa al administrador."
-    if isinstance(exc, openai.BadRequestError):
-        if any(hint in str(exc).lower() for hint in _CONTEXT_LENGTH_HINTS):
-            return "La conversación es demasiado larga para el modelo. Empieza una nueva."
-        return "El modelo no ha aceptado la petición. Avisa al administrador."
-    if isinstance(exc, openai.NotFoundError):
-        return "El modelo configurado no existe en el servidor de IA. Avisa al administrador."
-    return DEFAULT_USER_MESSAGE
+    """Error al comunicarse con el modelo de lenguaje."""
 
 
 class LLMClient(Protocol):
@@ -93,10 +61,7 @@ class OpenAICompatibleClient:
                 if chunk.choices and (delta := chunk.choices[0].delta.content):
                     yield delta
         except openai.OpenAIError as exc:
-            raise LLMError(
-                f"Error del modelo de lenguaje ({type(exc).__name__}): {exc}",
-                user_message_for(exc),
-            ) from exc
+            raise LLMError(f"Error del modelo de lenguaje: {exc}") from exc
 
 
 class FakeLLMClient:

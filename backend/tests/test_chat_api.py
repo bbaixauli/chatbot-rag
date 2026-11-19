@@ -5,7 +5,6 @@ from httpx import AsyncClient
 
 from app.core.config import Settings
 from app.services.chat import ChatService
-from app.services.llm import LLMError
 from tests.conftest import ScriptedLLM, parse_sse
 
 
@@ -110,25 +109,3 @@ async def test_conversation_deleted_while_streaming(app: FastAPI, settings: Sett
 
     remaining = [chunk async for chunk in stream]
     assert remaining[-1].startswith("event: error")
-
-
-async def test_llm_error_message_is_specific(client: AsyncClient, llm: ScriptedLLM) -> None:
-    llm.fail = True
-    llm.error = LLMError("timeout", "El modelo ha tardado demasiado en responder.")
-
-    events = await _chat(client, "hola")
-
-    assert events[-1] == ("error", {"detail": "El modelo ha tardado demasiado en responder."})
-
-
-async def test_empty_answer_emits_error_and_is_not_saved(
-    client: AsyncClient, llm: ScriptedLLM
-) -> None:
-    llm.chunks = ["  ", ""]
-
-    events = await _chat(client, "hola")
-
-    assert events[-1][0] == "error"
-    assert "ninguna respuesta" in events[-1][1]["detail"]
-    messages = (await client.get(f"/api/v1/conversations/{events[0][1]['id']}/messages")).json()
-    assert [m["role"] for m in messages] == ["user"]

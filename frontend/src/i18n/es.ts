@@ -22,7 +22,6 @@ export const t = {
     submit: 'Entrar',
     invalid: 'Usuario o contraseña incorrectos.',
     error: 'No se pudo iniciar sesión. Inténtalo de nuevo.',
-    tooManyAttempts: 'Demasiados intentos. Espera un minuto antes de volver a intentarlo.',
     disabled:
       'La administración no está configurada. Define CHATBOT_ADMIN_PASSWORD en el servidor.',
   },
@@ -137,7 +136,6 @@ export const t = {
     thinking: 'Pensando…',
     loadError: 'No se pudieron cargar los mensajes.',
     sendError: 'No se pudo enviar el mensaje. Inténtalo de nuevo.',
-    rateLimited: 'Has enviado muchos mensajes seguidos. Espera un momento antes de continuar.',
     notFound: 'La conversación no existe.',
     sources: 'Fuentes',
     consultedSources: 'Fuentes consultadas',

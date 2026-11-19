@@ -10,7 +10,7 @@ Desarrollado utilizando Vibe Coding con Claude Code.
 ## Estructura
 
 ```
-.github/workflows/   CI de GitHub Actions (backend, frontend, E2E y Docker)
+.github/workflows/   CI de GitHub Actions (backend, frontend y E2E)
 backend/
   app/api/           Endpoints (chat, conversaciones, documentos, administración)
   app/services/      Lógica: chat, RAG, embeddings, índice vectorial, ingesta…
@@ -20,10 +20,6 @@ backend/
 frontend/
   src/               SPA React + TypeScript (Vite, Tailwind)
   e2e/               Tests de interfaz con Playwright
-  docker/            Configuración de nginx para la imagen
-docs/                Guía de despliegue
-scripts/             Prueba de humo del despliegue con Docker
-docker-compose.yml   Despliegue con Docker
 data/                Datos locales: BD, índice y ficheros subidos (no versionado)
 ```
 
@@ -31,17 +27,6 @@ data/                Datos locales: BD, índice y ficheros subidos (no versionad
 
 - [uv](https://docs.astral.sh/uv/) (gestiona Python 3.12 automáticamente)
 - Node.js LTS (≥ 20.19)
-
-## Despliegue con Docker
-
-```bash
-cp .env.example .env      # configura el servidor de IA y la contraseña de administración
-docker compose up -d --build
-```
-
-La aplicación queda en http://localhost:8080. La [guía de despliegue](docs/despliegue.md)
-explica la configuración, HTTPS, actualizaciones, logs y copias de seguridad
-(`docker compose exec backend python -m app.backup create`).
 
 ## Puesta en marcha en local
 
@@ -163,7 +148,6 @@ Documentación interactiva en http://localhost:8000/docs. Endpoints principales:
 | Tipos | `uv run mypy app tests` | `npm run typecheck` |
 | Tests unitarios | `uv run pytest` (cobertura ≥ 85 %) | `npm test` (cobertura ≥ 80 %) |
 | Tests de interfaz | — | `npm run test:e2e` (Playwright) |
-| Despliegue | `scripts/docker-smoke.sh` (desde la raíz; requiere Docker) | |
 
 Los tests E2E levantan automáticamente backend (puerto 8001, con modelo simulado) y frontend
 (puerto 5174) con una carpeta de datos temporal. La primera vez instala el navegador con
@@ -172,10 +156,6 @@ ejecutan en un proyecto aparte, después del resto. Si en un equipo lento fallan
 espera al ejecutarse en paralelo, prueba con `npm run test:e2e -- --workers=1`.
 
 El CI de GitHub Actions ejecuta todo lo anterior en cada pull request.
-
-El backend registra cada petición con un `X-Request-ID` (`CHATBOT_LOG_FORMAT=json` para logs
-estructurados) y limita las peticiones por IP al chat y al inicio de sesión
-(`CHATBOT_RATE_LIMIT_*`).
 
 > **Windows:** ejecuta Vitest desde una ruta con la letra de unidad en mayúscula
 > (`F:\...`). Si el terminal se abre en `f:\...`, Vitest carga los módulos dos veces y

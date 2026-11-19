@@ -2,7 +2,6 @@ from collections.abc import AsyncIterator
 from types import SimpleNamespace
 from typing import Any, cast
 
-import httpx2 as httpx
 import openai
 import pytest
 from openai import AsyncOpenAI
@@ -104,38 +103,3 @@ async def test_fake_client_echoes_last_question() -> None:
 def test_build_llm_client_by_provider() -> None:
     assert isinstance(build_llm_client(_settings(llm_provider="fake")), FakeLLMClient)
     assert isinstance(build_llm_client(_settings()), OpenAICompatibleClient)
-
-
-_REQUEST = httpx.Request("POST", "http://ia/v1/chat/completions")
-
-
-def _status_error(cls: type[openai.APIStatusError], code: int, message: str) -> Exception:
-    return cls(message, response=httpx.Response(code, request=_REQUEST), body=None)
-
-
-@pytest.mark.parametrize(
-    ("error", "expected"),
-    [
-        (openai.APITimeoutError(request=_REQUEST), "tardado demasiado"),
-        (openai.APIConnectionError(request=_REQUEST), "No se pudo conectar"),
-        (_status_error(openai.RateLimitError, 429, "slow down"), "saturado"),
-        (_status_error(openai.AuthenticationError, 401, "bad key"), "rechazado la conexión"),
-        (_status_error(openai.PermissionDeniedError, 403, "no"), "rechazado la conexión"),
-        (
-            _status_error(openai.BadRequestError, 400, "maximum context length is 8192 tokens"),
-            "demasiado larga",
-        ),
-        (_status_error(openai.BadRequestError, 400, "invalid temperature"), "no ha aceptado"),
-        (_status_error(openai.NotFoundError, 404, "model not found"), "no existe"),
-        (_status_error(openai.InternalServerError, 500, "boom"), "no está disponible"),
-        (openai.OpenAIError("otro"), "no está disponible"),
-    ],
-)
-async def test_sdk_errors_get_user_friendly_messages(error: Exception, expected: str) -> None:
-    client = OpenAICompatibleClient(_settings(), _client(FakeCompletions([], error=error)))
-
-    with pytest.raises(LLMError) as info:
-        _ = [d async for d in client.stream_chat([ChatMessage("user", "hola")])]
-
-    assert expected in info.value.user_message
-    assert type(error).__name__ in str(info.value)

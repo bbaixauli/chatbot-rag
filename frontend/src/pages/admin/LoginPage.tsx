@@ -30,15 +30,12 @@ export function LoginPage() {
     signIn.mutate()
   }
 
-  const status = signIn.error instanceof ApiError ? signIn.error.status : null
   const errorMessage =
-    status === 401
+    signIn.error instanceof ApiError && signIn.error.status === 401
       ? t.login.invalid
-      : status === 429
-        ? t.login.tooManyAttempts
-        : signIn.error
-          ? t.login.error
-          : null
+      : signIn.error
+        ? t.login.error
+        : null
 
   return (
     <div className="flex h-full items-center justify-center bg-gray-50 p-6">

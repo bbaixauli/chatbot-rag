@@ -10,8 +10,6 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from app.api import admin, chat, conversations, documents, health
 from app.core.config import Settings, get_settings
-from app.core.logging import RequestContextMiddleware, configure_logging
-from app.core.rate_limit import RateLimiter
 from app.db.session import build_engine, build_sessionmaker
 from app.services.documents import DocumentService
 from app.services.embeddings import build_embeddings
@@ -28,7 +26,7 @@ API_PREFIX = "/api/v1"
 def create_app(settings: Settings | None = None) -> FastAPI:
     """Construye la aplicación FastAPI con la configuración indicada."""
     settings = settings or get_settings()
-    configure_logging(settings.log_level, settings.log_format)
+    logging.basicConfig(level=settings.log_level)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -61,7 +59,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(title=settings.app_name, version=settings.version, lifespan=lifespan)
     app.state.settings = settings
-    app.state.rate_limiter = RateLimiter()
     app.add_middleware(
         SessionMiddleware,
         secret_key=settings.session_secret.get_secret_value(),
@@ -70,8 +67,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         same_site="strict",
         https_only=settings.session_cookie_secure,
     )
-    # El último middleware añadido es el más externo: el id de petición abarca todo.
-    app.add_middleware(RequestContextMiddleware)
     for router in (
         health.router,
         conversations.router,
