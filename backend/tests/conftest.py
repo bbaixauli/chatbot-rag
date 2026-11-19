@@ -1,6 +1,7 @@
 """Fixtures comunes de los tests del backend."""
 
 import json
+import os
 from collections.abc import AsyncIterator, Sequence
 from pathlib import Path
 from typing import Any
@@ -10,9 +11,17 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from app.core.config import Settings
-from app.db.base import Base
-from app.main import create_app
-from app.services.llm import ChatMessage, LLMError
+
+# Los tests no dependen de la máquina: no se lee `backend/.env` ni se heredan variables
+# CHATBOT_* del entorno (un test que necesite una la define con `monkeypatch.setenv`).
+# Se hace antes de importar `app.main`, que crea una aplicación al importarse.
+for _name in [name for name in os.environ if name.upper().startswith("CHATBOT_")]:
+    del os.environ[_name]
+Settings.model_config["env_file"] = None
+
+from app.db.base import Base  # noqa: E402
+from app.main import create_app  # noqa: E402
+from app.services.llm import ChatMessage, LLMError  # noqa: E402
 
 
 class ScriptedLLM:
