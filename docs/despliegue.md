@@ -89,8 +89,8 @@ Edita `.env` y revisa como mínimo:
 |---|---|
 | `CHATBOT_LLM_BASE_URL`, `CHATBOT_LLM_API_KEY`, `CHATBOT_LLM_MODEL` | Servidor de IA y modelo de chat |
 | `CHATBOT_EMBEDDING_MODEL` (y `CHATBOT_EMBEDDING_BASE_URL` si es otro servidor) | Modelo de embeddings |
-| `CHATBOT_ADMIN_PASSWORD` | Contraseña de la administración |
-| `CHATBOT_SESSION_SECRET` | Clave aleatoria: `python -c "import secrets; print(secrets.token_urlsafe(32))"` |
+| `CHATBOT_ADMIN_PASSWORD` | Contraseña de la administración (no se admite la de ejemplo de `.env.example`) |
+| `CHATBOT_SESSION_SECRET` | Clave aleatoria de al menos 16 caracteres, obligatoria si hay administración o LDAP: `python -c "import secrets; print(secrets.token_urlsafe(32))"` |
 | `CHATBOT_SESSION_COOKIE_SECURE` | `true` si se accede por HTTPS (recomendado) |
 
 `CHATBOT_DATA_DIR` se ignora en Docker: los datos siempre están en el volumen `/data`.
@@ -325,9 +325,9 @@ colección de Qdrant vaciada y reindexada por los workers). También se ejecuta 
 
 | Síntoma | Causa probable |
 |---|---|
-| `backend` no llega a *healthy* | Revisa `docker compose logs backend`: variables mal escritas o migración fallida |
+| `backend` no llega a *healthy* | Revisa `docker compose logs backend`: variables mal escritas, migración fallida, falta `CHATBOT_SESSION_SECRET` (o es corta) o `CHATBOT_ADMIN_PASSWORD` es la de ejemplo |
 | La respuesta del chat aparece de golpe al final | Un proxy intermedio almacena en búfer el SSE (`proxy_buffering off`) |
 | `413 Request Entity Too Large` al subir | Aumenta `CHATBOT_MAX_BODY_SIZE` (y `client_max_body_size` en el proxy externo) |
 | «No se pudo conectar con el modelo» | El contenedor no alcanza `CHATBOT_LLM_BASE_URL`. Si el servidor de IA está en el mismo equipo, usa su IP o `host.docker.internal`, no `localhost` |
-| Las sesiones de administración se pierden al reiniciar | Falta `CHATBOT_SESSION_SECRET` |
+| Las sesiones de administración se pierden al reiniciar (fuera de Docker) | Falta `CHATBOT_SESSION_SECRET` |
 | Todos los usuarios reciben `429` a la vez | Hay un proxy delante sin configurar `real_ip` (ver HTTPS) |

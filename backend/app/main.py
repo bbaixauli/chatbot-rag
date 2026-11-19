@@ -29,6 +29,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     """Construye la aplicación FastAPI con la configuración indicada."""
     settings = settings or get_settings()
     configure_logging(settings.log_level, settings.log_format)
+    if settings.uses_example_admin_password:
+        # En producción ni siquiera arranca (ver Settings); aquí solo se avisa.
+        logger.warning("CHATBOT_ADMIN_PASSWORD tiene el valor de ejemplo de .env.example: cámbiala")
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:

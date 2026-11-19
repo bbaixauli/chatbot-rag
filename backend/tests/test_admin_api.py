@@ -1,11 +1,17 @@
+import base64
+import json
+from pathlib import Path
+
 import pytest
 from fastapi import FastAPI
-from httpx import AsyncClient
+from httpx import ASGITransport, AsyncClient
+from itsdangerous import TimestampSigner
 from pydantic import SecretStr
 
 from app.api import admin
 from app.core.auth import verify_admin_credentials
 from app.core.config import Settings
+from app.main import create_app
 from tests.conftest import ScriptedLLM
 
 CREDENTIALS = {"username": "admin", "password": "secreto"}
@@ -140,3 +146,28 @@ async def test_chat_uses_current_prompt(admin_client: AsyncClient, llm: Scripted
 
     assert llm.calls[0][0].role == "system"
     assert llm.calls[0][0].content == "Eres un experto en RAG."
+
+
+async def test_cookie_signed_with_an_empty_key_is_rejected(tmp_path: Path) -> None:
+    """Con `CHATBOT_SESSION_SECRET=` vacía, una cookie firmada con la clave "" no debe
+    dar acceso (antes la aplicación firmaba con "" y cualquiera podía forjarla)."""
+    settings = Settings(
+        _env_file=None,
+        environment="test",
+        data_dir=tmp_path / "data",
+        llm_provider="fake",
+        embedding_provider="fake",
+        admin_password="secreto",  # noqa: S106
+        session_secret="",
+    )
+    payload = base64.b64encode(json.dumps({"admin": "intruso"}).encode())
+    forged = TimestampSigner("").sign(payload).decode()
+    app = create_app(settings)
+
+    async with app.router.lifespan_context(app):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            client.cookies.set("chatbot_session", forged)
+            session = (await client.get("/api/v1/admin/session")).json()
+
+    assert session["authenticated"] is False
