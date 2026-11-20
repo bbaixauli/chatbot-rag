@@ -10,7 +10,8 @@ from typing import Any, Protocol
 import openai
 from openai import AsyncOpenAI
 
-from app.core.config import Settings
+from app.core.runtime_config import ConfigSource, EmbeddingConfig, RuntimeConfig
+from app.services.llm import api_key_value
 
 
 class EmbeddingError(Exception):
@@ -33,15 +34,18 @@ class Embeddings(Protocol):
 class OpenAICompatibleEmbeddings:
     """Embeddings vía `/v1/embeddings` (LiteLLM, vLLM, Ollama, OpenAI…)."""
 
-    def __init__(self, settings: Settings, client: AsyncOpenAI | None = None) -> None:
-        self.model_name = settings.embedding_model
-        self._batch_size = settings.embedding_batch_size
-        api_key = settings.embedding_api_key or settings.llm_api_key
+    def __init__(self, config: RuntimeConfig, client: AsyncOpenAI | None = None) -> None:
+        embeddings, llm = config.embeddings, config.llm
+        self.model_name = embeddings.model
+        self._batch_size = embeddings.batch_size
+        api_key = (
+            embeddings.api_key.get_secret_value() if embeddings.api_key else api_key_value(llm)
+        )
         self._client = client or AsyncOpenAI(
-            base_url=settings.embedding_base_url or settings.llm_base_url,
-            api_key=api_key.get_secret_value(),
-            timeout=settings.llm_timeout_seconds,
-            max_retries=settings.llm_max_retries,
+            base_url=embeddings.base_url or llm.base_url,
+            api_key=api_key,
+            timeout=llm.timeout_seconds,
+            max_retries=llm.max_retries,
         )
 
     async def embed(self, texts: Sequence[str]) -> list[list[float]]:
@@ -64,9 +68,9 @@ class OpenAICompatibleEmbeddings:
 class LocalEmbeddings:
     """Embeddings con sentence-transformers en el propio servidor (CPU o GPU)."""
 
-    def __init__(self, settings: Settings) -> None:
-        self.model_name = settings.embedding_model
-        self._batch_size = settings.embedding_batch_size
+    def __init__(self, config: EmbeddingConfig) -> None:
+        self.model_name = config.model
+        self._batch_size = config.batch_size
         self._model: Any = None
         self._lock = asyncio.Lock()
 
@@ -116,10 +120,43 @@ class FakeEmbeddings:
         return [self._vector(text) for text in texts]
 
 
-def build_embeddings(settings: Settings) -> Embeddings:
+def build_embeddings(config: RuntimeConfig) -> Embeddings:
     """Crea el proveedor de embeddings configurado."""
-    if settings.embedding_provider == "fake":
+    if config.embeddings.provider == "fake":
         return FakeEmbeddings()
-    if settings.embedding_provider == "local":
-        return LocalEmbeddings(settings)
-    return OpenAICompatibleEmbeddings(settings)
+    if config.embeddings.provider == "local":
+        return LocalEmbeddings(config.embeddings)
+    return OpenAICompatibleEmbeddings(config)
+
+
+def _connection(config: RuntimeConfig) -> tuple[object, ...]:
+    """Lo que determina el cliente de embeddings (cambios en otros campos no lo recrean:
+    recargar un modelo local es costoso)."""
+    if config.embeddings.provider != "openai":
+        return (config.embeddings,)
+    llm = config.llm
+    return (config.embeddings, llm.base_url, llm.api_key, llm.timeout_seconds, llm.max_retries)
+
+
+class ConfigurableEmbeddings:
+    """Embeddings que siguen la configuración vigente: si cambia, se crea otro cliente."""
+
+    def __init__(self, source: ConfigSource) -> None:
+        self._source = source
+        self._key: tuple[object, ...] | None = None
+        self._embeddings: Embeddings | None = None
+
+    def _current(self) -> Embeddings:
+        config = self._source.current
+        key = _connection(config)
+        if self._embeddings is None or key != self._key:
+            self._embeddings = build_embeddings(config)
+            self._key = key
+        return self._embeddings
+
+    @property
+    def model_name(self) -> str:
+        return self._current().model_name
+
+    async def embed(self, texts: Sequence[str]) -> list[list[float]]:
+        return await self._current().embed(texts)

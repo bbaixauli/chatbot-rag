@@ -22,6 +22,7 @@ from app.diagnose import (
 from app.main import create_app
 from app.services.embeddings import FakeEmbeddings
 from app.services.ingestion.chunker import Chunk
+from tests.conftest import set_config
 from tests.factories import MARKDOWN
 
 CREDENTIALS = {"username": "admin", "password": "secreto"}
@@ -77,7 +78,12 @@ async def test_healthy_document(app: FastAPI, client: AsyncClient, settings: Set
     document = await _upload(app, client)
 
     report = await diagnose_document(
-        document, settings, app.state.vector_store, app.state.embeddings, batch_check=True
+        document,
+        settings,
+        app.state.config.current,
+        app.state.vector_store,
+        app.state.embeddings,
+        batch_check=True,
     )
 
     assert report.ok, report.problems
@@ -101,7 +107,9 @@ async def test_detects_wrong_and_missing_vectors(
     await store.add(document.id, document.filename, [wrong], [vector])
     await store.delete_chunks_from(document.id, len(stored) - 1)
 
-    report = await diagnose_document(document, settings, store, app.state.embeddings)
+    report = await diagnose_document(
+        document, settings, app.state.config.current, store, app.state.embeddings
+    )
 
     assert not report.ok
     problems = "\n".join(report.problems)
@@ -127,7 +135,9 @@ async def test_detects_duplicate_vectors_and_toc(
         [toc_vector, toc_vector],
     )
 
-    report = await diagnose_document(document, settings, store, app.state.embeddings)
+    report = await diagnose_document(
+        document, settings, app.state.config.current, store, app.state.embeddings
+    )
 
     assert "Fragmentos 0 y 1: textos distintos con el mismo vector" in report.problems
     assert "Fragmentos con aspecto de índice: [0]" in report.notes
@@ -142,6 +152,7 @@ async def test_batch_check_detects_inconsistent_server(
     report = await diagnose_document(
         document,
         settings,
+        app.state.config.current,
         app.state.vector_store,
         BatchSensitiveEmbeddings(),
         batch_check=True,
@@ -162,7 +173,7 @@ async def test_document_without_original_file(
     app.state.documents.file_path(document).unlink()
 
     report = await diagnose_document(
-        document, settings, app.state.vector_store, app.state.embeddings
+        document, settings, app.state.config.current, app.state.vector_store, app.state.embeddings
     )
 
     assert any("No se encuentra el fichero original" in p for p in report.problems)
@@ -172,17 +183,20 @@ async def test_query_marks_chunks_used_by_chat(
     app: FastAPI, client: AsyncClient, settings: Settings
 ) -> None:
     await _upload(app, client)
-    settings.rag_top_k = 2
-    settings.rag_min_score = 0.0
+    await set_config(app, "rag", top_k=2, min_score=0.0)
 
     hits = await diagnose_query(
-        "días de vacaciones", settings, app.state.vector_store, app.state.embeddings, top=10
+        "días de vacaciones",
+        app.state.config.current,
+        app.state.vector_store,
+        app.state.embeddings,
+        top=10,
     )
 
     assert len(hits) > 2
     assert [item.used for item in hits[:2]] == [True, True]
     assert not any(item.used for item in hits[2:])
-    assert "RAG_TOP_K" in hits[2].reason
+    assert "top-k" in hits[2].reason
     assert "vacaciones" in hits[0].hit.text
 
 
@@ -286,6 +300,7 @@ async def test_truncation_check_without_truncation(
     report = await diagnose_document(
         document,
         settings,
+        app.state.config.current,
         app.state.vector_store,
         app.state.embeddings,
         truncation_check=True,
@@ -305,7 +320,12 @@ async def test_truncation_check_detects_and_estimates_the_limit(
     document = await _upload(app, client, "largo.md", LONG_MARKDOWN)
 
     report = await diagnose_document(
-        document, settings, app.state.vector_store, truncating, truncation_check=True
+        document,
+        settings,
+        app.state.config.current,
+        app.state.vector_store,
+        truncating,
+        truncation_check=True,
     )
 
     # Los vectores guardados coinciden con los actuales: sin esta prueba no se vería nada.
@@ -334,7 +354,7 @@ async def test_query_full_ranking_for_a_document(
 
     hits = await diagnose_query(
         "días de vacaciones",
-        settings,
+        app.state.config.current,
         app.state.vector_store,
         app.state.embeddings,
         top=1,

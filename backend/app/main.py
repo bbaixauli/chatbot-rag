@@ -9,16 +9,18 @@ from sqlalchemy.exc import OperationalError
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.api import admin, appearance, auth, chat, conversations, documents, health
-from app.core.config import Settings, get_settings
+from app.api import config as config_api
+from app.core.config import APP_TITLE, Settings, get_settings
 from app.core.ldap_auth import LdapAuthenticator
 from app.core.logging import RequestContextMiddleware, configure_logging
 from app.core.rate_limit import RateLimiter
 from app.db.session import build_engine, build_sessionmaker
 from app.services.backends import build_task_runner, build_vector_store, close_vector_store
 from app.services.documents import DocumentService
-from app.services.embeddings import build_embeddings
-from app.services.llm import build_llm_client
+from app.services.embeddings import ConfigurableEmbeddings
+from app.services.llm import ConfigurableLLM
 from app.services.rag import Retriever
+from app.services.runtime_config import ConfigStore
 
 logger = logging.getLogger(__name__)
 
@@ -39,10 +41,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         engine = build_engine(settings.resolved_database_url)
         app.state.engine = engine
         app.state.sessionmaker = build_sessionmaker(engine)
-        app.state.llm = build_llm_client(settings)
-        app.state.embeddings = build_embeddings(settings)
+        config = ConfigStore(app.state.sessionmaker, settings)
+        try:
+            # Primer arranque: copia a la BD la configuración de las variables CHATBOT_*.
+            await config.load(seed=True)
+        except OperationalError:
+            logger.warning("No se pudo leer la configuración de la BD: se usa la de CHATBOT_*")
+        app.state.config = config
+        app.state.llm = ConfigurableLLM(config)
+        app.state.embeddings = ConfigurableEmbeddings(config)
         app.state.vector_store = build_vector_store(settings)
-        app.state.retriever = Retriever(app.state.embeddings, app.state.vector_store, settings)
+        app.state.retriever = Retriever(app.state.embeddings, app.state.vector_store, config)
         tasks = await build_task_runner(settings)
         app.state.tasks = tasks
         app.state.documents = DocumentService(
@@ -51,6 +60,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             app.state.embeddings,
             app.state.vector_store,
             tasks,
+            config,
         )
         try:
             resumed = await app.state.documents.resume_pending()
@@ -63,7 +73,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await close_vector_store(app.state.vector_store)
         await engine.dispose()
 
-    app = FastAPI(title=settings.app_name, version=settings.version, lifespan=lifespan)
+    app = FastAPI(title=APP_TITLE, version=settings.version, lifespan=lifespan)
     app.state.settings = settings
     app.state.rate_limiter = RateLimiter()
     # No abre conexiones al crearse: solo al validar un inicio de sesión.
@@ -84,6 +94,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         conversations.router,
         chat.router,
         admin.router,
+        config_api.router,
         documents.router,
         documents.public_router,
         appearance.router,

@@ -9,7 +9,7 @@ import openai
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionMessageParam
 
-from app.core.config import Settings
+from app.core.runtime_config import ConfigSource, LlmConfig
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,6 +20,7 @@ class ChatMessage:
     content: str
 
 
+NO_API_KEY = "not-needed"
 DEFAULT_USER_MESSAGE = "El modelo no está disponible. Inténtalo de nuevo."
 
 
@@ -67,14 +68,14 @@ class LLMClient(Protocol):
 class OpenAICompatibleClient:
     """Cliente para cualquier servidor compatible con la API de OpenAI."""
 
-    def __init__(self, settings: Settings, client: AsyncOpenAI | None = None) -> None:
-        self._model = settings.llm_model
-        self._temperature = settings.llm_temperature
+    def __init__(self, config: LlmConfig, client: AsyncOpenAI | None = None) -> None:
+        self._model = config.model
+        self._temperature = config.temperature
         self._client = client or AsyncOpenAI(
-            base_url=settings.llm_base_url,
-            api_key=settings.llm_api_key.get_secret_value(),
-            timeout=settings.llm_timeout_seconds,
-            max_retries=settings.llm_max_retries,
+            base_url=config.base_url,
+            api_key=api_key_value(config),
+            timeout=config.timeout_seconds,
+            max_retries=config.max_retries,
         )
 
     async def stream_chat(self, messages: Sequence[ChatMessage]) -> AsyncIterator[str]:
@@ -136,8 +137,35 @@ class FakeLLMClient:
             yield word if index == 0 else f" {word}"
 
 
-def build_llm_client(settings: Settings) -> LLMClient:
+def api_key_value(config: LlmConfig) -> str:
+    """Clave de la API; los servidores sin autenticación aceptan cualquier valor."""
+    return config.api_key.get_secret_value() if config.api_key else NO_API_KEY
+
+
+def build_llm_client(config: LlmConfig) -> LLMClient:
     """Crea el cliente configurado."""
-    if settings.llm_provider == "fake":
+    if config.provider == "fake":
         return FakeLLMClient()
-    return OpenAICompatibleClient(settings)
+    return OpenAICompatibleClient(config)
+
+
+class ConfigurableLLM:
+    """Cliente que sigue la configuración vigente: si cambia, crea uno nuevo.
+
+    Las respuestas en curso terminan con el cliente con el que empezaron.
+    """
+
+    def __init__(self, source: ConfigSource) -> None:
+        self._source = source
+        self._config: LlmConfig | None = None
+        self._client: LLMClient | None = None
+
+    def _current(self) -> LLMClient:
+        config = self._source.current.llm
+        if self._client is None or config != self._config:
+            self._client = build_llm_client(config)
+            self._config = config
+        return self._client
+
+    def stream_chat(self, messages: Sequence[ChatMessage]) -> AsyncIterator[str]:
+        return self._current().stream_chat(messages)

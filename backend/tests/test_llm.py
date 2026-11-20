@@ -9,6 +9,7 @@ from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionChunk
 
 from app.core.config import Settings
+from app.core.runtime_config import LlmConfig, RuntimeConfig
 from app.services.llm import (
     ChatMessage,
     FakeLLMClient,
@@ -18,8 +19,8 @@ from app.services.llm import (
 )
 
 
-def _settings(**overrides: Any) -> Settings:
-    return Settings(llm_model="modelo-x", **overrides)
+def _settings(**overrides: Any) -> LlmConfig:
+    return RuntimeConfig.from_settings(Settings(llm_model="modelo-x", **overrides)).llm
 
 
 def _chunk(delta: str | None, with_choice: bool = True) -> ChatCompletionChunk:

@@ -5,7 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 
-from app.api.deps import DbSession, SettingsDep
+from app.api.deps import DbSession, RuntimeConfigDep, SettingsDep
 from app.api.schemas import ChatConfigOut, ChatRequest
 from app.core.auth import CurrentUserDep
 from app.core.rate_limit import ChatRateLimit
@@ -41,6 +41,7 @@ async def chat(
     request: Request,
     user: CurrentUserDep,
     settings: SettingsDep,
+    config: RuntimeConfigDep,
     llm: LLMDep,
     _: ChatRateLimit,
 ) -> StreamingResponse:
@@ -52,11 +53,11 @@ async def chat(
     text = body.message.strip()
     if not text:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "El mensaje está vacío")
-    if len(text) > settings.chat_max_message_length:
+    if len(text) > config.chat.max_message_length:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "El mensaje es demasiado largo")
 
     service = ChatService(
-        request.app.state.sessionmaker, llm, settings, request.app.state.retriever
+        request.app.state.sessionmaker, llm, settings, config, request.app.state.retriever
     )
     try:
         prepared = await service.prepare(user.id, body.conversation_id, text)

@@ -9,10 +9,11 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Protocol
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import Settings
+from app.core.runtime_config import ConfigSource
 from app.db.models import Document, DocumentKind, DocumentStatus, utcnow
 from app.services.embeddings import EmbeddingError, Embeddings
 from app.services.ingestion.chunker import chunk_sections
@@ -45,6 +46,8 @@ class IndexStats:
     documents: int
     chunks: int
     by_status: dict[str, int]
+    # Documentos indexados con otro modelo de embeddings u otro troceado que el vigente.
+    outdated: int
 
 
 def _as_utc(moment: datetime) -> datetime:
@@ -92,9 +95,11 @@ class DocumentService:
         embeddings: Embeddings,
         vector_store: VectorStore,
         tasks: TaskRunner,
+        config: ConfigSource,
     ) -> None:
         self._sessionmaker = sessionmaker
         self._settings = settings
+        self._config = config
         self._embeddings = embeddings
         self._store = vector_store
         self._tasks = tasks
@@ -141,16 +146,15 @@ class DocumentService:
         return UploadResult(document, duplicate=False)
 
     async def _write(self, content: AsyncReadable, target: Path) -> tuple[str, int]:
-        limit = self._settings.upload_max_mb * 1024 * 1024
+        max_mb = self._config.current.indexing.upload_max_mb
+        limit = max_mb * 1024 * 1024
         sha = hashlib.sha256()
         size = 0
         with target.open("wb") as out:
             while chunk := await content.read(READ_CHUNK_BYTES):
                 size += len(chunk)
                 if size > limit:
-                    raise UploadError(
-                        f"El fichero supera el tamaño máximo ({self._settings.upload_max_mb} MB)"
-                    )
+                    raise UploadError(f"El fichero supera el tamaño máximo ({max_mb} MB)")
                 sha.update(chunk)
                 out.write(chunk)
         return sha.hexdigest(), size
@@ -178,10 +182,12 @@ class DocumentService:
 
         chunk_count = 0
         error: str | None = None
+        indexing = self._config.current.indexing
+        model_name = self._embeddings.model_name
         try:
             sections = await asyncio.to_thread(parse_document, path, kind)
             chunks = chunk_sections(
-                sections, self._settings.chunk_size_chars, self._settings.chunk_overlap_chars
+                sections, indexing.chunk_size_chars, indexing.chunk_overlap_chars
             )
             vectors = await self._embeddings.embed([chunk.text for chunk in chunks])
             # Se sustituyen los fragmentos sin dejar el documento fuera del índice en ningún
@@ -206,7 +212,9 @@ class DocumentService:
             document.status = (DocumentStatus.ERROR if error else DocumentStatus.READY).value
             document.error = error
             document.chunk_count = chunk_count
-            document.embedding_model = None if error else self._embeddings.model_name
+            document.embedding_model = None if error else model_name
+            document.chunk_size_chars = None if error else indexing.chunk_size_chars
+            document.chunk_overlap_chars = None if error else indexing.chunk_overlap_chars
             document.updated_at = utcnow()
             await session.commit()
 
@@ -273,7 +281,21 @@ class DocumentService:
             await self._schedule(document_id, updated_at)
         return len(rows)
 
+    async def indexing_in_progress(self) -> int:
+        """Documentos pendientes o indexándose."""
+        async with self._sessionmaker() as session:
+            count = await session.scalar(
+                select(func.count()).where(
+                    Document.status.in_(
+                        [DocumentStatus.PENDING.value, DocumentStatus.PROCESSING.value]
+                    )
+                )
+            )
+        return int(count or 0)
+
     async def stats(self) -> IndexStats:
+        indexing = self._config.current.indexing
+        model_name = self._embeddings.model_name
         async with self._sessionmaker() as session:
             rows = await session.execute(
                 select(
@@ -286,4 +308,20 @@ class DocumentService:
                 by_status[status] = int(count)
                 if status == DocumentStatus.READY.value:
                     chunks += int(chunk_sum)
-        return IndexStats(documents=sum(by_status.values()), chunks=chunks, by_status=by_status)
+            # Sin troceado guardado (indexados antes de guardarlo) solo se compara el modelo.
+            outdated = await session.scalar(
+                select(func.count()).where(
+                    Document.status == DocumentStatus.READY.value,
+                    or_(
+                        Document.embedding_model.is_distinct_from(model_name),
+                        Document.chunk_size_chars != indexing.chunk_size_chars,
+                        Document.chunk_overlap_chars != indexing.chunk_overlap_chars,
+                    ),
+                )
+            )
+        return IndexStats(
+            documents=sum(by_status.values()),
+            chunks=chunks,
+            by_status=by_status,
+            outdated=int(outdated or 0),
+        )

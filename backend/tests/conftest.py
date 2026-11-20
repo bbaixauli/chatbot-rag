@@ -50,6 +50,13 @@ def parse_sse(body: str) -> list[tuple[str, dict[str, Any]]]:
     return events
 
 
+async def set_config(app: FastAPI, group: str, **changes: Any) -> None:
+    """Cambia la configuración vigente (como al guardarla en la administración)."""
+    store = app.state.config
+    current = store.current.group(group)
+    await store.save(group, current.model_copy(update=changes), "test")
+
+
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
     return Settings(
@@ -71,6 +78,8 @@ async def app(settings: Settings, llm: ScriptedLLM) -> AsyncIterator[FastAPI]:
     async with application.router.lifespan_context(application):
         async with application.state.engine.begin() as connection:
             await connection.run_sync(Base.metadata.create_all)
+        # Como en un arranque real, con la BD ya migrada: copia la configuración a la BD.
+        await application.state.config.load(seed=True)
         application.state.llm = llm
         yield application
 

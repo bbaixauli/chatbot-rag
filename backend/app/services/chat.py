@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import Settings
+from app.core.runtime_config import RuntimeConfig
 from app.db.models import Document, Message, MessageRole, MessageSource
 from app.services.condense import condense_question
 from app.services.conversations import ConversationRepository, make_title
@@ -84,11 +85,15 @@ class ChatService:
         sessionmaker: async_sessionmaker[AsyncSession],
         llm: LLMClient,
         settings: Settings,
+        config: RuntimeConfig,
         retriever: Retriever | None = None,
     ) -> None:
+        """`config` es la configuración vigente al recibir la pregunta: se usa la misma de
+        principio a fin aunque se cambie en la administración mientras tanto."""
         self._sessionmaker = sessionmaker
         self._llm = llm
         self._settings = settings
+        self._config = config
         self._retriever = retriever
 
     async def prepare(self, user_id: str, conversation_id: str | None, text: str) -> PreparedChat:
@@ -107,7 +112,7 @@ class ChatService:
                 conversation = found
             user_message = await repo.add_message(conversation, MessageRole.USER, text)
             history = await repo.recent_messages(
-                conversation.id, self._settings.chat_history_max_messages + 1
+                conversation.id, self._config.chat.history_max_messages + 1
             )
             system_prompt = await PromptRepository(
                 session, self._settings.default_system_prompt
@@ -210,11 +215,12 @@ class ChatService:
 
     async def _search_query(self, prepared: PreparedChat) -> str:
         """Consulta para la búsqueda: la pregunta, reformulada si hay historial."""
-        if not self._settings.rag_condense_question or self._retriever is None:
+        rag = self._config.rag
+        if not rag.condense_question or self._retriever is None:
             return prepared.question
         # Sin documentos indexados no hay nada que buscar: se ahorra la llamada al modelo.
         if await self._retriever.is_empty():
             return prepared.question
         # El historial incluye la pregunta actual como último mensaje.
-        previous = prepared.history[:-1][-self._settings.rag_condense_history_messages :]
+        previous = prepared.history[:-1][-rag.condense_history_messages :]
         return await condense_question(self._llm, previous, prepared.question)

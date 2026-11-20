@@ -8,6 +8,8 @@ from typing import Literal
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+APP_TITLE = "Chatbot RAG"
+
 # Con una clave vacía o corta, cualquiera podría firmar cookies de sesión válidas
 # (hacerse pasar por el administrador o por cualquier usuario).
 SESSION_SECRET_MIN_LENGTH = 16
@@ -20,10 +22,12 @@ def _random_secret() -> SecretStr:
 
 
 class Settings(BaseSettings):
-    """Parámetros configurables de la aplicación.
+    """Parámetros de la aplicación, leídos de variables `CHATBOT_*` (p. ej.
+    `CHATBOT_DATA_DIR=/srv/chatbot/data`).
 
-    Todas las variables se pueden sobrescribir con el prefijo `CHATBOT_`,
-    por ejemplo `CHATBOT_DATA_DIR=/srv/chatbot/data`.
+    Los marcados como «valores iniciales» se editan en la administración (ver
+    `app.core.runtime_config`): las variables solo se usan para rellenarlos en el primer
+    arranque. El código los lee de la configuración vigente, nunca de aquí.
     """
 
     model_config = SettingsConfigDict(
@@ -33,7 +37,6 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    app_name: str = "Chatbot RAG"
     version: str = "0.1.0"
     environment: str = Field(default="development", pattern="^(development|test|production)$")
     log_level: str = "INFO"
@@ -42,7 +45,7 @@ class Settings(BaseSettings):
     data_dir: Path = Path("../data")
     database_url: str | None = None
 
-    # Modelo de lenguaje (cualquier servidor compatible con la API de OpenAI).
+    # --- Valores iniciales (#42): modelo de lenguaje, servidor compatible con la API de OpenAI.
     # `fake` usa un modelo simulado sin red, útil para tests E2E y demos.
     llm_provider: Literal["openai", "fake"] = "openai"
     llm_base_url: str = "http://localhost:11434/v1"
@@ -61,7 +64,6 @@ class Settings(BaseSettings):
     session_secret: SecretStr = Field(default_factory=_random_secret)
     session_max_age_seconds: int = Field(default=8 * 3600, gt=0)
     session_cookie_secure: bool = False
-    system_prompt_max_length: int = Field(default=20_000, gt=0)
 
     # Usuarios del chat: `none` (anónimo, un único historial) o `ldap` (cada usuario inicia
     # sesión con su cuenta del directorio y ve solo sus conversaciones).
@@ -85,13 +87,14 @@ class Settings(BaseSettings):
     # Solo Active Directory: tiene en cuenta grupos anidados.
     ldap_nested_groups: bool = False
 
-    # Límite de peticiones por IP y minuto (0 = sin límite). Se guarda en memoria: vale
-    # para una única instancia del backend.
+    # --- Valores iniciales (#42): límite de peticiones por IP y minuto (0 = sin límite). Se
+    # guarda en memoria: vale para una única instancia del backend.
     rate_limit_chat_per_minute: int = Field(default=20, ge=0)
     rate_limit_login_per_minute: int = Field(default=5, ge=0)
 
-    # Embeddings. `openai`: endpoint /v1/embeddings (p. ej. LiteLLM); `local`:
-    # sentence-transformers (requiere `uv sync --extra local-embeddings`); `fake`: tests.
+    # --- Valores iniciales (#42): embeddings. `openai`: endpoint /v1/embeddings (p. ej.
+    # LiteLLM); `local`: sentence-transformers (requiere `uv sync --extra local-embeddings`);
+    # `fake`: tests.
     embedding_provider: Literal["openai", "local", "fake"] = "openai"
     # Si no se indican, se usan la URL y la clave del modelo de lenguaje.
     embedding_base_url: str | None = None
@@ -99,7 +102,7 @@ class Settings(BaseSettings):
     embedding_model: str = "bge-m3"
     embedding_batch_size: int = Field(default=32, gt=0)
 
-    # Documentos e indexación
+    # --- Valores iniciales (#42): documentos e indexación
     upload_max_mb: int = Field(default=50, gt=0)
     chunk_size_chars: int = Field(default=3000, ge=200)
     chunk_overlap_chars: int = Field(default=400, ge=0)
@@ -116,7 +119,7 @@ class Settings(BaseSettings):
     # Documentos que indexa a la vez cada proceso (API o worker).
     indexing_concurrency: int = Field(default=2, ge=1)
 
-    # Recuperación (RAG)
+    # --- Valores iniciales (#42): recuperación (RAG)
     rag_enabled: bool = True
     rag_top_k: int = Field(default=5, ge=1, le=50)
     # Similitud coseno mínima (0-1) para usar un fragmento; depende del modelo de embeddings.
@@ -129,12 +132,15 @@ class Settings(BaseSettings):
     rag_condense_question: bool = True
     rag_condense_history_messages: int = Field(default=6, ge=1)
 
-    # Conversación
+    # --- Valores iniciales (#42): conversación
     chat_history_max_messages: int = Field(default=20, ge=0)
     chat_max_message_length: int = Field(default=8000, gt=0)
     # Inicio del chat configurable desde la administración.
     chat_welcome_max_length: int = Field(default=2000, gt=0)
     chat_suggested_question_max_length: int = Field(default=300, gt=0)
+    system_prompt_max_length: int = Field(default=20_000, gt=0)
+    # Prompt de sistema mientras no se guarde ninguno en la administración. Si se define la
+    # variable, en el primer arranque se guarda como primera versión.
     default_system_prompt: str = (
         "Eres un asistente útil. Responde siempre en español, de forma clara y concisa."
     )

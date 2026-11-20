@@ -12,6 +12,7 @@ from app.db.models import Document, DocumentStatus
 from app.main import create_app
 from app.services.documents import safe_filename
 from app.services.embeddings import EmbeddingError
+from tests.conftest import set_config
 from tests.factories import HTML, MARKDOWN, pdf_bytes
 
 URL = "/api/v1/admin/documents"
@@ -84,6 +85,7 @@ async def test_upload_and_index_all_formats(
         "chunks": total_chunks,
         "by_status": {"ready": 3},
         "embedding_model": "fake-hashing",
+        "outdated": 0,
     }
     assert await app.state.vector_store.count() == total_chunks
 
@@ -95,7 +97,7 @@ async def test_upload_and_index_all_formats(
 
 
 async def test_duplicates_and_rejections(app: FastAPI, admin: AsyncClient) -> None:
-    app.state.settings.upload_max_mb = 1
+    await set_config(app, "indexing", upload_max_mb=1)
     first = await upload(admin, ("a.md", b"# Hola"))
     results = await upload(
         admin,
@@ -190,7 +192,7 @@ async def test_reindex_one_and_all(app: FastAPI, admin: AsyncClient) -> None:
     chunks = await app.state.vector_store.count()
 
     # Con fragmentos más pequeños hay más; al volver a agrandarlos sobran y se eliminan.
-    app.state.settings.chunk_size_chars = 120
+    await set_config(app, "indexing", chunk_size_chars=120)
     response = await admin.post(f"{URL}/{document_id}/reindex")
     assert response.status_code == 202
     assert response.json()["status"] == "pending"
@@ -199,7 +201,7 @@ async def test_reindex_one_and_all(app: FastAPI, admin: AsyncClient) -> None:
     assert reindexed["status"] == "ready"
     assert reindexed["chunk_count"] > chunks
     assert await app.state.vector_store.count() == reindexed["chunk_count"]
-    app.state.settings.chunk_size_chars = 2000
+    await set_config(app, "indexing", chunk_size_chars=2000)
     await admin.post(f"{URL}/{document_id}/reindex")
     await drain(app)
     shrunk = (await admin.get(f"{URL}/{document_id}")).json()["chunk_count"]

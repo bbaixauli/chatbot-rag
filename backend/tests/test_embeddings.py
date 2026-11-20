@@ -8,6 +8,7 @@ import pytest
 from openai import AsyncOpenAI
 
 from app.core.config import Settings
+from app.core.runtime_config import EmbeddingConfig, RuntimeConfig
 from app.services.embeddings import (
     EmbeddingError,
     FakeEmbeddings,
@@ -15,6 +16,14 @@ from app.services.embeddings import (
     OpenAICompatibleEmbeddings,
     build_embeddings,
 )
+
+
+def _config(**overrides: Any) -> RuntimeConfig:
+    return RuntimeConfig.from_settings(Settings(**overrides))
+
+
+def _embedding_config(**overrides: Any) -> EmbeddingConfig:
+    return _config(**overrides).embeddings
 
 
 def _cosine(a: list[float], b: list[float]) -> float:
@@ -54,7 +63,7 @@ class FakeEmbeddingsAPI:
 def _remote(api: FakeEmbeddingsAPI, **overrides: Any) -> OpenAICompatibleEmbeddings:
     settings = Settings(embedding_model="emb", embedding_batch_size=2, **overrides)
     client = cast(AsyncOpenAI, SimpleNamespace(embeddings=api))
-    return OpenAICompatibleEmbeddings(settings, client)
+    return OpenAICompatibleEmbeddings(RuntimeConfig.from_settings(settings), client)
 
 
 async def test_remote_embeddings_batch_and_keep_order() -> None:
@@ -76,10 +85,13 @@ async def test_remote_embeddings_wrap_errors_and_mismatches() -> None:
 
 def test_remote_embeddings_default_to_llm_endpoint() -> None:
     settings = Settings(llm_base_url="http://litellm:4000/v1")
-    assert str(OpenAICompatibleEmbeddings(settings)._client.base_url) == "http://litellm:4000/v1/"
+    assert (
+        str(OpenAICompatibleEmbeddings(RuntimeConfig.from_settings(settings))._client.base_url)
+        == "http://litellm:4000/v1/"
+    )
 
     settings = Settings(embedding_base_url="http://emb:9000/v1", embedding_api_key="k")
-    client = OpenAICompatibleEmbeddings(settings)._client
+    client = OpenAICompatibleEmbeddings(RuntimeConfig.from_settings(settings))._client
     assert str(client.base_url) == "http://emb:9000/v1/"
     assert client.api_key == "k"
 
@@ -89,7 +101,7 @@ async def test_local_embeddings_require_optional_dependency(
 ) -> None:
     monkeypatch.setitem(sys.modules, "sentence_transformers", None)
     with pytest.raises(EmbeddingError, match="local-embeddings"):
-        await LocalEmbeddings(Settings()).embed(["hola"])
+        await LocalEmbeddings(_embedding_config()).embed(["hola"])
 
 
 async def test_local_embeddings_load_model_once(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -106,7 +118,7 @@ async def test_local_embeddings_load_model_once(monkeypatch: pytest.MonkeyPatch)
     module = ModuleType("sentence_transformers")
     module.SentenceTransformer = FakeModel  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "sentence_transformers", module)
-    local = LocalEmbeddings(Settings(embedding_model="BAAI/bge-m3"))
+    local = LocalEmbeddings(_embedding_config(embedding_model="BAAI/bge-m3"))
 
     assert await local.embed(["a", "b"]) == [[1.0, 0.0], [1.0, 0.0]]
     await local.embed(["c"])
@@ -114,6 +126,6 @@ async def test_local_embeddings_load_model_once(monkeypatch: pytest.MonkeyPatch)
 
 
 def test_build_embeddings_by_provider() -> None:
-    assert isinstance(build_embeddings(Settings(embedding_provider="fake")), FakeEmbeddings)
-    assert isinstance(build_embeddings(Settings(embedding_provider="local")), LocalEmbeddings)
-    assert isinstance(build_embeddings(Settings()), OpenAICompatibleEmbeddings)
+    assert isinstance(build_embeddings(_config(embedding_provider="fake")), FakeEmbeddings)
+    assert isinstance(build_embeddings(_config(embedding_provider="local")), LocalEmbeddings)
+    assert isinstance(build_embeddings(_config()), OpenAICompatibleEmbeddings)

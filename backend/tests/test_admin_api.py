@@ -12,7 +12,7 @@ from app.api import admin
 from app.core.auth import verify_admin_credentials
 from app.core.config import Settings
 from app.main import create_app
-from tests.conftest import ScriptedLLM
+from tests.conftest import ScriptedLLM, set_config
 
 CREDENTIALS = {"username": "admin", "password": "secreto"}
 
@@ -130,7 +130,7 @@ async def test_restore_creates_new_version(admin_client: AsyncClient) -> None:
 
 
 async def test_invalid_prompts_are_rejected(app: FastAPI, admin_client: AsyncClient) -> None:
-    app.state.settings.system_prompt_max_length = 5
+    await set_config(app, "chat", system_prompt_max_length=5)
     assert (
         await admin_client.put("/api/v1/admin/prompt", json={"content": "   "})
     ).status_code == 422

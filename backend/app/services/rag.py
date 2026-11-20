@@ -5,7 +5,7 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from app.core.config import Settings
+from app.core.runtime_config import ConfigSource
 from app.services.embeddings import Embeddings
 from app.services.vectorstore import VectorStore
 
@@ -58,10 +58,10 @@ class ContextSource:
 class Retriever:
     """Busca los fragmentos más parecidos a una consulta."""
 
-    def __init__(self, embeddings: Embeddings, store: VectorStore, settings: Settings) -> None:
+    def __init__(self, embeddings: Embeddings, store: VectorStore, config: ConfigSource) -> None:
         self._embeddings = embeddings
         self._store = store
-        self._settings = settings
+        self._config = config
 
     async def is_empty(self) -> bool:
         """True si no hay nada indexado (o el índice no responde)."""
@@ -77,11 +77,12 @@ class Retriever:
         Si falla la búsqueda (p. ej. el servicio de embeddings no responde) se devuelve
         una lista vacía: el chat sigue funcionando sin documentación.
         """
-        if not self._settings.rag_enabled or not query.strip():
+        rag = self._config.current.rag
+        if not rag.enabled or not query.strip():
             return []
         try:
             [vector] = await self._embeddings.embed([query])
-            hits = await self._store.search(vector, self._settings.rag_top_k)
+            hits = await self._store.search(vector, rag.top_k)
         except Exception:
             logger.warning("No se pudo recuperar contexto; se responde sin RAG", exc_info=True)
             return []
@@ -89,9 +90,9 @@ class Retriever:
         sources: list[ContextSource] = []
         used = 0
         for hit in sorted(hits, key=lambda h: h.score, reverse=True):
-            if hit.score < self._settings.rag_min_score:
+            if hit.score < rag.min_score:
                 break
-            if used + len(hit.text) > self._settings.rag_max_context_chars and sources:
+            if used + len(hit.text) > rag.max_context_chars and sources:
                 break
             used += len(hit.text)
             sources.append(

@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 
 from app.core.config import Settings
+from app.core.runtime_config import RuntimeConfig, StaticConfig
 from app.services.embeddings import EmbeddingError, FakeEmbeddings
 from app.services.ingestion.chunker import Chunk
 from app.services.rag import (
@@ -32,7 +33,7 @@ async def store(tmp_path: Path) -> ChromaVectorStore:
 
 def _retriever(store: ChromaVectorStore, **overrides: Any) -> Retriever:
     settings = Settings(**{"rag_min_score": 0.2, **overrides})
-    return Retriever(FakeEmbeddings(), store, settings)
+    return Retriever(FakeEmbeddings(), store, StaticConfig.from_settings(settings))
 
 
 async def test_retrieves_relevant_chunks_numbered_by_score(store: ChromaVectorStore) -> None:
@@ -51,9 +52,12 @@ async def test_limits_by_top_k_and_context_size(store: ChromaVectorStore) -> Non
         "vacaciones"
     )
     assert len(limited) == 3
-    tight = Settings(rag_max_context_chars=500, rag_min_score=0)
-    tight.rag_max_context_chars = 60  # salta la validación para forzar el recorte
-    first_only = await Retriever(FakeEmbeddings(), store, tight).retrieve("vacaciones")
+    config = RuntimeConfig.from_settings(Settings(rag_min_score=0))
+    # `model_copy` salta la validación (mínimo 500) para forzar el recorte.
+    tight = config.replace_group("rag", config.rag.model_copy(update={"max_context_chars": 60}))
+    first_only = await Retriever(FakeEmbeddings(), store, StaticConfig(tight)).retrieve(
+        "vacaciones"
+    )
     assert len(first_only) == 1  # el primero se incluye aunque supere el límite
 
 
@@ -65,7 +69,12 @@ async def test_disabled_empty_query_and_failures_return_nothing(store: ChromaVec
         async def embed(self, texts: Sequence[str]) -> list[list[float]]:
             raise EmbeddingError("caído")
 
-    assert await Retriever(Broken(), store, Settings()).retrieve("vacaciones") == []
+    assert (
+        await Retriever(Broken(), store, StaticConfig.from_settings(Settings())).retrieve(
+            "vacaciones"
+        )
+        == []
+    )
 
 
 def _source(number: int, **overrides: Any) -> ContextSource:

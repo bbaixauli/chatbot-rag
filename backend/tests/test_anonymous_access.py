@@ -12,7 +12,7 @@ from app.api import admin, auth
 from app.core.auth import ANONYMOUS_SESSION_PREFIX, session_user
 from app.core.config import Settings
 from app.db.models import Conversation
-from tests.conftest import parse_sse
+from tests.conftest import parse_sse, set_config
 from tests.ldap_fixtures import PASSWORDS, ldap_settings, mock_authenticator
 
 SESSION = "/api/v1/auth/session"
@@ -215,7 +215,7 @@ async def test_anonymous_login_is_rate_limited(
     await allow_anonymous(admin_client, True)
     # El límite es por IP y compartido con el resto de inicios de sesión: el del
     # administrador (misma IP en los tests) ya cuenta como uno.
-    app.state.settings.rate_limit_login_per_minute = 2
+    await set_config(app, "limits", login_per_minute=2)
 
     assert (await client.post(ANONYMOUS)).status_code == 200
     assert (await client.post(ANONYMOUS)).status_code == 429

@@ -12,7 +12,7 @@ from app.api import admin
 from app.core.auth import ANONYMOUS_SESSION_PREFIX
 from app.core.config import Settings
 from app.db.models import Conversation
-from tests.conftest import parse_sse
+from tests.conftest import parse_sse, set_config
 
 SESSION = "/api/v1/auth/session"
 ANONYMOUS = "/api/v1/auth/anonymous"
@@ -243,8 +243,8 @@ async def test_private_sessions_have_their_own_rate_limit(
     """No comparten el límite de los inicios de sesión: varias personas tras una misma IP
     deben poder entrar."""
     await set_private_sessions(admin_client, True)
-    app.state.settings.rate_limit_login_per_minute = 1
-    app.state.settings.rate_limit_chat_per_minute = 3
+    await set_config(app, "limits", login_per_minute=1)
+    await set_config(app, "limits", chat_per_minute=3)
 
     codes = [(await client.post(ANONYMOUS)).status_code for _ in range(4)]
 
