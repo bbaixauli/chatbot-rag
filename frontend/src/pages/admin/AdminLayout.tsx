@@ -76,6 +76,7 @@ export function AdminLayout() {
           { to: '/admin/documents', label: t.nav.documents },
           { to: '/admin/chat', label: t.nav.chatStart },
           { to: '/admin/appearance', label: t.nav.appearance },
+          { to: '/admin/config', label: t.nav.config },
         ].map((item) => (
           <NavLink key={item.to} to={item.to} className="nav-item text-sm">
             {item.label}

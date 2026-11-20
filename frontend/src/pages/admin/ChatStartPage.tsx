@@ -7,6 +7,7 @@ import {
   saveChatConfig,
 } from '../../api/admin'
 import { ApiError, type ChatConfig } from '../../api/client'
+import { APP_CONFIG_KEY, configNumber, getAppConfig } from '../../api/config'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { t } from '../../i18n/es'
 import { AUTH_SESSION_KEY } from '../../auth/session'
@@ -14,8 +15,8 @@ import { ADMIN_SESSION_KEY } from './session'
 
 const CONFIG_KEY = ['admin', 'chat-config'] as const
 const ACCESS_KEY = ['admin', 'access'] as const
-// Deben coincidir con los límites del servidor (CHATBOT_CHAT_*).
 const MAX_QUESTIONS = 5
+// Límites por defecto; los vigentes están en Administración → Configuración → Conversación.
 const WELCOME_MAX_LENGTH = 2000
 const QUESTION_MAX_LENGTH = 300
 
@@ -140,6 +141,14 @@ function ChatStartForm(props: { initial: ChatConfig; onSaved: (data: ChatConfig)
   const [welcome, setWelcome] = useState(props.initial.welcome_message ?? '')
   const [questions, setQuestions] = useState(() => padQuestions(props.initial.suggested_questions))
   const [saved, setSaved] = useState(false)
+  const limits = useQuery({ queryKey: APP_CONFIG_KEY, queryFn: getAppConfig })
+  const welcomeMax = configNumber(limits.data, 'chat', 'welcome_max_length', WELCOME_MAX_LENGTH)
+  const questionMax = configNumber(
+    limits.data,
+    'chat',
+    'suggested_question_max_length',
+    QUESTION_MAX_LENGTH,
+  )
 
   const save = useMutation({
     mutationFn: saveChatConfig,
@@ -152,8 +161,7 @@ function ChatStartForm(props: { initial: ChatConfig; onSaved: (data: ChatConfig)
   })
 
   const tooLong =
-    welcome.trim().length > WELCOME_MAX_LENGTH ||
-    questions.some((q) => q.trim().length > QUESTION_MAX_LENGTH)
+    welcome.trim().length > welcomeMax || questions.some((q) => q.trim().length > questionMax)
 
   function edited() {
     setSaved(false)
@@ -188,9 +196,9 @@ function ChatStartForm(props: { initial: ChatConfig; onSaved: (data: ChatConfig)
           className="campo text-sm"
         />
         <span
-          className={`text-xs ${welcome.trim().length > WELCOME_MAX_LENGTH ? 'text-error' : 'text-texto-secundario'}`}
+          className={`text-xs ${welcome.trim().length > welcomeMax ? 'text-error' : 'text-texto-secundario'}`}
         >
-          {t.chatStart.characters(welcome.trim().length, WELCOME_MAX_LENGTH)}
+          {t.chatStart.characters(welcome.trim().length, welcomeMax)}
         </span>
       </div>
 
@@ -203,7 +211,7 @@ function ChatStartForm(props: { initial: ChatConfig; onSaved: (data: ChatConfig)
             type="text"
             aria-label={t.chatStart.questionLabel(index + 1)}
             value={question}
-            maxLength={QUESTION_MAX_LENGTH}
+            maxLength={questionMax}
             onChange={(e) => {
               const value = e.target.value
               setQuestions((current) => current.map((q, i) => (i === index ? value : q)))

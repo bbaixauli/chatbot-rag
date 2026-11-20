@@ -58,7 +58,7 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
-      testIgnore: /(chat-start|private-sessions|appearance|ldap-.*)\.spec\.ts/,
+      testIgnore: /(chat-start|private-sessions|appearance|config|ldap-.*)\.spec\.ts/,
     },
     {
       // Cambia la configuración global del chat (mensaje inicial): se ejecuta después del
@@ -83,6 +83,14 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
       testMatch: /appearance\.spec\.ts/,
       dependencies: ['chromium-private-sessions'],
+    },
+    {
+      // Configuración de la aplicación (límites, modelos): cambia la de toda la instancia
+      // principal. Va después de todos y restablece los valores que toca.
+      name: 'chromium-app-config',
+      use: { ...devices['Desktop Chrome'] },
+      testMatch: /config\.spec\.ts/,
+      dependencies: ['chromium-appearance'],
     },
     {
       // Instancia con LDAP (ver arriba): acceso anónimo.

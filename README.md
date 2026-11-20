@@ -67,8 +67,10 @@ probar la interfaz sin servidor de IA, usa `CHATBOT_LLM_PROVIDER=fake`.
 ### Configuración
 
 La configuración de funcionamiento (modelo de lenguaje, embeddings, troceado, recuperación,
-conversación y límites de peticiones) se guarda en la base de datos y se edita en la
-administración, sin reiniciar. Las variables `CHATBOT_*` correspondientes solo se usan en el
+conversación y límites de peticiones) se guarda en la base de datos y se edita en
+*Administración → Configuración*, sin reiniciar. Cada grupo se guarda por separado; los del
+modelo de lenguaje y los embeddings tienen **Probar conexión** (prueba los valores del
+formulario sin guardarlos), y si un cambio obliga a reindexar se ofrece hacerlo en el momento. Las variables `CHATBOT_*` correspondientes solo se usan en el
 **primer arranque**, para rellenarla; después se ignoran (el log avisa si alguna no coincide).
 Las claves de API se guardan cifradas con `CHATBOT_SESSION_SECRET`. En `.env` queda lo
 necesario para arrancar o que depende del despliegue: datos, sesión, cuenta de administración,
