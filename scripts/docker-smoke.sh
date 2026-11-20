@@ -52,6 +52,11 @@ headers=$(curl -fsS -D - -o "$WORK/health.json" "$BASE/api/v1/health")
 grep -q '"status":"ok"' "$WORK/health.json" || fail "health no ok: $(cat "$WORK/health.json")"
 echo "$headers" | grep -qi '^x-request-id:' || fail "falta X-Request-ID"
 
+step "La apariencia configurable se sirve a través de nginx"
+curl -fsS "$BASE/" | grep -q '/api/v1/appearance.css' || fail "index.html no enlaza la apariencia"
+curl -fsS -D "$WORK/appearance.headers" "$BASE/api/v1/appearance.css" | grep -q -- '--color-marca:'   || fail "no se sirve la hoja de apariencia"
+grep -qi '^content-type: text/css' "$WORK/appearance.headers" || fail "tipo de la hoja de apariencia"
+
 step "El chat responde en streaming"
 curl -fsS -N -H 'Content-Type: application/json' -d '{"message":"Hola desde Docker"}' \
   "$BASE/api/v1/chat" > "$WORK/chat.txt"

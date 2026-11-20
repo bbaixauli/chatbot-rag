@@ -5,6 +5,7 @@ import { ApiError, getChatConfig, listConversations, listMessages } from '../api
 import { Composer } from '../components/Composer'
 import { MessageBubble } from '../components/MessageBubble'
 import { useChat } from '../hooks/useChat'
+import { useAppearance } from '../hooks/useAppearance'
 import { usePageTitle } from '../hooks/usePageTitle'
 import { t } from '../i18n/es'
 
@@ -45,6 +46,7 @@ export function ChatPage() {
     ? (conversations.data?.find((c) => c.id === conversationId)?.title ?? t.chat.conversation)
     : t.chat.newConversation
   usePageTitle(title)
+  const { ai_notice: aiNotice } = useAppearance()
 
   const notFound = messages.error instanceof ApiError && messages.error.status === 404
   const isEmpty = history.length === 0 && !pending && !messages.isLoading
@@ -97,6 +99,7 @@ export function ChatPage() {
         disabled={isStreaming || notFound}
         onSend={(text) => void send(text)}
         suggestions={suggestions}
+        aiNotice={aiNotice}
       />
     </section>
   )

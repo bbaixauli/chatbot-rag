@@ -6,9 +6,11 @@ interface Props {
   onSend: (text: string) => void
   /** Preguntas que, al pulsarlas, sustituyen el texto del campo (editable antes de enviar). */
   suggestions?: string[]
+  /** Aviso de IA configurado (vacío: el texto por defecto). */
+  aiNotice?: string
 }
 
-export function Composer({ disabled, onSend, suggestions = [] }: Props) {
+export function Composer({ disabled, onSend, suggestions = [], aiNotice }: Props) {
   const [text, setText] = useState('')
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const focusAtEnd = useRef(false)
@@ -83,7 +85,7 @@ export function Composer({ disabled, onSend, suggestions = [] }: Props) {
           {t.chat.send}
         </button>
       </div>
-      <p className="mt-2 text-xs text-texto-secundario">{t.chat.aiNotice}</p>
+      <p className="mt-2 text-xs text-texto-secundario">{aiNotice || t.chat.aiNotice}</p>
     </form>
   )
 }

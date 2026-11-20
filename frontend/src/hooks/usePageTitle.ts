@@ -1,9 +1,10 @@
 import { useEffect } from 'react'
-import { t } from '../i18n/es'
+import { useAppearance } from './useAppearance'
 
-/** Título de la pestaña: «Página – Aplicación» (WCAG 2.4.2). */
+/** Título de la pestaña: «Página – Aplicación – Organización» (WCAG 2.4.2; manual, 4.1). */
 export function usePageTitle(page: string | null | undefined) {
+  const { app_name, organization } = useAppearance()
   useEffect(() => {
-    document.title = page ? `${page} – ${t.appName}` : t.appName
-  }, [page])
+    document.title = [page, app_name, organization].filter(Boolean).join(' – ')
+  }, [page, app_name, organization])
 }
