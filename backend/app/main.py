@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from sqlalchemy.exc import OperationalError
 from starlette.middleware.sessions import SessionMiddleware
 
-from app.api import admin, auth, chat, conversations, documents, health
+from app.api import admin, appearance, auth, chat, conversations, documents, health
 from app.core.config import Settings, get_settings
 from app.core.ldap_auth import LdapAuthenticator
 from app.core.logging import RequestContextMiddleware, configure_logging
@@ -86,6 +86,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         admin.router,
         documents.router,
         documents.public_router,
+        appearance.router,
+        appearance.public_router,
     ):
         app.include_router(router, prefix=API_PREFIX)
     return app

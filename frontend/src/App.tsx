@@ -1,10 +1,10 @@
 import { QueryClientProvider } from '@tanstack/react-query'
 import { Menu, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { BrowserRouter, Link, Navigate, Outlet, Route, Routes, useLocation } from 'react-router'
+import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation } from 'react-router'
 import { RequireUser } from './auth/RequireUser'
 import { HealthBadge } from './components/HealthBadge'
-import { AppFooter, MAIN_ID, SkipLink } from './components/PageChrome'
+import { AppFooter, Brand, MAIN_ID, SkipLink } from './components/PageChrome'
 import { SIDEBAR_ID, Sidebar } from './components/Sidebar'
 import { UserMenu } from './components/UserMenu'
 import { t } from './i18n/es'
@@ -12,6 +12,7 @@ import { ChatPage } from './pages/ChatPage'
 import { UserLoginPage } from './pages/UserLoginPage'
 import { createQueryClient } from './queryClient'
 import { AdminLayout } from './pages/admin/AdminLayout'
+import { AppearancePage } from './pages/admin/AppearancePage'
 import { ChatStartPage } from './pages/admin/ChatStartPage'
 import { DocumentsPage } from './pages/admin/DocumentsPage'
 import { LoginPage } from './pages/admin/LoginPage'
@@ -46,9 +47,7 @@ export function Layout() {
             {menuOpen ? <X aria-hidden size={20} /> : <Menu aria-hidden size={20} />}
             {t.nav.menu}
           </button>
-          <Link to="/" className="text-lg font-semibold text-sobre-cabecera no-underline">
-            {t.appName}
-          </Link>
+          <Brand />
         </div>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <HealthBadge />
@@ -86,6 +85,7 @@ export function AppRoutes() {
         <Route path="prompt" element={<PromptPage />} />
         <Route path="documents" element={<DocumentsPage />} />
         <Route path="chat" element={<ChatStartPage />} />
+        <Route path="appearance" element={<AppearancePage />} />
       </Route>
     </Routes>
   )

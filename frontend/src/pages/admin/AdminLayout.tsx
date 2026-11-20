@@ -3,7 +3,7 @@ import { Menu, X } from 'lucide-react'
 import { useState } from 'react'
 import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router'
 import { logout } from '../../api/admin'
-import { AppFooter, MAIN_ID, SkipLink } from '../../components/PageChrome'
+import { AppFooter, Brand, MAIN_ID, SkipLink } from '../../components/PageChrome'
 import { t } from '../../i18n/es'
 import { ADMIN_SESSION_KEY, useAdminSession } from './session'
 
@@ -54,9 +54,7 @@ export function AdminLayout() {
             {menuOpen ? <X aria-hidden size={20} /> : <Menu aria-hidden size={20} />}
             {t.nav.menu}
           </button>
-          <span className="text-lg font-semibold">
-            {t.appName} · {t.nav.admin}
-          </span>
+          <Brand section={t.nav.admin} />
         </div>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
           <span>{session.data.username}</span>
@@ -77,6 +75,7 @@ export function AdminLayout() {
           { to: '/admin/prompt', label: t.nav.prompt },
           { to: '/admin/documents', label: t.nav.documents },
           { to: '/admin/chat', label: t.nav.chatStart },
+          { to: '/admin/appearance', label: t.nav.appearance },
         ].map((item) => (
           <NavLink key={item.to} to={item.to} className="nav-item text-sm">
             {item.label}

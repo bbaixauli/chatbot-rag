@@ -1,4 +1,5 @@
 import { useState, type FormEvent, type ReactNode } from 'react'
+import { useAppearance } from '../hooks/useAppearance'
 import { t } from '../i18n/es'
 
 interface Props {
@@ -13,6 +14,7 @@ interface Props {
 }
 
 export function LoginForm({ title, hint, unavailable, error, pending, onSubmit, footer }: Props) {
+  const appearance = useAppearance()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
 
@@ -27,7 +29,13 @@ export function LoginForm({ title, hint, unavailable, error, pending, onSubmit, 
         onSubmit={submit}
         className="flex w-full max-w-sm flex-col gap-4 rounded-lg border border-borde bg-fondo p-6 shadow-sm"
       >
-        <h1 className="text-xl font-semibold">{title}</h1>
+        <div className="flex items-center gap-3">
+          {appearance.logo_url && (
+            <img src={appearance.logo_url} alt={appearance.logo_alt} className="h-10 w-auto" />
+          )}
+          <p className="text-lg font-semibold">{appearance.app_name}</p>
+        </div>
+        <h1 className="text-xl font-bold">{title}</h1>
         {unavailable ? (
           <p role="alert" className="text-sm text-aviso">
             {unavailable}
@@ -67,6 +75,12 @@ export function LoginForm({ title, hint, unavailable, error, pending, onSubmit, 
           </>
         )}
         {footer}
+        {appearance.login_notice && (
+          // Aviso de uso (manual de estilos, 6.1): p. ej. uso exclusivo y registro de actividad.
+          <p className="border-t border-borde pt-3 text-xs text-texto-secundario">
+            {appearance.login_notice}
+          </p>
+        )}
       </form>
     </main>
   )

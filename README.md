@@ -157,6 +157,15 @@ foco visible; por debajo de 768 px la navegación se pliega tras el botón «Men
 axe-core en las pantallas principales (a 1280 y 320 px) y fallan con incidencias graves o
 críticas (`e2e/accessibility.spec.ts`).
 
+En *Administración → Apariencia* se configuran el nombre de la aplicación y de la
+organización, el logo (SVG, PNG o WebP), la cabecera (clara o del color de marca), los colores,
+los tipos de letra (de una lista de fuentes instaladas en los equipos), el pie (unidad
+responsable, declaración de accesibilidad y soporte) y los avisos de acceso y de IA. Los
+contrastes se comprueban según WCAG 2.1 AA en directo; uno insuficiente no impide guardar, pero
+se avisa. El servidor genera con esos valores la hoja `/api/v1/appearance.css`, que se carga
+antes de pintar la página. El logo se guarda en la base de datos (entra en las copias de
+seguridad).
+
 ## API
 
 Documentación interactiva en http://localhost:8000/docs. Endpoints principales:
@@ -173,6 +182,9 @@ Documentación interactiva en http://localhost:8000/docs. Endpoints principales:
 | POST | `/api/v1/auth/anonymous` | Nueva sesión anónima: acceso anónimo con LDAP o sesión privada sin él (si la administración lo permite) |
 | GET/POST/DELETE | `/api/v1/admin/session` | Estado / inicio / cierre de sesión de administración |
 | GET/PUT | `/api/v1/admin/chat-config` | Mensaje inicial y preguntas sugeridas (admin) |
+| GET | `/api/v1/appearance`, `/api/v1/appearance.css`, `/api/v1/appearance/logo` | Apariencia pública: textos, hoja de estilos y logo |
+| GET/PUT/DELETE | `/api/v1/admin/appearance` | Apariencia: consultar, guardar (con avisos de contraste) y restablecer (admin) |
+| PUT/DELETE | `/api/v1/admin/appearance/logo` | Subir o quitar el logo (admin) |
 | GET/PUT | `/api/v1/admin/access` | Acceso anónimo (con LDAP) o sesiones privadas (sin LDAP) (admin) |
 | GET/PUT | `/api/v1/admin/prompt` | Prompt de sistema vigente / guardar nueva versión (admin) |
 | GET | `/api/v1/admin/prompt/versions` | Historial de versiones (admin) |
