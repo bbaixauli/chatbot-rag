@@ -16,9 +16,11 @@ import {
 import { reindexAll } from '../../api/documents'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { t } from '../../i18n/es'
+import { AUTH_SESSION_KEY } from '../../auth/session'
 import { ADMIN_SESSION_KEY } from './session'
 
-type FieldKind = 'text' | 'url' | 'number' | 'boolean' | 'provider' | 'secret'
+type FieldKind =
+  'text' | 'url' | 'number' | 'boolean' | 'provider' | 'select' | 'secret' | 'textarea'
 
 interface FieldSpec {
   name: string
@@ -31,15 +33,20 @@ interface FieldSpec {
   optional?: boolean
   /** Solo se muestra con ciertos valores del formulario (p. ej. según el proveedor). */
   visible?: (state: FormState) => boolean
+  /** Opciones de un campo `select` (los textos están en `t.config.options`). */
+  options?: string[]
 }
 
 interface GroupSpec {
   name: ConfigGroupName
   fields: FieldSpec[]
   testable?: boolean
+  /** La prueba de conexión admite además comprobar un usuario (directorio LDAP). */
+  testUser?: boolean
 }
 
 const remoteProvider = (state: FormState) => state.values.provider === 'openai'
+const ldapMode = (state: FormState) => state.values.auth_mode === 'ldap'
 
 // Rangos: los mismos que valida el servidor (backend/app/core/runtime_config.py).
 const GROUPS: GroupSpec[] = [
@@ -101,6 +108,26 @@ const GROUPS: GroupSpec[] = [
     fields: [
       { name: 'chat_per_minute', kind: 'number', min: 0, integer: true },
       { name: 'login_per_minute', kind: 'number', min: 0, integer: true },
+    ],
+  },
+  {
+    name: 'users',
+    testable: true,
+    testUser: true,
+    fields: [
+      { name: 'auth_mode', kind: 'select', options: ['none', 'ldap'] },
+      { name: 'ldap_url', kind: 'url', visible: ldapMode },
+      { name: 'ldap_start_tls', kind: 'boolean', visible: ldapMode },
+      { name: 'ldap_ca_cert', kind: 'textarea', optional: true, visible: ldapMode },
+      { name: 'ldap_timeout_seconds', kind: 'number', min: 1, step: 1, visible: ldapMode },
+      { name: 'ldap_bind_dn', kind: 'text', optional: true, visible: ldapMode },
+      { name: 'ldap_bind_password', kind: 'secret', visible: ldapMode },
+      { name: 'ldap_user_base_dn', kind: 'text', visible: ldapMode },
+      { name: 'ldap_user_filter', kind: 'text', visible: ldapMode },
+      { name: 'ldap_user_id_attribute', kind: 'text', visible: ldapMode },
+      { name: 'ldap_display_name_attribute', kind: 'text', visible: ldapMode },
+      { name: 'ldap_admin_group_dn', kind: 'text', optional: true, visible: ldapMode },
+      { name: 'ldap_nested_groups', kind: 'boolean', visible: ldapMode },
     ],
   },
 ]
@@ -204,6 +231,11 @@ export function ConfigPage() {
     )
     // Documentos desactualizados respecto al nuevo modelo o troceado.
     void queryClient.invalidateQueries({ queryKey: ['admin', 'documents-stats'] })
+    if (result.group === 'users') {
+      // Cambia cómo se accede al chat y qué ajustes de acceso se ofrecen.
+      void queryClient.invalidateQueries({ queryKey: AUTH_SESSION_KEY })
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'access'] })
+    }
   }
 
   return (
@@ -249,6 +281,7 @@ function GroupForm(props: {
   const [state, setState] = useState(() => initialState(group))
   const [showErrors, setShowErrors] = useState(false)
   const [result, setResult] = useState<ConfigSaveResult | null>(null)
+  const [testUser, setTestUser] = useState({ username: '', password: '' })
   const queryClient = useQueryClient()
 
   const save = useMutation({
@@ -263,7 +296,7 @@ function GroupForm(props: {
   })
   const test = useMutation({
     mutationFn: (changes: ConfigChanges) =>
-      checkConnection(spec.name as 'llm' | 'embeddings', changes),
+      checkConnection(spec.name as 'llm' | 'embeddings' | 'users', changes),
   })
   const reindex = useMutation({
     mutationFn: reindexAll,
@@ -329,6 +362,35 @@ function GroupForm(props: {
             ))}
         </div>
 
+        {spec.testUser && state.values.auth_mode === 'ldap' && (
+          <fieldset className="flex flex-col gap-2 rounded border border-borde p-3">
+            <legend className="px-1 text-sm font-medium">{t.config.testUser.legend}</legend>
+            <p className="text-xs text-texto-secundario">{t.config.testUser.hint}</p>
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="flex flex-col gap-1 text-sm">
+                {t.config.testUser.username}
+                <input
+                  type="text"
+                  autoComplete="off"
+                  value={testUser.username}
+                  onChange={(e) => setTestUser((u) => ({ ...u, username: e.target.value }))}
+                  className="campo text-sm"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-sm">
+                {t.config.testUser.password}
+                <input
+                  type="password"
+                  autoComplete="off"
+                  value={testUser.password}
+                  onChange={(e) => setTestUser((u) => ({ ...u, password: e.target.value }))}
+                  className="campo text-sm"
+                />
+              </label>
+            </div>
+          </fieldset>
+        )}
+
         {showErrors && !valid && (
           <p role="alert" className="text-sm text-error">
             {t.config.invalid}
@@ -388,7 +450,19 @@ function GroupForm(props: {
               type="button"
               className="btn btn-secundario"
               disabled={test.isPending}
-              onClick={() => submitIfValid((changes) => test.mutate(changes))}
+              onClick={() =>
+                submitIfValid((changes) =>
+                  test.mutate(
+                    spec.testUser && testUser.username.trim()
+                      ? {
+                          ...changes,
+                          test_username: testUser.username.trim(),
+                          test_password: testUser.password,
+                        }
+                      : changes,
+                  ),
+                )
+              }
             >
               {test.isPending ? t.config.testing : t.config.test}
             </button>
@@ -461,6 +535,52 @@ function Field(props: {
           />
           {label}
         </label>
+        {description}
+      </div>
+    )
+  }
+
+  if (field.kind === 'select') {
+    const current = typeof value === 'string' ? value : ''
+    return (
+      <div className="flex flex-col gap-1 md:col-span-2">
+        <label htmlFor={id} className="text-sm font-medium">
+          {label}
+        </label>
+        <select
+          id={id}
+          value={current}
+          aria-describedby={describedBy || undefined}
+          onChange={(e) => setValue(e.target.value)}
+          className="campo text-sm"
+        >
+          {(field.options ?? []).map((option) => (
+            <option key={option} value={option}>
+              {t.config.options[option] ?? option}
+            </option>
+          ))}
+        </select>
+        {description}
+      </div>
+    )
+  }
+
+  if (field.kind === 'textarea') {
+    return (
+      <div className="flex flex-col gap-1 md:col-span-2">
+        <label htmlFor={id} className="text-sm font-medium">
+          {label}
+        </label>
+        <textarea
+          id={id}
+          rows={4}
+          spellCheck={false}
+          value={typeof value === 'string' ? value : ''}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={describedBy || undefined}
+          onChange={(e) => setValue(e.target.value)}
+          className="campo font-mono text-xs"
+        />
         {description}
       </div>
     )

@@ -12,7 +12,7 @@ el prefijo del grupo (`llm.model` ↔ `CHATBOT_LLM_MODEL`).
 
 from typing import Any, ClassVar, Literal, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 
 from app.core.config import Settings
 
@@ -30,6 +30,8 @@ class ConfigGroup(BaseModel):
     SECRET_FIELDS: ClassVar[tuple[str, ...]] = ()
     # Campos cuyo cambio obliga a reindexar los documentos.
     REINDEX_FIELDS: ClassVar[tuple[str, ...]] = ()
+    # Campos sin variable de entorno equivalente (solo se configuran en la administración).
+    ADMIN_ONLY_FIELDS: ClassVar[tuple[str, ...]] = ()
 
     @classmethod
     def settings_name(cls, field: str) -> str:
@@ -41,7 +43,12 @@ class ConfigGroup(BaseModel):
 
     @classmethod
     def values_from_settings(cls, settings: Settings) -> dict[str, Any]:
-        return {field: getattr(settings, cls.settings_name(field)) for field in cls.model_fields}
+        return {
+            field: None
+            if field in cls.ADMIN_ONLY_FIELDS
+            else getattr(settings, cls.settings_name(field))
+            for field in cls.model_fields
+        }
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "ConfigGroup":
@@ -127,7 +134,60 @@ class RateLimits(ConfigGroup):
     login_per_minute: int = Field(ge=0)
 
 
-GroupName = Literal["llm", "embeddings", "indexing", "rag", "chat", "limits"]
+class UsersConfig(ConfigGroup):
+    """Usuarios del chat: anónimos (`none`) o con cuenta del directorio (`ldap`).
+
+    La cuenta local de administración (`CHATBOT_ADMIN_*`) sigue en `.env`: es el acceso de
+    rescate si el directorio falla o está mal configurado.
+    """
+
+    SECRET_FIELDS = ("ldap_bind_password",)
+    # El certificado de la CA también puede estar en un fichero del despliegue
+    # (CHATBOT_LDAP_CA_CERT_FILE, en `.env`, que se lee en cada conexión); el de aquí tiene
+    # prioridad.
+    ADMIN_ONLY_FIELDS = ("ldap_ca_cert",)
+    # Campos que determinan la conexión con el directorio (se prueban antes de guardar).
+    CONNECTION_FIELDS: ClassVar[tuple[str, ...]] = (
+        "ldap_url",
+        "ldap_start_tls",
+        "ldap_ca_cert",
+        "ldap_timeout_seconds",
+        "ldap_bind_dn",
+        "ldap_bind_password",
+        "ldap_user_base_dn",
+    )
+
+    auth_mode: Literal["none", "ldap"]
+    # ldaps://servidor:636 o ldap://servidor:389 (con ldap_start_tls para cifrar).
+    ldap_url: str = Field(min_length=1)
+    ldap_start_tls: bool
+    # Certificado (PEM) de la CA del directorio, si no está en el almacén del sistema.
+    ldap_ca_cert: str | None = None
+    ldap_timeout_seconds: float = Field(gt=0)
+    # Cuenta de servicio para buscar usuarios (vacía = búsqueda anónima).
+    ldap_bind_dn: str | None
+    ldap_bind_password: SecretStr | None
+    ldap_user_base_dn: str
+    # `{username}` se sustituye (escapado). Active Directory: (sAMAccountName={username})
+    ldap_user_filter: str = Field(min_length=1)
+    ldap_user_id_attribute: str = Field(min_length=1)
+    ldap_display_name_attribute: str = Field(min_length=1)
+    # Los miembros de este grupo son administradores (vacío = solo la cuenta local).
+    ldap_admin_group_dn: str | None
+    # Solo Active Directory: tiene en cuenta grupos anidados.
+    ldap_nested_groups: bool
+
+    @model_validator(mode="after")
+    def _check_ldap(self) -> "UsersConfig":
+        if self.auth_mode == "ldap":
+            if not self.ldap_user_base_dn.strip():
+                raise ValueError("Con LDAP hay que indicar la base de búsqueda de usuarios")
+            if "{username}" not in self.ldap_user_filter:
+                raise ValueError("El filtro de usuarios debe contener {username}")
+        return self
+
+
+GroupName = Literal["llm", "embeddings", "indexing", "rag", "chat", "limits", "users"]
 
 GROUPS: dict[str, type[ConfigGroup]] = {
     "llm": LlmConfig,
@@ -136,6 +196,7 @@ GROUPS: dict[str, type[ConfigGroup]] = {
     "rag": RagConfig,
     "chat": ChatLimits,
     "limits": RateLimits,
+    "users": UsersConfig,
 }
 
 
@@ -150,6 +211,7 @@ class RuntimeConfig(BaseModel):
     rag: RagConfig
     chat: ChatLimits
     limits: RateLimits
+    users: UsersConfig
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "RuntimeConfig":

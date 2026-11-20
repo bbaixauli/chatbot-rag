@@ -15,6 +15,7 @@ from app.api.schemas import ChatConfigOut
 from app.core.auth import SESSION_ADMIN_KEY, AdminDep, get_admin, verify_admin_credentials
 from app.core.config import Settings
 from app.core.rate_limit import LoginRateLimit
+from app.core.runtime_config import RuntimeConfig, UsersConfig
 from app.db.models import SystemPromptVersion
 from app.services.access import AccessConfig, AccessRepository
 from app.services.chat_config import MAX_SUGGESTED_QUESTIONS, ChatConfig, ChatConfigRepository
@@ -76,38 +77,45 @@ class PromptVersionOut(BaseModel):
 
 
 @router.get("/session", response_model=SessionOut)
-async def get_session(request: Request, settings: SettingsDep) -> SessionOut:
+async def get_session(
+    request: Request, settings: SettingsDep, config: RuntimeConfigDep
+) -> SessionOut:
     admin = get_admin(request)
     return SessionOut(
         authenticated=admin is not None,
         username=admin.username if admin else None,
-        enabled=_admin_enabled(settings),
+        enabled=admin_enabled(settings, config.users),
     )
 
 
-def _admin_enabled(settings: Settings) -> bool:
+def admin_enabled(settings: Settings, users: UsersConfig) -> bool:
     """Hay cuenta local o administradores del directorio."""
-    ldap_admins = settings.auth_mode == "ldap" and bool(settings.ldap_admin_group_dn)
+    ldap_admins = users.auth_mode == "ldap" and bool(users.ldap_admin_group_dn)
     return settings.admin_password is not None or ldap_admins
 
 
 @router.post("/session", response_model=SessionOut)
 async def login(
-    body: LoginRequest, request: Request, settings: SettingsDep, _: LoginRateLimit
+    body: LoginRequest,
+    request: Request,
+    settings: SettingsDep,
+    config: RuntimeConfigDep,
+    _: LoginRateLimit,
 ) -> SessionOut:
     """Cuenta local de administración o, con LDAP, usuario del grupo de administración."""
-    if not _admin_enabled(settings):
+    ldap = config.users.auth_mode == "ldap"
+    if not admin_enabled(settings, config.users):
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE,
             "La administración no está configurada (falta CHATBOT_ADMIN_PASSWORD)",
         )
     is_local = settings.admin_password is not None and body.username == settings.admin_username
-    if is_local or settings.auth_mode != "ldap":
+    if is_local or not ldap:
         # Las credenciales de la cuenta local nunca se envían al directorio.
         if not verify_admin_credentials(settings, body.username, body.password):
             await asyncio.sleep(FAILED_LOGIN_DELAY_SECONDS)
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Usuario o contraseña incorrectos")
-        if settings.auth_mode == "ldap":
+        if ldap:
             request.session.clear()
         else:
             # Sin LDAP, la sesión privada del chat (si la hay) es independiente: se conserva.
@@ -125,8 +133,8 @@ async def login(
 
 
 @router.delete("/session", status_code=status.HTTP_204_NO_CONTENT)
-async def logout(request: Request, settings: SettingsDep) -> Response:
-    if settings.auth_mode == "ldap":
+async def logout(request: Request, config: RuntimeConfigDep) -> Response:
+    if config.users.auth_mode == "ldap":
         request.session.clear()
     else:
         # Sin LDAP solo se cierra la administración: la sesión privada del chat continúa.
@@ -217,27 +225,27 @@ async def update_chat_config(
     return saved
 
 
-def _access_out(settings: Settings, config: AccessConfig) -> AccessOut:
+def _access_out(runtime: RuntimeConfig, config: AccessConfig) -> AccessOut:
     return AccessOut(
-        mode=settings.auth_mode,
+        mode=runtime.users.auth_mode,
         anonymous_allowed=config.anonymous_allowed,
         private_sessions=config.private_sessions,
     )
 
 
 @router.get("/access", response_model=AccessOut)
-async def get_access(_: AdminDep, db: DbSession, settings: SettingsDep) -> AccessOut:
-    return _access_out(settings, await AccessRepository(db).get())
+async def get_access(_: AdminDep, db: DbSession, runtime: RuntimeConfigDep) -> AccessOut:
+    return _access_out(runtime, await AccessRepository(db).get())
 
 
 @router.put("/access", response_model=AccessOut)
 async def update_access(
-    body: AccessUpdate, admin: AdminDep, db: DbSession, settings: SettingsDep
+    body: AccessUpdate, admin: AdminDep, db: DbSession, runtime: RuntimeConfigDep
 ) -> AccessOut:
     """Con LDAP, permite o impide el acceso anónimo; sin LDAP, activa o desactiva las
     sesiones privadas. Al desactivarlos, las sesiones anónimas abiertas dejan de funcionar
     en su siguiente petición."""
-    ldap = settings.auth_mode == "ldap"
+    ldap = runtime.users.auth_mode == "ldap"
     if (body.anonymous_allowed is not None and not ldap) or (
         body.private_sessions is not None and ldap
     ):
@@ -254,7 +262,7 @@ async def update_access(
         config = replace(config, private_sessions=body.private_sessions)
         change = ("Sesiones privadas", body.private_sessions)
     else:
-        return _access_out(settings, config)
+        return _access_out(runtime, config)
     config = await repo.save(config, admin.username)
     await db.commit()
     logger.info(
@@ -263,4 +271,4 @@ async def update_access(
         "activado" if change[1] else "desactivado",
         extra={"user_id": admin.username},
     )
-    return _access_out(settings, config)
+    return _access_out(runtime, config)

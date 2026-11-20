@@ -155,6 +155,16 @@ export const t = {
         'La clave guardada no se puede descifrar (ha cambiado CHATBOT_SESSION_SECRET): se usa la del fichero .env. Vuelve a introducirla.',
       clear: 'Quitar la clave guardada',
     },
+    testUser: {
+      legend: 'Probar con un usuario (opcional)',
+      hint: 'Al probar la conexión, comprueba también que este usuario puede iniciar sesión y si es administrador. No se guarda.',
+      username: 'Usuario de prueba',
+      password: 'Contraseña de prueba',
+    },
+    options: {
+      none: 'Sin inicio de sesión (chat anónimo)',
+      ldap: 'Usuarios del directorio (LDAP o Active Directory)',
+    } as Record<string, string>,
     providers: {
       openai: 'Servidor compatible con la API de OpenAI',
       local: 'Local (sentence-transformers en este servidor)',
@@ -244,6 +254,39 @@ export const t = {
           login_per_minute: 'Inicios de sesión por minuto',
         },
         hints: {},
+      },
+      users: {
+        title: 'Usuarios',
+        description:
+          'Cómo se accede al chat. La cuenta local de administración del fichero .env sigue funcionando siempre.',
+        fields: {
+          auth_mode: 'Acceso al chat',
+          ldap_url: 'URL del directorio',
+          ldap_start_tls: 'Cifrar con StartTLS',
+          ldap_ca_cert: 'Certificado de la CA (PEM)',
+          ldap_timeout_seconds: 'Tiempo máximo de espera (segundos)',
+          ldap_bind_dn: 'Cuenta de servicio (DN)',
+          ldap_bind_password: 'Contraseña de la cuenta de servicio',
+          ldap_user_base_dn: 'Base de búsqueda de usuarios',
+          ldap_user_filter: 'Filtro de usuarios',
+          ldap_user_id_attribute: 'Atributo del identificador',
+          ldap_display_name_attribute: 'Atributo del nombre visible',
+          ldap_admin_group_dn: 'Grupo de administración (DN)',
+          ldap_nested_groups: 'Tener en cuenta grupos anidados (solo Active Directory)',
+        },
+        hints: {
+          auth_mode:
+            'Al guardar, se comprueba que el directorio responde. Las sesiones abiertas del modo anterior se cierran.',
+          ldap_url: 'ldaps://servidor:636, o ldap://servidor:389 con StartTLS.',
+          ldap_ca_cert:
+            'Solo si la CA del directorio no está en el almacén del sistema ni en el fichero de CHATBOT_LDAP_CA_CERT_FILE. Tiene prioridad sobre ese fichero.',
+          ldap_bind_dn: 'Vacía: búsqueda anónima.',
+          ldap_user_filter:
+            '{username} se sustituye por el usuario. Active Directory: (sAMAccountName={username})',
+          ldap_user_id_attribute: 'OpenLDAP: uid. Active Directory: sAMAccountName.',
+          ldap_admin_group_dn:
+            'Sus miembros administran la aplicación. Vacío: solo la cuenta local.',
+        },
       },
     },
   },

@@ -11,7 +11,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from app.api import admin, appearance, auth, chat, conversations, documents, health
 from app.api import config as config_api
 from app.core.config import APP_TITLE, Settings, get_settings
-from app.core.ldap_auth import LdapAuthenticator
+from app.core.ldap_auth import ConfigurableLdap
 from app.core.logging import RequestContextMiddleware, configure_logging
 from app.core.rate_limit import RateLimiter
 from app.db.session import build_engine, build_sessionmaker
@@ -48,6 +48,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except OperationalError:
             logger.warning("No se pudo leer la configuración de la BD: se usa la de CHATBOT_*")
         app.state.config = config
+        # Sigue la configuración de usuarios; no abre conexiones hasta un inicio de sesión.
+        app.state.ldap = ConfigurableLdap(config, ca_file=settings.ldap_ca_cert_file)
         app.state.llm = ConfigurableLLM(config)
         app.state.embeddings = ConfigurableEmbeddings(config)
         app.state.vector_store = build_vector_store(settings)
@@ -76,8 +78,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title=APP_TITLE, version=settings.version, lifespan=lifespan)
     app.state.settings = settings
     app.state.rate_limiter = RateLimiter()
-    # No abre conexiones al crearse: solo al validar un inicio de sesión.
-    app.state.ldap = LdapAuthenticator(settings) if settings.auth_mode == "ldap" else None
     app.add_middleware(
         SessionMiddleware,
         secret_key=settings.session_secret.get_secret_value(),

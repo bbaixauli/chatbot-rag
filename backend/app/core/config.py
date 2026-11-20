@@ -65,13 +65,15 @@ class Settings(BaseSettings):
     session_max_age_seconds: int = Field(default=8 * 3600, gt=0)
     session_cookie_secure: bool = False
 
-    # Usuarios del chat: `none` (anónimo, un único historial) o `ldap` (cada usuario inicia
-    # sesión con su cuenta del directorio y ve solo sus conversaciones).
+    # --- Valores iniciales (#42): usuarios del chat. `none` (anónimo, un único historial) o
+    # `ldap` (cada usuario inicia sesión con su cuenta del directorio y ve solo las suyas).
     auth_mode: Literal["none", "ldap"] = "none"
     # ldaps://servidor:636 o ldap://servidor:389 (con ldap_start_tls para cifrar).
     ldap_url: str = "ldap://localhost:389"
     ldap_start_tls: bool = False
-    # Certificado de la CA del directorio (si no está en el almacén del sistema).
+    # Fichero con el certificado de la CA del directorio (si no está en el almacén del
+    # sistema). No es un valor inicial: sigue en `.env` y se lee en cada conexión; un
+    # certificado pegado en la administración tiene prioridad.
     ldap_ca_cert_file: Path | None = None
     ldap_timeout_seconds: float = Field(default=10, gt=0)
     # Cuenta de servicio para buscar usuarios (vacía = búsqueda anónima).

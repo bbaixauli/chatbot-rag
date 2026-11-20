@@ -7,7 +7,7 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 
-from app.api.deps import DbSession, SettingsDep
+from app.api.deps import DbSession, RuntimeConfigDep
 from app.core.auth import (
     CurrentUser,
     active_session_user,
@@ -15,13 +15,9 @@ from app.core.auth import (
     new_anonymous_user,
     store_session_user,
 )
-from app.core.config import Settings
-from app.core.ldap_auth import (
-    DirectoryUnavailableError,
-    InvalidCredentialsError,
-    LdapAuthenticator,
-)
+from app.core.ldap_auth import ConfigurableLdap, DirectoryUnavailableError, InvalidCredentialsError
 from app.core.rate_limit import AnonymousSessionRateLimit, LoginRateLimit
+from app.core.runtime_config import RuntimeConfig
 from app.services.access import AccessRepository
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -54,13 +50,14 @@ class UserLogin(BaseModel):
 
 
 async def _session_out(
-    settings: Settings, db: DbSession, user: CurrentUser | None
+    config: RuntimeConfig, db: DbSession, user: CurrentUser | None
 ) -> AuthSessionOut:
+    auth_mode = config.users.auth_mode
     access = await AccessRepository(db).get()
-    if settings.auth_mode == "none" and not access.private_sessions:
+    if auth_mode == "none" and not access.private_sessions:
         return AuthSessionOut(mode="none", authenticated=False)
     return AuthSessionOut(
-        mode=settings.auth_mode,
+        mode=auth_mode,
         authenticated=user is not None,
         user=UserOut(
             id=user.id,
@@ -70,14 +67,14 @@ async def _session_out(
         )
         if user
         else None,
-        anonymous_allowed=settings.auth_mode == "ldap" and access.anonymous_allowed,
-        private_sessions=settings.auth_mode == "none",
+        anonymous_allowed=auth_mode == "ldap" and access.anonymous_allowed,
+        private_sessions=auth_mode == "none",
     )
 
 
 async def ldap_login(request: Request, username: str, password: str) -> CurrentUser:
     """Valida las credenciales en el directorio e inicia la sesión del usuario."""
-    authenticator: LdapAuthenticator = request.app.state.ldap
+    authenticator: ConfigurableLdap = request.app.state.ldap
     try:
         ldap_user = await authenticator.authenticate_async(username, password)
     except InvalidCredentialsError:
@@ -101,25 +98,29 @@ async def ldap_login(request: Request, username: str, password: str) -> CurrentU
 
 
 @router.get("/session", response_model=AuthSessionOut)
-async def get_session(request: Request, settings: SettingsDep, db: DbSession) -> AuthSessionOut:
-    return await _session_out(settings, db, await active_session_user(request, settings, db))
+async def get_session(request: Request, config: RuntimeConfigDep, db: DbSession) -> AuthSessionOut:
+    return await _session_out(config, db, await active_session_user(request, config, db))
 
 
 @router.post("/session", response_model=AuthSessionOut)
 async def login(
-    body: UserLogin, request: Request, settings: SettingsDep, db: DbSession, _: LoginRateLimit
+    body: UserLogin,
+    request: Request,
+    config: RuntimeConfigDep,
+    db: DbSession,
+    _: LoginRateLimit,
 ) -> AuthSessionOut:
-    if settings.auth_mode != "ldap":
+    if config.users.auth_mode != "ldap":
         raise HTTPException(
             status.HTTP_409_CONFLICT, "El inicio de sesión de usuarios no está activado"
         )
     user = await ldap_login(request, body.username, body.password)
-    return await _session_out(settings, db, user)
+    return await _session_out(config, db, user)
 
 
 @router.post("/anonymous", response_model=AuthSessionOut)
 async def anonymous_login(
-    request: Request, settings: SettingsDep, db: DbSession, _: AnonymousSessionRateLimit
+    request: Request, config: RuntimeConfigDep, db: DbSession, _: AnonymousSessionRateLimit
 ) -> AuthSessionOut:
     """Inicia una sesión anónima nueva, si la administración lo permite.
 
@@ -130,8 +131,8 @@ async def anonymous_login(
     Cada sesión es una identidad nueva: no se ven las conversaciones de sesiones anteriores
     ni las de otras personas. Las conversaciones se conservan para auditoría.
     """
-    ldap = settings.auth_mode == "ldap"
-    if not (await AccessRepository(db).get()).anonymous_sessions_enabled(settings.auth_mode):
+    ldap = config.users.auth_mode == "ldap"
+    if not (await AccessRepository(db).get()).anonymous_sessions_enabled(config.users.auth_mode):
         detail = (
             "El acceso anónimo no está permitido"
             if ldap
@@ -141,12 +142,12 @@ async def anonymous_login(
     user = new_anonymous_user()
     store_session_user(request, user, keep_admin=not ldap)
     logger.info("Acceso anónimo" if ldap else "Sesión privada", extra={"user_id": user.id})
-    return await _session_out(settings, db, user)
+    return await _session_out(config, db, user)
 
 
 @router.delete("/session", status_code=status.HTTP_204_NO_CONTENT)
-async def logout(request: Request, settings: SettingsDep) -> Response:
-    if settings.auth_mode == "ldap":
+async def logout(request: Request, config: RuntimeConfigDep) -> Response:
+    if config.users.auth_mode == "ldap":
         request.session.clear()
     else:
         # Sin LDAP, la sesión de administración es independiente de la del chat.

@@ -80,6 +80,8 @@ def test_groups_map_to_settings_fields() -> None:
     settings = Settings()
     for name, group in GROUPS.items():
         for field in group.model_fields:
+            if field in group.ADMIN_ONLY_FIELDS:
+                continue
             assert hasattr(settings, group.settings_name(field)), f"{name}.{field}"
     assert LlmConfig.env_name("model") == "CHATBOT_LLM_MODEL"
     assert GROUPS["chat"].env_name("system_prompt_max_length") == (

@@ -7,6 +7,7 @@ from pydantic import SecretStr
 
 from app.core.config import Settings
 from app.core.ldap_auth import LdapAuthenticator
+from app.core.runtime_config import UsersConfig
 
 BASE = "dc=ejemplo,dc=org"
 PEOPLE = f"ou=people,{BASE}"
@@ -38,6 +39,7 @@ def build_directory() -> Server:
     server = Server("directorio-simulado", get_info=OFFLINE_SLAPD_2_4)
     connection = Connection(server, client_strategy=MOCK_SYNC)
     add = connection.strategy.add_entry
+    add(PEOPLE, {"objectClass": "organizationalUnit", "ou": "people"})
     add(
         SERVICE_DN,
         {"objectClass": "person", "cn": "chatbot", "sn": "s", "userPassword": "clave-servicio"},
@@ -81,5 +83,16 @@ def _person(uid: str, name: str, password: str) -> dict[str, Any]:
     }
 
 
-def mock_authenticator(settings: Settings, server: Server | None = None) -> LdapAuthenticator:
-    return LdapAuthenticator(settings, server or build_directory(), client_strategy=MOCK_SYNC)
+def users_config(config: Settings | UsersConfig) -> UsersConfig:
+    """Configuración de usuarios a partir de `Settings` (valores iniciales) o tal cual."""
+    if isinstance(config, UsersConfig):
+        return config
+    return UsersConfig.model_validate(UsersConfig.values_from_settings(config))
+
+
+def mock_authenticator(
+    config: Settings | UsersConfig, server: Server | None = None
+) -> LdapAuthenticator:
+    return LdapAuthenticator(
+        users_config(config), server or build_directory(), client_strategy=MOCK_SYNC
+    )

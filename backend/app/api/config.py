@@ -5,8 +5,11 @@
 - `PUT /admin/config/{grupo}`: cambia los campos enviados y se aplica de inmediato. En los
   secretos, un valor vacío o ausente conserva el actual; para quitarlo se indica en
   `clear_secrets`.
-- `POST /admin/config/{grupo}/test`: prueba la conexión (modelo de lenguaje o embeddings)
-  con los valores enviados, sin guardarlos.
+- `POST /admin/config/{grupo}/test`: prueba la conexión (modelo de lenguaje, embeddings o
+  directorio LDAP) con los valores enviados, sin guardarlos.
+
+Salvaguardas del grupo `users`: no se guarda una configuración que deje la administración
+sin acceso, y para activar LDAP (o cambiar su conexión) el directorio tiene que responder.
 """
 
 import asyncio
@@ -17,10 +20,16 @@ from typing import Annotated, Any, get_args
 from fastapi import APIRouter, Body, HTTPException, Request, status
 from pydantic import BaseModel, SecretStr, ValidationError
 
+from app.api.admin import admin_enabled
 from app.api.deps import SettingsDep
 from app.core.auth import AdminDep
 from app.core.config import Settings
-from app.core.runtime_config import GROUPS, ConfigGroup, EmbeddingConfig, LlmConfig
+from app.core.ldap_auth import (
+    ConfigurableLdap,
+    DirectoryUnavailableError,
+    InvalidCredentialsError,
+)
+from app.core.runtime_config import GROUPS, ConfigGroup, EmbeddingConfig, LlmConfig, UsersConfig
 from app.services.documents import DocumentService
 from app.services.embeddings import Embeddings, build_embeddings
 from app.services.llm import ChatMessage as LLMMessage
@@ -36,6 +45,10 @@ TEST_SAMPLE_CHARS = 200
 FAKE_PROVIDER = "fake"
 
 ConfigBody = Annotated[dict[str, Any], Body()]
+# Grupos con prueba de conexión.
+TESTABLE = ("llm", "embeddings", "users")
+# Credenciales opcionales para probar el inicio de sesión de un usuario del directorio.
+TEST_USER_FIELDS = ("test_username", "test_password")
 
 
 class SecretOut(BaseModel):
@@ -204,6 +217,8 @@ async def update_config(
                 "Los documentos se indexaron con la configuración anterior: reindéxalos todos "
                 "(Administración → Documentos → Reindexar todo)."
             )
+    if isinstance(candidate, UsersConfig) and isinstance(current, UsersConfig):
+        warnings += await _check_users_change(request, settings, current, candidate, changed)
     if changed:
         await store.save(group, candidate, admin.username)
         logger.info(
@@ -224,15 +239,23 @@ async def update_config(
 async def check_connection(
     group: str, body: ConfigBody, _: AdminDep, request: Request, settings: SettingsDep
 ) -> TestOut:
-    """Prueba la conexión con los valores enviados (completados con los guardados)."""
-    if group not in ("llm", "embeddings"):
+    """Prueba la conexión con los valores enviados (completados con los guardados).
+
+    En `users` se puede enviar además `test_username` y `test_password` para comprobar el
+    inicio de sesión de un usuario (no se guardan).
+    """
+    if group not in TESTABLE:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Este grupo no tiene prueba de conexión")
     store = _store(request)
-    candidate = _candidate(group, store, settings, body)
+    values = dict(body)
+    test_user = [str(values.pop(field, "") or "") for field in TEST_USER_FIELDS]
+    candidate = _candidate(group, store, settings, values)
     try:
         async with asyncio.timeout(TEST_TIMEOUT_SECONDS):
             if isinstance(candidate, LlmConfig):
                 return await _check_llm(candidate)
+            if isinstance(candidate, UsersConfig):
+                return await _check_directory(request, candidate, *test_user)
             config = store.current.replace_group(group, candidate)
             return await _check_embeddings(build_embeddings(config))
     except TimeoutError:
@@ -268,4 +291,73 @@ async def _check_embeddings(embeddings: Embeddings) -> TestOut:
         detail=(
             f"El modelo «{embeddings.model_name}» devuelve vectores de {len(vector)} dimensiones"
         ),
+    )
+
+
+def _ldap(request: Request) -> ConfigurableLdap:
+    ldap: ConfigurableLdap = request.app.state.ldap
+    return ldap
+
+
+async def _check_users_change(
+    request: Request,
+    settings: Settings,
+    current: UsersConfig,
+    candidate: UsersConfig,
+    changed: list[str],
+) -> list[str]:
+    """Comprueba que el cambio no deja la aplicación sin acceso. Devuelve avisos."""
+    if not admin_enabled(settings, candidate):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Nadie podría entrar en la administración: define la cuenta local "
+            "(CHATBOT_ADMIN_PASSWORD) o, con LDAP, un grupo de administración",
+        )
+    switching = candidate.auth_mode != current.auth_mode
+    connection_changed = any(field in UsersConfig.CONNECTION_FIELDS for field in changed)
+    if candidate.auth_mode == "ldap" and (switching or connection_changed):
+        try:
+            async with asyncio.timeout(TEST_TIMEOUT_SECONDS):
+                await _ldap(request).factory(candidate).check_connection_async()
+        except (DirectoryUnavailableError, TimeoutError) as exc:
+            detail = str(exc) or f"sin respuesta en {TEST_TIMEOUT_SECONDS:.0f} s"
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                f"No se ha guardado: el directorio no responde con estos valores ({detail})",
+            ) from exc
+    warnings: list[str] = []
+    if switching:
+        warnings.append(
+            "Ha cambiado el modo de acceso: las sesiones abiertas del modo anterior se "
+            "cierran y los usuarios tendrán que volver a entrar."
+        )
+        if candidate.auth_mode == "none" and settings.admin_password is not None:
+            warnings.append(
+                "Los administradores del directorio ya no pueden entrar: usa la cuenta local."
+            )
+    return warnings
+
+
+async def _check_directory(
+    request: Request, config: UsersConfig, username: str, password: str
+) -> TestOut:
+    authenticator = _ldap(request).factory(config)
+    try:
+        detail = await authenticator.check_connection_async()
+    except DirectoryUnavailableError as exc:
+        return TestOut(ok=False, detail=f"No se puede conectar con el directorio: {exc}")
+    if not username:
+        return TestOut(ok=True, detail=detail)
+    try:
+        user = await authenticator.authenticate_async(username, password)
+    except InvalidCredentialsError:
+        return TestOut(
+            ok=False,
+            detail=f"{detail}, pero el usuario «{username}» no existe o la contraseña no es válida",
+        )
+    except DirectoryUnavailableError as exc:
+        return TestOut(ok=False, detail=f"{detail}, pero falló la búsqueda del usuario: {exc}")
+    role = "es administrador" if user.is_admin else "no es administrador"
+    return TestOut(
+        ok=True, detail=f"{detail}. Usuario «{user.id}» ({user.display_name}) válido; {role}"
     )

@@ -66,6 +66,21 @@ function appConfig(): AppConfig {
         system_prompt_max_length: 20000,
       }),
       limits: group({ chat_per_minute: 20, login_per_minute: 5 }),
+      users: group({
+        auth_mode: 'none',
+        ldap_url: 'ldap://localhost:389',
+        ldap_start_tls: false,
+        ldap_ca_cert: null,
+        ldap_timeout_seconds: 10,
+        ldap_bind_dn: null,
+        ldap_bind_password: { configured: false, unreadable: false },
+        ldap_user_base_dn: '',
+        ldap_user_filter: '(uid={username})',
+        ldap_user_id_attribute: 'uid',
+        ldap_display_name_attribute: 'cn',
+        ldap_admin_group_dn: null,
+        ldap_nested_groups: false,
+      }),
     },
     providers: { llm: ['openai', 'fake'], embeddings: ['openai', 'local', 'fake'] },
   }
@@ -319,6 +334,53 @@ describe('ConfigPage', () => {
         .getAllByRole('option')
         .map((o) => o.textContent),
     ).toEqual(['Simulado (solo pruebas)', 'Servidor compatible con la API de OpenAI'])
+  })
+
+  it('configura el acceso con LDAP', async () => {
+    const tested: ConfigChanges[] = []
+    const { sent } = configApi({
+      'POST /admin/config/users/test': (init) => {
+        tested.push(JSON.parse(init!.body as string) as ConfigChanges)
+        return jsonResponse({ ok: true, detail: 'Usuario «ana» válido; es administrador' })
+      },
+    })
+    renderApp('/admin/config')
+    const users = await section('Usuarios')
+    // Sin LDAP solo se elige el modo.
+    expect(users.queryByLabelText('URL del directorio')).toBeNull()
+    expect(users.queryByText('Probar con un usuario (opcional)')).toBeNull()
+
+    await userEvent.selectOptions(users.getByLabelText('Acceso al chat'), 'ldap')
+    await userEvent.clear(users.getByLabelText('URL del directorio'))
+    await userEvent.type(users.getByLabelText('URL del directorio'), 'ldaps://dc:636')
+    await userEvent.click(users.getByRole('button', { name: 'Guardar' }))
+    expect(await users.findByText('Obligatorio.')).toBeInTheDocument()
+    expect(sent).toEqual([])
+
+    await userEvent.type(users.getByLabelText('Base de búsqueda de usuarios'), 'ou=people,dc=x')
+    await userEvent.type(users.getByLabelText('Contraseña de la cuenta de servicio'), 'clave')
+    await userEvent.type(users.getByLabelText('Usuario de prueba'), 'ana')
+    await userEvent.type(users.getByLabelText('Contraseña de prueba'), 'secreta')
+    await userEvent.click(users.getByRole('button', { name: 'Probar conexión' }))
+    expect(await users.findByText('Usuario «ana» válido; es administrador')).toBeInTheDocument()
+    expect(tested[0]).toMatchObject({
+      auth_mode: 'ldap',
+      ldap_url: 'ldaps://dc:636',
+      ldap_bind_password: 'clave',
+      test_username: 'ana',
+      test_password: 'secreta',
+    })
+
+    await userEvent.click(users.getByRole('button', { name: 'Guardar' }))
+    await waitFor(() => expect(sent).toHaveLength(1))
+    expect(sent[0].body).toMatchObject({
+      auth_mode: 'ldap',
+      ldap_user_base_dn: 'ou=people,dc=x',
+      ldap_ca_cert: null,
+      ldap_bind_dn: null,
+      ldap_nested_groups: false,
+    })
+    expect(sent[0].body).not.toHaveProperty('test_username')
   })
 
   it('muestra un error si no se puede cargar', async () => {

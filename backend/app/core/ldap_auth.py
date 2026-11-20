@@ -13,13 +13,14 @@ import math
 import ssl
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 
 import anyio
 from ldap3 import BASE, SUBTREE, Connection, Server, Tls
 from ldap3.core.exceptions import LDAPException
 from ldap3.utils.conv import escape_filter_chars
 
-from app.core.config import Settings
+from app.core.runtime_config import ConfigSource, UsersConfig
 
 logger = logging.getLogger(__name__)
 
@@ -48,27 +49,36 @@ class DirectoryUnavailableError(Exception):
 ConnectionFactory = Callable[[str | None, str | None], Connection]
 
 
-def build_server(settings: Settings) -> Server:
-    """Servidor LDAP con TLS verificado si se usa ldaps:// o StartTLS."""
-    use_tls = settings.ldap_url.lower().startswith("ldaps://") or settings.ldap_start_tls
-    tls = (
-        Tls(
+def build_server(config: UsersConfig, ca_file: Path | None = None) -> Server:
+    """Servidor LDAP con TLS verificado si se usa ldaps:// o StartTLS.
+
+    La CA es la de la configuración (PEM) o, si no hay, la del fichero `ca_file`
+    (CHATBOT_LDAP_CA_CERT_FILE); sin ninguna, la del almacén del sistema.
+    """
+    use_tls = config.ldap_url.lower().startswith("ldaps://") or config.ldap_start_tls
+    tls = None
+    if use_tls:
+        pem = (config.ldap_ca_cert or "").strip() or None
+        tls = Tls(
             validate=ssl.CERT_REQUIRED,
-            ca_certs_file=str(settings.ldap_ca_cert_file) if settings.ldap_ca_cert_file else None,
+            ca_certs_data=pem,
+            ca_certs_file=None if pem or ca_file is None else str(ca_file),
         )
-        if use_tls
-        else None
-    )
-    return Server(settings.ldap_url, tls=tls, connect_timeout=settings.ldap_timeout_seconds)
+    return Server(config.ldap_url, tls=tls, connect_timeout=config.ldap_timeout_seconds)
 
 
 class LdapAuthenticator:
     """Valida credenciales y obtiene los datos del usuario."""
 
     def __init__(
-        self, settings: Settings, server: Server | None = None, **connection_options: object
+        self,
+        config: UsersConfig,
+        server: Server | None = None,
+        ca_file: Path | None = None,
+        **connection_options: object,
     ):
-        self._settings = settings
+        self._config = config
+        self._ca_file = ca_file
         # Se crea al primer inicio de sesión: un error de configuración TLS (p. ej. falta el
         # certificado de la CA) no debe impedir que arranque la aplicación.
         self._server = server
@@ -77,7 +87,7 @@ class LdapAuthenticator:
 
     def _get_server(self) -> Server:
         if self._server is None:
-            self._server = build_server(self._settings)
+            self._server = build_server(self._config, self._ca_file)
         return self._server
 
     def _bind(self, user: str | None, password: str | None) -> Connection | None:
@@ -87,11 +97,11 @@ class LdapAuthenticator:
             user=user,
             password=password,
             # ldap3 lo aplica al socket con struct.pack: debe ser un entero.
-            receive_timeout=math.ceil(self._settings.ldap_timeout_seconds),
+            receive_timeout=math.ceil(self._config.ldap_timeout_seconds),
             read_only=True,
             **self._connection_options,
         )
-        if self._settings.ldap_start_tls:
+        if self._config.ldap_start_tls:
             connection.open()
             connection.start_tls()
         if not connection.bind():
@@ -105,24 +115,19 @@ class LdapAuthenticator:
         # Una contraseña vacía produce un bind anónimo que el servidor puede aceptar.
         if not username or not password:
             raise InvalidCredentialsError
-        settings = self._settings
-        bind_password = (
-            settings.ldap_bind_password.get_secret_value() if settings.ldap_bind_password else None
-        )
+        config = self._config
         try:
-            service = self._bind(settings.ldap_bind_dn, bind_password)
-            if service is None:
-                raise DirectoryUnavailableError("El directorio rechazó la cuenta de servicio")
+            service = self._service()
             try:
                 entry = self._find_user(service, username)
                 user_connection = self._bind(entry.entry_dn, password)
                 if user_connection is None:
                     raise InvalidCredentialsError
                 user_connection.unbind()
-                user_id = _first(entry, settings.ldap_user_id_attribute) or username
+                user_id = _first(entry, config.ldap_user_id_attribute) or username
                 return LdapUser(
                     id=user_id.lower(),
-                    display_name=_first(entry, settings.ldap_display_name_attribute) or user_id,
+                    display_name=_first(entry, config.ldap_display_name_attribute) or user_id,
                     dn=entry.entry_dn,
                     is_admin=self._is_admin(service, entry.entry_dn, user_id),
                 )
@@ -131,14 +136,49 @@ class LdapAuthenticator:
         except (LDAPException, OSError) as exc:
             raise DirectoryUnavailableError(f"{type(exc).__name__}: {exc}") from exc
 
+    def _service(self) -> Connection:
+        """Conexión con la cuenta de servicio (o anónima)."""
+        config = self._config
+        password = config.ldap_bind_password
+        service = self._bind(
+            config.ldap_bind_dn or None, password.get_secret_value() if password else None
+        )
+        if service is None:
+            raise DirectoryUnavailableError("El directorio rechazó la cuenta de servicio")
+        return service
+
+    def check_connection(self) -> str:
+        """Conecta con la cuenta de servicio y comprueba que existe la base de usuarios.
+
+        Devuelve una descripción del resultado; lanza `DirectoryUnavailableError` si falla.
+        """
+        config = self._config
+        try:
+            service = self._service()
+            try:
+                found = service.search(
+                    config.ldap_user_base_dn, "(objectClass=*)", BASE, attributes=[]
+                )
+                if not found or not service.entries:
+                    raise DirectoryUnavailableError(
+                        f"No existe la base de usuarios «{config.ldap_user_base_dn}» "
+                        "o la cuenta de servicio no puede leerla"
+                    )
+            finally:
+                service.unbind()
+        except (LDAPException, OSError) as exc:
+            raise DirectoryUnavailableError(f"{type(exc).__name__}: {exc}") from exc
+        account = config.ldap_bind_dn or "acceso anónimo"
+        return f"Conectado a {config.ldap_url} ({account}); base de usuarios encontrada"
+
     def _find_user(self, connection: Connection, username: str):  # type: ignore[no-untyped-def]
-        settings = self._settings
-        search_filter = settings.ldap_user_filter.format(username=escape_filter_chars(username))
+        config = self._config
+        search_filter = config.ldap_user_filter.format(username=escape_filter_chars(username))
         connection.search(
-            settings.ldap_user_base_dn,
+            config.ldap_user_base_dn,
             search_filter,
             SUBTREE,
-            attributes=[settings.ldap_user_id_attribute, settings.ldap_display_name_attribute],
+            attributes=[config.ldap_user_id_attribute, config.ldap_display_name_attribute],
             size_limit=2,
         )
         # Ninguna o varias coincidencias: no se puede identificar al usuario con seguridad.
@@ -147,11 +187,11 @@ class LdapAuthenticator:
         return connection.entries[0]
 
     def _is_admin(self, connection: Connection, user_dn: str, user_id: str) -> bool:
-        group = self._settings.ldap_admin_group_dn
+        group = self._config.ldap_admin_group_dn
         if not group:
             return False
         dn = escape_filter_chars(user_dn)
-        if self._settings.ldap_nested_groups:
+        if self._config.ldap_nested_groups:
             search_filter = f"(member:{AD_IN_CHAIN}:={dn})"
         else:
             # groupOfNames, groupOfUniqueNames y posixGroup.
@@ -162,6 +202,43 @@ class LdapAuthenticator:
 
     async def authenticate_async(self, username: str, password: str) -> LdapUser:
         return await anyio.to_thread.run_sync(self.authenticate, username, password)
+
+    async def check_connection_async(self) -> str:
+        return await anyio.to_thread.run_sync(self.check_connection)
+
+
+AuthenticatorFactory = Callable[[UsersConfig], LdapAuthenticator]
+
+
+class ConfigurableLdap:
+    """Autenticador que sigue la configuración vigente: si cambia, se crea otro."""
+
+    def __init__(
+        self,
+        source: ConfigSource,
+        ca_file: Path | None = None,
+        factory: AuthenticatorFactory | None = None,
+    ) -> None:
+        self._source = source
+        # Sustituible en los tests (directorio simulado).
+        self.factory: AuthenticatorFactory = factory or (
+            lambda config: LdapAuthenticator(config, ca_file=ca_file)
+        )
+        self._config: UsersConfig | None = None
+        self._authenticator: LdapAuthenticator | None = None
+
+    def current(self) -> LdapAuthenticator:
+        config = self._source.current.users
+        if self._authenticator is None or config != self._config:
+            self._authenticator = self.factory(config)
+            self._config = config
+        return self._authenticator
+
+    def authenticate(self, username: str, password: str) -> LdapUser:
+        return self.current().authenticate(username, password)
+
+    async def authenticate_async(self, username: str, password: str) -> LdapUser:
+        return await self.current().authenticate_async(username, password)
 
 
 def _first(entry, attribute: str) -> str | None:  # type: ignore[no-untyped-def]

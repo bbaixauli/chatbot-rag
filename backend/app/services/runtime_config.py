@@ -217,13 +217,11 @@ class ConfigStore:
 
     def _warn_ignored_env(self, name: str, group: ConfigGroup, unreadable: set[str]) -> None:
         explicit = self._settings.model_fields_set
+        from_env = type(group).values_from_settings(self._settings)
         for field in type(group).model_fields:
             if f"{name}.{field}" in unreadable:
                 continue
-            settings_name = group.settings_name(field)
-            if settings_name in explicit and getattr(self._settings, settings_name) != getattr(
-                group, field
-            ):
+            if group.settings_name(field) in explicit and from_env[field] != getattr(group, field):
                 logger.warning(
                     "%s se ignora: el valor vigente se configura en la administración",
                     group.env_name(field),
