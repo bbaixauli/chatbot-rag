@@ -36,5 +36,5 @@ async def test_current_user_is_anonymous_without_authentication(
 ) -> None:
     request = cast(Request, SimpleNamespace(session={}))
     async with app.state.sessionmaker() as db:
-        assert await get_current_user(request, settings, db) is ANONYMOUS_USER
+        assert await get_current_user(request, app.state.config.current, db) is ANONYMOUS_USER
     assert ANONYMOUS_USER.id == "anonymous"

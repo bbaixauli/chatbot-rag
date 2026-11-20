@@ -73,8 +73,8 @@ modelo de lenguaje y los embeddings tienen **Probar conexión** (prueba los valo
 formulario sin guardarlos), y si un cambio obliga a reindexar se ofrece hacerlo en el momento. Las variables `CHATBOT_*` correspondientes solo se usan en el
 **primer arranque**, para rellenarla; después se ignoran (el log avisa si alguna no coincide).
 Las claves de API se guardan cifradas con `CHATBOT_SESSION_SECRET`. En `.env` queda lo
-necesario para arrancar o que depende del despliegue: datos, sesión, cuenta de administración,
-índice y cola, y usuarios (LDAP). `python -m app.config show` muestra la configuración vigente
+necesario para arrancar o que depende del despliegue: datos, sesión, cuenta local de
+administración (acceso de rescate), índice y cola. `python -m app.config show` muestra la configuración vigente
 y `python -m app.config reset [--group …]` la vuelve a copiar de `.env`. Detalles en la
 [guía de despliegue](docs/despliegue.md#configuración-de-la-aplicación).
 
@@ -88,9 +88,10 @@ se configura el inicio del chat y se gestionan los documentos del RAG (PDF, Mark
 
 Por defecto el chat es anónimo, con un historial compartido; la administración puede activar
 sesiones privadas y temporales (*Mensaje inicial → Acceso al chat*) para que cada visitante solo
-vea sus conversaciones. Con `CHATBOT_AUTH_MODE=ldap` cada usuario inicia sesión con su
+vea sus conversaciones. Con acceso por LDAP (*Administración → Configuración → Usuarios*;
+valores iniciales en `CHATBOT_AUTH_MODE` y `CHATBOT_LDAP_*`) cada usuario inicia sesión con su
 cuenta del directorio (OpenLDAP o Active Directory) y solo ve sus conversaciones; los miembros
-de `CHATBOT_LDAP_ADMIN_GROUP_DN` administran la aplicación. Con LDAP, la administración puede
+del grupo de administración LDAP administran la aplicación. Con LDAP, la administración puede
 permitir además el acceso anónimo (*Mensaje inicial → Acceso al chat*): cada acceso anónimo
 solo ve sus conversaciones durante esa sesión, y se conservan para auditoría. Configuración y
 ejemplos en la [guía de despliegue](docs/despliegue.md#usuarios-con-ldap).

@@ -255,18 +255,21 @@ async def test_directory_sessions_are_not_private_sessions(
     app: FastAPI, client: AsyncClient, admin_client: AsyncClient
 ) -> None:
     """Una sesión LDAP de antes de pasar a `none` no sirve como sesión privada."""
-    from tests.ldap_fixtures import PASSWORDS, ldap_settings, mock_authenticator
+    from tests.ldap_fixtures import (
+        PASSWORDS,
+        ldap_settings,
+        mock_authenticator,
+        users_config,
+    )
 
     await set_private_sessions(admin_client, True)
-    settings: Settings = app.state.settings
-    ldap = ldap_settings(settings)
+    ldap = users_config(ldap_settings(app.state.settings))
     app.state.ldap = mock_authenticator(ldap)
-    for field in ("auth_mode", "ldap_url", "ldap_user_base_dn", "ldap_admin_group_dn"):
-        setattr(settings, field, getattr(ldap, field))
+    await app.state.config.save("users", ldap, "test")
     login = await client.post(SESSION, json={"username": "luis", "password": PASSWORDS["luis"]})
     assert login.status_code == 200
 
-    settings.auth_mode = "none"
+    await set_config(app, "users", auth_mode="none")
 
     assert (await client.get("/api/v1/conversations")).status_code == 401
     assert (await client.get(SESSION)).json()["authenticated"] is False

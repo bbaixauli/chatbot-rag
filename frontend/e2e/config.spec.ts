@@ -67,3 +67,22 @@ test('valida los valores antes de guardar', async ({ page }) => {
   await expect(rag.getByText('Debe estar entre 0 y 1.')).toBeVisible()
   await expect(rag.getByRole('alert')).toHaveText('Revisa los campos marcados.')
 })
+
+test('no activa LDAP si el directorio no responde', async ({ page }) => {
+  await login(page)
+  const users = section(page, 'Usuarios')
+
+  await users.getByLabel('Acceso al chat').selectOption('ldap')
+  await users.getByLabel('URL del directorio').fill('ldap://127.0.0.1:1')
+  await users.getByLabel('Tiempo máximo de espera (segundos)').fill('1')
+  await users.getByLabel('Base de búsqueda de usuarios').fill('ou=people,dc=e2e')
+  await users.getByRole('button', { name: 'Probar conexión' }).click()
+  await expect(users.getByRole('status')).toContainText('No se puede conectar con el directorio')
+
+  await users.getByRole('button', { name: 'Guardar' }).click()
+  await expect(users.getByRole('alert')).toContainText('el directorio no responde')
+
+  // Nada ha cambiado: el chat sigue siendo anónimo.
+  await page.reload()
+  await expect(section(page, 'Usuarios').getByLabel('Acceso al chat')).toHaveValue('none')
+})

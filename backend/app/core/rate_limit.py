@@ -94,7 +94,7 @@ def _anonymous_session_limit(settings: Settings, config: RuntimeConfig) -> tuple
     # Con LDAP, entrar de forma anónima cuenta como un inicio de sesión más. Sin LDAP, cada
     # visitante crea su sesión privada al entrar: varias personas detrás de una misma IP
     # (p. ej. una oficina) superarían enseguida el límite de los inicios de sesión.
-    if settings.auth_mode == "ldap":
+    if config.users.auth_mode == "ldap":
         return "login", config.limits.login_per_minute
     return "private-session", config.limits.chat_per_minute
 

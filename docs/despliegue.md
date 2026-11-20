@@ -133,6 +133,7 @@ lenguaje y los embeddings):
 | Recuperación | `CHATBOT_RAG_*` |
 | Conversación | `CHATBOT_CHAT_*`, `CHATBOT_SYSTEM_PROMPT_MAX_LENGTH` |
 | Límites de peticiones | `CHATBOT_RATE_LIMIT_*` |
+| Usuarios | `CHATBOT_AUTH_MODE`, `CHATBOT_LDAP_*` (salvo `CHATBOT_LDAP_CA_CERT_FILE`) |
 
 En el **primer arranque** se copian de `.env` a la base de datos; a partir de ahí esas
 variables **se ignoran** (si alguna no coincide con lo guardado, el log lo avisa:
@@ -142,8 +143,8 @@ se define `CHATBOT_DEFAULT_SYSTEM_PROMPT`, pasa a ser la primera versión del pr
 Siguen en `.env`, porque hacen falta para arrancar o dependen del despliegue: entorno, datos y
 base de datos, logs, sesión (`CHATBOT_SESSION_*`), cuenta local de administración, índice y
 cola (`CHATBOT_VECTOR_STORE`, `CHATBOT_QDRANT_*`, `CHATBOT_TASK_RUNNER`, `CHATBOT_REDIS_URL`,
-`CHATBOT_INDEXING_CONCURRENCY`) y, por ahora, los usuarios (`CHATBOT_AUTH_MODE`,
-`CHATBOT_LDAP_*`).
+`CHATBOT_INDEXING_CONCURRENCY`) y el fichero de la CA del directorio
+(`CHATBOT_LDAP_CA_CERT_FILE`).
 
 - Las **claves de API** se guardan cifradas con una clave derivada de
   `CHATBOT_SESSION_SECRET` y nunca se muestran. Si cambias `CHATBOT_SESSION_SECRET` (o
@@ -165,9 +166,13 @@ docker compose restart backend
 
 ## Usuarios con LDAP
 
-Por defecto (`CHATBOT_AUTH_MODE=none`) el chat es anónimo: todas las conversaciones forman un
-único historial compartido y la administración usa la cuenta local
-(`CHATBOT_ADMIN_USERNAME`/`CHATBOT_ADMIN_PASSWORD`).
+El modo de acceso y la conexión con el directorio se configuran en *Administración →
+Configuración → Usuarios* (los valores iniciales se toman de `CHATBOT_AUTH_MODE` y
+`CHATBOT_LDAP_*`, ver [Configuración de la aplicación](#configuración-de-la-aplicación)).
+
+Por defecto (acceso «Sin inicio de sesión») el chat es anónimo: todas las conversaciones forman
+un único historial compartido y la administración usa la cuenta local
+(`CHATBOT_ADMIN_USERNAME`/`CHATBOT_ADMIN_PASSWORD`, siempre en `.env`).
 
 **Sesiones privadas (sin LDAP)**: en *Administración → Mensaje inicial → Acceso al chat* se
 puede marcar «Sesiones privadas y temporales» (desactivado por defecto). Cada visitante recibe
@@ -181,11 +186,10 @@ privadas tiene su propio límite por IP (el del chat), no el de
 los inicios de sesión, para no bloquear a varias personas detrás de una misma IP. La sesión de
 administración y la sesión privada son independientes: entrar o salir de una no cierra la otra.
 
-Con `CHATBOT_AUTH_MODE=ldap`:
+Con acceso por **usuarios del directorio (LDAP)**:
 
 - Cada usuario inicia sesión con su cuenta del directorio y **solo ve sus conversaciones**.
-- Los miembros del grupo `CHATBOT_LDAP_ADMIN_GROUP_DN` acceden a la administración con su
-  usuario. Las versiones del prompt registran quién las guardó.
+- Los miembros del grupo de administración acceden a la administración con su usuario. Las versiones del prompt registran quién las guardó.
 - La cuenta local de administración sigue funcionando si está definida: sirve como acceso de
   emergencia cuando el directorio no está disponible. Sus credenciales nunca se envían al
   directorio. Si no se necesita, deja `CHATBOT_ADMIN_PASSWORD` vacío.
@@ -193,6 +197,19 @@ Con `CHATBOT_AUTH_MODE=ldap`:
 El backend busca al usuario con la cuenta de servicio, comprueba la contraseña haciendo *bind*
 con su DN y, después, comprueba la pertenencia al grupo de administración. Los valores
 introducidos se escapan antes de construir los filtros LDAP.
+
+Salvaguardas al guardar la configuración de usuarios:
+
+- Para activar LDAP o cambiar su conexión, el directorio tiene que responder con esos valores
+  (cuenta de servicio y base de usuarios); si no, no se guarda. **Probar conexión** hace la
+  misma comprobación sin guardar y, si se indica un usuario de prueba, comprueba también su
+  inicio de sesión y si es administrador.
+- No se guarda una configuración con la que nadie podría entrar en la administración (sin
+  cuenta local y sin grupo de administración LDAP).
+- Al cambiar de modo, las sesiones abiertas del modo anterior se cierran.
+
+Valores iniciales de ejemplo en `.env` (también se pueden introducir directamente en la
+administración):
 
 **OpenLDAP**
 
@@ -226,11 +243,14 @@ CHATBOT_LDAP_NESTED_GROUPS=true
 
 Notas:
 
-- **TLS**: usa `ldaps://` o `CHATBOT_LDAP_START_TLS=true`; el certificado del servidor se
-  verifica siempre. Si la CA es interna, copia su certificado al volumen (por ejemplo
-  `docker compose cp ca.pem backend:/data/ldap-ca.pem`) y define
-  `CHATBOT_LDAP_CA_CERT_FILE=/data/ldap-ca.pem`.
-- El identificador del usuario es el valor de `CHATBOT_LDAP_USER_ID_ATTRIBUTE` en minúsculas.
+- **TLS**: usa `ldaps://` o StartTLS; el certificado del servidor se verifica siempre. Si la
+  CA es interna, pega su certificado (PEM) en *Certificado de la CA*, o copia el fichero al
+  volumen (por ejemplo `docker compose cp ca.pem backend:/data/ldap-ca.pem`) y define en `.env`
+  `CHATBOT_LDAP_CA_CERT_FILE=/data/ldap-ca.pem`. Ese fichero es del despliegue: sigue en `.env`
+  y se lee en cada conexión (se puede renovar sin tocar la administración); el certificado
+  pegado en la administración tiene prioridad.
+- La contraseña de la cuenta de servicio se guarda cifrada, como las claves de API.
+- El identificador del usuario es el valor del atributo del identificador en minúsculas.
   Si se cambia ese atributo, los usuarios dejarán de ver sus conversaciones anteriores.
 - Los permisos se leen al iniciar sesión: si se añade o quita a alguien del grupo de
   administración, el cambio se aplica en su siguiente inicio de sesión (la sesión dura

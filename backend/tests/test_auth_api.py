@@ -184,7 +184,7 @@ async def test_local_admin_account_still_works_without_asking_the_directory(
 async def test_admin_disabled_without_group_or_local_account(
     app: FastAPI, client: AsyncClient
 ) -> None:
-    app.state.settings.ldap_admin_group_dn = None
+    await set_config(app, "users", ldap_admin_group_dn=None)
 
     assert (await client.get("/api/v1/admin/session")).json()["enabled"] is False
     response = await client.post(
@@ -201,7 +201,7 @@ async def test_user_login_is_rate_limited(app: FastAPI, client: AsyncClient) -> 
 
 
 async def test_without_ldap_the_chat_stays_anonymous(app: FastAPI, client: AsyncClient) -> None:
-    app.state.settings.auth_mode = "none"
+    await set_config(app, "users", auth_mode="none")
 
     assert (await client.get(URL)).json() == {
         "mode": "none",

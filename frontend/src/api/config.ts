@@ -1,7 +1,8 @@
 import { apiGet, apiRequest } from './client'
 
 /** Grupos de la configuración editable (ver backend/app/core/runtime_config.py). */
-export type ConfigGroupName = 'llm' | 'embeddings' | 'indexing' | 'rag' | 'chat' | 'limits'
+export type ConfigGroupName =
+  'llm' | 'embeddings' | 'indexing' | 'rag' | 'chat' | 'limits' | 'users'
 
 /** Estado de un secreto: la API nunca devuelve su valor. */
 export interface SecretState {
@@ -65,7 +66,7 @@ export const saveConfigGroup = (group: ConfigGroupName, changes: ConfigChanges) 
     body: JSON.stringify(changes),
   })
 
-export const checkConnection = (group: 'llm' | 'embeddings', changes: ConfigChanges) =>
+export const checkConnection = (group: 'llm' | 'embeddings' | 'users', changes: ConfigChanges) =>
   apiRequest<ConnectionCheck>(`/admin/config/${group}/test`, {
     method: 'POST',
     body: JSON.stringify(changes),

@@ -132,7 +132,7 @@ async def test_without_ldap_there_is_no_anonymous_login(
     app: FastAPI, client: AsyncClient, admin_client: AsyncClient
 ) -> None:
     await allow_anonymous(admin_client, True)
-    app.state.settings.auth_mode = "none"
+    await set_config(app, "users", auth_mode="none")
 
     # Sin LDAP el permiso de acceso anónimo no cuenta (allí se usan las sesiones privadas).
     assert (await client.post(ANONYMOUS)).status_code == 403

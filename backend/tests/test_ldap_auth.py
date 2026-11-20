@@ -22,6 +22,7 @@ from tests.ldap_fixtures import (
     PASSWORDS,
     ldap_settings,
     mock_authenticator,
+    users_config,
 )
 
 
@@ -156,7 +157,7 @@ def test_start_tls_and_active_directory_nested_groups(
         ldap_display_name_attribute="displayName",
     )
 
-    user = LdapAuthenticator(ad).authenticate("alopez", "clave")
+    user = LdapAuthenticator(users_config(ad)).authenticate("alopez", "clave")
 
     # Sin nombre visible se muestra el identificador tal como está en el directorio.
     assert (user.id, user.display_name, user.is_admin) == ("alopez", "ALOPEZ", False)
@@ -174,17 +175,19 @@ def test_start_tls_and_active_directory_nested_groups(
 
 def test_build_server_verifies_tls(settings: Settings, tmp_path: Any) -> None:
     ca = tmp_path / "ca.pem"
-    ca.write_text("")
-    secure = build_server(
-        ldap_settings(settings, ldap_url="ldaps://dc.empresa.local:636", ldap_ca_cert_file=ca)
-    )
-    plain = build_server(ldap_settings(settings))
+    ca.write_text("", encoding="utf-8")
+    secure_config = users_config(ldap_settings(settings, ldap_url="ldaps://dc.empresa.local:636"))
+    secure = build_server(secure_config, ca)
+    plain = build_server(users_config(ldap_settings(settings)), ca)
 
     assert secure.ssl is True
     assert secure.tls.validate == ssl.CERT_REQUIRED
     assert secure.tls.ca_certs_file == str(ca)
     assert plain.ssl is False
     assert plain.tls is None
+    # El certificado pegado en la administración tiene prioridad sobre el fichero.
+    pasted = build_server(secure_config.model_copy(update={"ldap_ca_cert": "PEM"}), ca)
+    assert (pasted.tls.ca_certs_data, pasted.tls.ca_certs_file) == ("PEM", None)
 
 
 async def test_authenticate_async_runs_in_a_thread(ldap: Settings) -> None:
@@ -204,18 +207,24 @@ def test_ldap_mode_requires_valid_settings(overrides: dict[str, Any], message: s
         Settings(**{"auth_mode": "ldap", "ldap_user_base_dn": "ou=people,dc=x", **overrides})
 
 
-def test_tls_misconfiguration_does_not_prevent_startup(settings: Settings, tmp_path: Any) -> None:
+async def test_tls_misconfiguration_does_not_prevent_startup(
+    settings: Settings, tmp_path: Any
+) -> None:
     from app.main import create_app
 
-    broken = ldap_settings(
-        settings, ldap_url="ldaps://ldap.ejemplo.org", ldap_ca_cert_file=tmp_path / "falta.pem"
-    )
-    app = create_app(broken)  # no falla al arrancar
+    ca = tmp_path / "falta.pem"
+    broken = ldap_settings(settings, ldap_url="ldaps://ldap.ejemplo.org", ldap_ca_cert_file=ca)
+    app = create_app(broken)
+    async with app.router.lifespan_context(app):  # no falla al arrancar
+        with pytest.raises(DirectoryUnavailableError, match="LDAPSSLConfigurationError"):
+            app.state.ldap.authenticate("ana", "x")
 
-    with pytest.raises(DirectoryUnavailableError, match="LDAPSSLConfigurationError"):
-        app.state.ldap.authenticate("ana", "x")
+        # El fichero se lee en cada intento (p. ej. tras instalar el certificado).
+        ca.write_text("no es un certificado", encoding="utf-8")
+        with pytest.raises(DirectoryUnavailableError):
+            app.state.ldap.authenticate("ana", "x")
 
-    # Se reintenta en el siguiente inicio de sesión (p. ej. tras instalar el certificado).
-    (tmp_path / "falta.pem").write_text("no es un certificado")
+    # Un certificado pegado en la administración que no es válido tampoco impide arrancar.
+    bad = users_config(broken).model_copy(update={"ldap_ca_cert": "no es un certificado"})
     with pytest.raises(DirectoryUnavailableError):
-        app.state.ldap.authenticate("ana", "x")
+        LdapAuthenticator(bad).authenticate("ana", "x")

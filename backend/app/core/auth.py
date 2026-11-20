@@ -23,8 +23,9 @@ from typing import Annotated, Any
 
 from fastapi import Depends, HTTPException, Request, status
 
-from app.api.deps import DbSession, SettingsDep
+from app.api.deps import DbSession, RuntimeConfigDep
 from app.core.config import Settings
+from app.core.runtime_config import RuntimeConfig
 from app.services.access import AccessRepository
 
 ANONYMOUS_USER_ID = "anonymous"
@@ -105,7 +106,7 @@ def end_session_user(request: Request) -> None:
 
 
 async def active_session_user(
-    request: Request, settings: Settings, db: DbSession
+    request: Request, config: RuntimeConfig, db: DbSession
 ) -> CurrentUser | None:
     """Usuario de la sesión si sigue siendo válida.
 
@@ -116,30 +117,32 @@ async def active_session_user(
     user = session_user(request)
     if user is None:
         return None
-    if settings.auth_mode == "none" and not user.is_anonymous:
+    auth_mode = config.users.auth_mode
+    if auth_mode == "none" and not user.is_anonymous:
         return None  # p. ej. una sesión LDAP anterior a cambiar de modo
     if user.is_anonymous and not (await AccessRepository(db).get()).anonymous_sessions_enabled(
-        settings.auth_mode
+        auth_mode
     ):
         end_session_user(request)
         return None
     return user
 
 
-async def get_current_user(request: Request, settings: SettingsDep, db: DbSession) -> CurrentUser:
+async def get_current_user(
+    request: Request, config: RuntimeConfigDep, db: DbSession
+) -> CurrentUser:
     """Usuario de la petición.
 
     - LDAP: el de la sesión (del directorio o anónimo).
     - Sin LDAP: el historial compartido `anonymous` o, con las sesiones privadas activadas,
       la sesión privada del visitante.
     """
-    if settings.auth_mode == "none" and not (await AccessRepository(db).get()).private_sessions:
+    auth_mode = config.users.auth_mode
+    if auth_mode == "none" and not (await AccessRepository(db).get()).private_sessions:
         return ANONYMOUS_USER
-    user = await active_session_user(request, settings, db)
+    user = await active_session_user(request, config, db)
     if user is None:
-        message = (
-            "Se requiere iniciar sesión" if settings.auth_mode == "ldap" else "Sesión caducada"
-        )
+        message = "Se requiere iniciar sesión" if auth_mode == "ldap" else "Sesión caducada"
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, message)
     return user
 
