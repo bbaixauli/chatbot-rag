@@ -64,6 +64,18 @@ Abre http://localhost:5173.
 Configura en `backend/.env` la URL y el modelo del servidor de IA (`CHATBOT_LLM_*`). Para
 probar la interfaz sin servidor de IA, usa `CHATBOT_LLM_PROVIDER=fake`.
 
+### Configuración
+
+La configuración de funcionamiento (modelo de lenguaje, embeddings, troceado, recuperación,
+conversación y límites de peticiones) se guarda en la base de datos y se edita en la
+administración, sin reiniciar. Las variables `CHATBOT_*` correspondientes solo se usan en el
+**primer arranque**, para rellenarla; después se ignoran (el log avisa si alguna no coincide).
+Las claves de API se guardan cifradas con `CHATBOT_SESSION_SECRET`. En `.env` queda lo
+necesario para arrancar o que depende del despliegue: datos, sesión, cuenta de administración,
+índice y cola, y usuarios (LDAP). `python -m app.config show` muestra la configuración vigente
+y `python -m app.config reset [--group …]` la vuelve a copiar de `.env`. Detalles en la
+[guía de despliegue](docs/despliegue.md#configuración-de-la-aplicación).
+
 La administración (http://localhost:5173/admin) se habilita definiendo
 `CHATBOT_ADMIN_PASSWORD` (y, recomendado, `CHATBOT_SESSION_SECRET`, de al menos 16 caracteres;
 en producción es obligatorio y no se admite la contraseña de ejemplo). Desde ella se edita el
@@ -95,11 +107,11 @@ En *Administración → Mensaje inicial* se puede definir:
 ### Embeddings
 
 Los documentos se trocean y se indexan en ChromaDB (`data/chroma`) con el modelo de embeddings
-configurado en `CHATBOT_EMBEDDING_*`:
+configurado (valores iniciales en `CHATBOT_EMBEDDING_*`):
 
 - `openai` (por defecto): usa el endpoint `/v1/embeddings` del proxy LiteLLM (misma URL que el
-  chat salvo que se indique `CHATBOT_EMBEDDING_BASE_URL`). `CHATBOT_EMBEDDING_MODEL` debe coincidir
-  con el `model_name` configurado en LiteLLM.
+  chat salvo que se indique otra). El modelo debe coincidir con el `model_name` configurado en
+  LiteLLM.
 - `local`: calcula los embeddings en el propio servidor con sentence-transformers
   (`uv sync --extra local-embeddings`; descarga el modelo la primera vez).
 - `fake`: simulado, sin red (tests y demos).
@@ -113,14 +125,14 @@ Para volúmenes grandes, el índice puede estar en **Qdrant** y la indexación r
 
 ### Respuestas con referencias
 
-En cada pregunta se recuperan los fragmentos más parecidos (`CHATBOT_RAG_TOP_K`) por encima de
-`CHATBOT_RAG_MIN_SCORE`, se añaden numerados al prompt de sistema y se pide al modelo que cite
+En cada pregunta se recuperan los fragmentos más parecidos (top-k) por encima de la puntuación
+mínima, se añaden numerados al prompt de sistema y se pide al modelo que cite
 con `[n]`. Bajo la respuesta se muestran las fuentes citadas (fichero y página o sección) con
 enlace al original; los PDF se abren en la página citada. Si el modelo no cita, se muestran
 como «Fuentes consultadas».
 
 Las preguntas de seguimiento («¿y con cuánta antelación?») se reformulan con el historial antes
-de buscar (`CHATBOT_RAG_CONDENSE_QUESTION`); la respuesta se genera con la pregunta original.
+de buscar (se puede desactivar en la configuración de recuperación); la respuesta se genera con la pregunta original.
 
 ### Calibrar la búsqueda con un conjunto de evaluación
 
@@ -143,7 +155,7 @@ las preguntas con `"esperado": []` no deberían recuperar nada, y las que tienen
 prueban la reformulación con `--condensar`. Ver [`backend/eval/ejemplo`](backend/eval/ejemplo).
 
 El informe muestra, por configuración, el acierto@k, MRR, recall, precisión y falsos positivos,
-y recomienda los valores de `CHATBOT_CHUNK_*`, `CHATBOT_RAG_TOP_K` y `CHATBOT_RAG_MIN_SCORE`.
+y recomienda el tamaño de fragmento, el solapamiento, el top-k y la puntuación mínima.
 Tras cambiar el troceado hay que reindexar los documentos.
 
 ### Estilos y accesibilidad
@@ -186,6 +198,9 @@ Documentación interactiva en http://localhost:8000/docs. Endpoints principales:
 | GET/PUT/DELETE | `/api/v1/admin/appearance` | Apariencia: consultar, guardar (con avisos de contraste) y restablecer (admin) |
 | PUT/DELETE | `/api/v1/admin/appearance/logo` | Subir o quitar el logo (admin) |
 | GET/PUT | `/api/v1/admin/access` | Acceso anónimo (con LDAP) o sesiones privadas (sin LDAP) (admin) |
+| GET | `/api/v1/admin/config` | Configuración de la aplicación por grupos, sin secretos (admin) |
+| PUT | `/api/v1/admin/config/{grupo}` | Cambia un grupo (`llm`, `embeddings`, `indexing`, `rag`, `chat`, `limits`); avisa si hay que reindexar (admin) |
+| POST | `/api/v1/admin/config/{llm,embeddings}/test` | Prueba la conexión con los valores enviados, sin guardarlos (admin) |
 | GET/PUT | `/api/v1/admin/prompt` | Prompt de sistema vigente / guardar nueva versión (admin) |
 | GET | `/api/v1/admin/prompt/versions` | Historial de versiones (admin) |
 | POST | `/api/v1/admin/prompt/versions/{id}/restore` | Restaurar una versión (admin) |
@@ -217,8 +232,8 @@ espera al ejecutarse en paralelo, prueba con `npm run test:e2e -- --workers=1`.
 El CI de GitHub Actions ejecuta todo lo anterior en cada pull request.
 
 El backend registra cada petición con un `X-Request-ID` (`CHATBOT_LOG_FORMAT=json` para logs
-estructurados) y limita las peticiones por IP al chat y al inicio de sesión
-(`CHATBOT_RATE_LIMIT_*`).
+estructurados) y limita las peticiones por IP al chat y al inicio de sesión (configurable en la
+administración).
 
 > **Windows:** ejecuta Vitest desde una ruta con la letra de unidad en mayúscula
 > (`F:\...`). Si el terminal se abre en `f:\...`, Vitest carga los módulos dos veces y

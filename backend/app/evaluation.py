@@ -34,6 +34,7 @@ from app.services.embeddings import Embeddings, build_embeddings
 from app.services.ingestion.chunker import chunk_sections
 from app.services.ingestion.parsers import ParseError, kind_for_filename, parse_document
 from app.services.llm import ChatMessage, LLMClient, build_llm_client
+from app.services.runtime_config import load_runtime_config
 from app.services.vectorstore import ChromaVectorStore, SearchHit
 
 # --- Conjunto de evaluación -------------------------------------------------------------
@@ -344,12 +345,12 @@ def format_report(report: EvaluationReport) -> str:
         "",
         "## Recomendación",
         "",
-        "```env",
-        f"CHATBOT_CHUNK_SIZE_CHARS={best.chunk_size}",
-        f"CHATBOT_CHUNK_OVERLAP_CHARS={best.chunk_overlap}",
-        f"CHATBOT_RAG_TOP_K={best.best.top_k}",
-        f"CHATBOT_RAG_MIN_SCORE={best.best.threshold:.2f}",
-        "```",
+        "Valores para Administración → Configuración:",
+        "",
+        f"- Indexación · tamaño de fragmento: {best.chunk_size}",
+        f"- Indexación · solapamiento: {best.chunk_overlap}",
+        f"- Recuperación · top-k: {best.best.top_k}",
+        f"- Recuperación · puntuación mínima: {best.best.threshold:.2f}",
         "",
         "Si cambias el troceado, pulsa «Reindexar todo» en Administración → Documentos.",
         "",
@@ -418,10 +419,11 @@ async def main_async(argv: Sequence[str], settings: Settings, out: TextIO) -> in
         if args.documents
         else await documents_from_app(settings)
     )
-    sizes = args.chunk_sizes or [settings.chunk_size_chars]
-    overlaps = args.overlaps if args.overlaps is not None else [settings.chunk_overlap_chars]
+    config = await load_runtime_config(settings)
+    sizes = args.chunk_sizes or [config.indexing.chunk_size_chars]
+    overlaps = args.overlaps if args.overlaps is not None else [config.indexing.chunk_overlap_chars]
     configs = [ChunkConfig(s, min(o, s // 2)) for s in sizes for o in overlaps]
-    llm = build_llm_client(settings) if args.condensar else None
+    llm = build_llm_client(config.llm) if args.condensar else None
 
     report = await run_evaluation(
         cases,
@@ -429,7 +431,7 @@ async def main_async(argv: Sequence[str], settings: Settings, out: TextIO) -> in
         list(dict.fromkeys(configs)),
         args.top_k,
         args.thresholds,
-        build_embeddings(settings),
+        build_embeddings(config),
         llm,
     )
     out.write(format_report(report))

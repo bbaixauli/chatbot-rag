@@ -20,6 +20,7 @@ from app.services.documents import DocumentService
 from app.services.qdrant_store import QdrantVectorStore
 from app.services.tasks import INDEX_DOCUMENT, ArqTaskRunner, InProcessTaskRunner
 from app.services.vectorstore import ChromaVectorStore
+from tests.conftest import set_config
 from tests.factories import MARKDOWN
 
 
@@ -134,6 +135,7 @@ async def test_api_with_arq_enqueues_instead_of_indexing(app: FastAPI, settings:
         app.state.embeddings,
         app.state.vector_store,
         ArqTaskRunner(pool),  # type: ignore[arg-type]
+        app.state.config,
     )
 
     from io import BytesIO
@@ -175,6 +177,7 @@ async def test_reindex_requested_while_a_job_is_running_is_not_lost(
         app.state.embeddings,
         app.state.vector_store,
         ArqTaskRunner(pool),  # type: ignore[arg-type]
+        app.state.config,
     )
     async with app.state.sessionmaker() as session:
         document = Document(
@@ -225,6 +228,9 @@ async def test_worker_indexes_documents_into_qdrant(
     ctx: dict[str, Any] = {"settings": scaled, "redis": FakePool()}
 
     await worker.startup(ctx)
+    # Cambio guardado en la administración después de arrancar el worker: lo aplica en el
+    # siguiente trabajo.
+    await set_config(app, "indexing", chunk_size_chars=250)
     await worker.index_document(ctx, document_id)
     async with app.state.sessionmaker() as session:
         indexed = await session.get(Document, document_id)
@@ -234,6 +240,7 @@ async def test_worker_indexes_documents_into_qdrant(
     assert indexed is not None
     assert (indexed.status, indexed.chunk_count) == (DocumentStatus.READY.value, count)
     assert count > 0
+    assert indexed.chunk_size_chars == 250
 
 
 def test_worker_settings() -> None:
@@ -295,7 +302,12 @@ async def test_dimension_mismatch_is_reported_to_the_admin(
     # Índice creado con otro modelo (32 dimensiones; FakeEmbeddings genera 256).
     await qdrant.add("antiguo", "a.md", [Chunk(0, "texto", None, None)], [[0.1] * 32])
     service = DocumentService(
-        app.state.sessionmaker, settings, app.state.embeddings, qdrant, InProcessTaskRunner()
+        app.state.sessionmaker,
+        settings,
+        app.state.embeddings,
+        qdrant,
+        InProcessTaskRunner(),
+        app.state.config,
     )
     settings.uploads_dir.mkdir(parents=True, exist_ok=True)
     async with app.state.sessionmaker() as session:

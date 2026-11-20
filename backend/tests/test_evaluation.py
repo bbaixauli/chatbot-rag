@@ -143,7 +143,7 @@ async def test_run_evaluation_on_example() -> None:
     assert follow_up.query == "¿Cuántos días de vacaciones tengo al año? ¿Y dónde se solicitan?"
 
     text = format_report(report)
-    assert "CHATBOT_RAG_MIN_SCORE=0.40" in text
+    assert "Recuperación · puntuación mínima: 0.40" in text
     assert "| Umbral | Recall |" in text
 
 

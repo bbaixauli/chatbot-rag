@@ -5,7 +5,7 @@ from pydantic import SecretStr
 
 from app.core.config import Settings
 from app.services.chat_config import ChatConfig, ChatConfigRepository
-from tests.conftest import ScriptedLLM
+from tests.conftest import ScriptedLLM, set_config
 
 CREDENTIALS = {"username": "admin", "password": "secreto"}
 EMPTY: dict[str, object] = {"welcome_message": None, "suggested_questions": []}
@@ -77,8 +77,8 @@ async def test_update_overwrites_and_blank_welcome_disables_it(admin_client: Asy
 
 
 async def test_rejects_invalid_config(app: FastAPI, admin_client: AsyncClient) -> None:
-    app.state.settings.chat_welcome_max_length = 5
-    app.state.settings.chat_suggested_question_max_length = 3
+    await set_config(app, "chat", welcome_max_length=5)
+    await set_config(app, "chat", suggested_question_max_length=3)
     url = "/api/v1/admin/chat-config"
 
     six = {"suggested_questions": ["1", "2", "3", "4", "5", "6"]}

@@ -7,7 +7,7 @@ from httpx import AsyncClient
 from app.core.config import Settings
 from app.services.condense import build_condense_messages, condense_question
 from app.services.llm import ChatMessage, FakeLLMClient
-from tests.conftest import ScriptedLLM, parse_sse
+from tests.conftest import ScriptedLLM, parse_sse, set_config
 from tests.factories import MARKDOWN
 
 PREVIOUS = [
@@ -134,7 +134,7 @@ async def test_follow_up_questions_are_condensed_before_searching(
 async def test_condensing_can_be_disabled(
     app: FastAPI, client: AsyncClient, llm: RecordingLLM, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    app.state.settings.rag_condense_question = False
+    await set_config(app, "rag", condense_question=False)
     await app.state.documents.upload("guia.md", Bytes(MARKDOWN.encode()), "admin")
     await app.state.tasks.drain()
     queries = await _record_queries(app, monkeypatch)

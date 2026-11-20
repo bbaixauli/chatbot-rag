@@ -78,6 +78,9 @@ class Document(Base):
     chunk_count: Mapped[int] = mapped_column(Integer, default=0)
     error: Mapped[str | None] = mapped_column(Text)
     embedding_model: Mapped[str | None] = mapped_column(String(255))
+    # Troceado con el que se indexó (para avisar si cambia la configuración).
+    chunk_size_chars: Mapped[int | None] = mapped_column(Integer)
+    chunk_overlap_chars: Mapped[int | None] = mapped_column(Integer)
     uploaded_by: Mapped[str] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

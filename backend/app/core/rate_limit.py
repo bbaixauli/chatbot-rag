@@ -12,8 +12,9 @@ from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, status
 
-from app.api.deps import SettingsDep
+from app.api.deps import RuntimeConfigDep, SettingsDep
 from app.core.config import Settings
+from app.core.runtime_config import RuntimeConfig
 
 WINDOW_SECONDS = 60.0
 # Cada cuántas comprobaciones se eliminan las claves inactivas.
@@ -60,17 +61,20 @@ def client_key(request: Request) -> str:
     return request.client.host if request.client else "desconocido"
 
 
-def rate_limit(scope: str, limit_of: Callable[[Settings], int]) -> Callable[..., None]:
-    """Dependencia que aplica el límite `limit_of(settings)` al ámbito indicado."""
-    return scoped_rate_limit(lambda settings: (scope, limit_of(settings)))
+LimitSelector = Callable[[Settings, RuntimeConfig], tuple[str, int]]
 
 
-def scoped_rate_limit(select: Callable[[Settings], tuple[str, int]]) -> Callable[..., None]:
+def rate_limit(scope: str, limit_of: Callable[[RuntimeConfig], int]) -> Callable[..., None]:
+    """Dependencia que aplica el límite `limit_of(config)` al ámbito indicado."""
+    return scoped_rate_limit(lambda _settings, config: (scope, limit_of(config)))
+
+
+def scoped_rate_limit(select: LimitSelector) -> Callable[..., None]:
     """Como `rate_limit`, pero el ámbito y el límite dependen de la configuración."""
 
-    def dependency(request: Request, settings: SettingsDep) -> None:
+    def dependency(request: Request, settings: SettingsDep, config: RuntimeConfigDep) -> None:
         limiter: RateLimiter = request.app.state.rate_limiter
-        scope, limit = select(settings)
+        scope, limit = select(settings, config)
         retry_after = limiter.hit(f"{scope}:{client_key(request)}", limit)
         if retry_after is not None:
             raise HTTPException(
@@ -82,19 +86,17 @@ def scoped_rate_limit(select: Callable[[Settings], tuple[str, int]]) -> Callable
     return dependency
 
 
-ChatRateLimit = Annotated[None, Depends(rate_limit("chat", lambda s: s.rate_limit_chat_per_minute))]
-LoginRateLimit = Annotated[
-    None, Depends(rate_limit("login", lambda s: s.rate_limit_login_per_minute))
-]
+ChatRateLimit = Annotated[None, Depends(rate_limit("chat", lambda c: c.limits.chat_per_minute))]
+LoginRateLimit = Annotated[None, Depends(rate_limit("login", lambda c: c.limits.login_per_minute))]
 
 
-def _anonymous_session_limit(settings: Settings) -> tuple[str, int]:
+def _anonymous_session_limit(settings: Settings, config: RuntimeConfig) -> tuple[str, int]:
     # Con LDAP, entrar de forma anónima cuenta como un inicio de sesión más. Sin LDAP, cada
     # visitante crea su sesión privada al entrar: varias personas detrás de una misma IP
     # (p. ej. una oficina) superarían enseguida el límite de los inicios de sesión.
     if settings.auth_mode == "ldap":
-        return "login", settings.rate_limit_login_per_minute
-    return "private-session", settings.rate_limit_chat_per_minute
+        return "login", config.limits.login_per_minute
+    return "private-session", config.limits.chat_per_minute
 
 
 AnonymousSessionRateLimit = Annotated[None, Depends(scoped_rate_limit(_anonymous_session_limit))]

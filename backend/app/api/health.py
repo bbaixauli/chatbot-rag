@@ -8,6 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.deps import DbSession, SettingsDep
+from app.core.config import APP_TITLE
 
 router = APIRouter(tags=["health"])
 
@@ -32,7 +33,7 @@ async def health(db: DbSession, settings: SettingsDep) -> HealthResponse:
         database = "error"
     return HealthResponse(
         status="ok" if database == "ok" else "degraded",
-        app=settings.app_name,
+        app=APP_TITLE,
         version=settings.version,
         database=database,
     )

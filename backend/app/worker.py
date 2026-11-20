@@ -19,7 +19,8 @@ from app.core.logging import configure_logging
 from app.db.session import build_engine, build_sessionmaker
 from app.services.backends import build_vector_store, close_vector_store
 from app.services.documents import DocumentService
-from app.services.embeddings import build_embeddings
+from app.services.embeddings import ConfigurableEmbeddings
+from app.services.runtime_config import ConfigStore
 from app.services.tasks import INDEX_DOCUMENT, ArqTaskRunner
 
 logger = logging.getLogger(__name__)
@@ -29,16 +30,22 @@ async def startup(ctx: dict[str, Any]) -> None:
     settings: Settings = ctx.get("settings") or get_settings()
     configure_logging(settings.log_level, settings.log_format)
     engine = build_engine(settings.resolved_database_url)
+    sessionmaker = build_sessionmaker(engine)
     store = build_vector_store(settings)
+    # La API copia la configuración a la BD al arrancar; el worker solo la lee.
+    config = ConfigStore(sessionmaker, settings)
+    await config.reload()
     ctx["engine"] = engine
     ctx["vector_store"] = store
+    ctx["config"] = config
     # Reindexar desde el worker (no ocurre hoy) volvería a encolar en Redis.
     ctx["documents"] = DocumentService(
-        build_sessionmaker(engine),
+        sessionmaker,
         settings,
-        build_embeddings(settings),
+        ConfigurableEmbeddings(config),
         store,
         ArqTaskRunner(ctx["redis"]),
+        config,
     )
     logger.info("Worker de indexación preparado")
 
@@ -49,6 +56,10 @@ async def shutdown(ctx: dict[str, Any]) -> None:
 
 
 async def index_document(ctx: dict[str, Any], document_id: str) -> None:
+    # La configuración (modelo de embeddings, troceado) puede haber cambiado en la
+    # administración desde el último trabajo.
+    config: ConfigStore = ctx["config"]
+    await config.reload()
     documents: DocumentService = ctx["documents"]
     await documents.process(document_id)
 

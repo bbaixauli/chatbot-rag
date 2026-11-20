@@ -8,7 +8,7 @@ from pydantic import SecretStr
 from app.api import admin, auth
 from app.core.config import Settings
 from app.core.ldap_auth import DirectoryUnavailableError, LdapUser
-from tests.conftest import parse_sse
+from tests.conftest import parse_sse, set_config
 from tests.ldap_fixtures import PASSWORDS, ldap_settings, mock_authenticator
 
 URL = "/api/v1/auth/session"
@@ -194,7 +194,7 @@ async def test_admin_disabled_without_group_or_local_account(
 
 
 async def test_user_login_is_rate_limited(app: FastAPI, client: AsyncClient) -> None:
-    app.state.settings.rate_limit_login_per_minute = 1
+    await set_config(app, "limits", login_per_minute=1)
     await client.post(URL, json={"username": "ana", "password": "mala"})
 
     assert (await client.post(URL, json={"username": "ana", "password": "x"})).status_code == 429

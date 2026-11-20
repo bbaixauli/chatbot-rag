@@ -33,6 +33,8 @@ class DocumentOut(BaseModel):
     chunk_count: int
     error: str | None
     embedding_model: str | None
+    chunk_size_chars: int | None
+    chunk_overlap_chars: int | None
     uploaded_by: str
     created_at: datetime
     updated_at: datetime
@@ -50,6 +52,8 @@ class StatsOut(BaseModel):
     chunks: int
     by_status: dict[str, int]
     embedding_model: str
+    # Indexados con otro modelo de embeddings u otro troceado: hay que reindexarlos.
+    outdated: int
 
 
 class ReindexAllOut(BaseModel):
@@ -101,6 +105,7 @@ async def index_stats(_: AdminDep, service: DocumentsDep, request: Request) -> S
         chunks=stats.chunks,
         by_status=stats.by_status,
         embedding_model=request.app.state.embeddings.model_name,
+        outdated=stats.outdated,
     )
 
 

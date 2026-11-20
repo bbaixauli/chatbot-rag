@@ -18,8 +18,8 @@ navegador ──► frontend (nginx :8080) ──► /api/* ──► backend (F
   contenedor que publica un puerto.
 - **backend**: API, indexación de documentos y acceso al modelo. Al arrancar aplica las
   migraciones de la base de datos y reanuda las indexaciones pendientes.
-- El servidor de IA (LiteLLM, vLLM, Ollama…) es externo y se configura con `CHATBOT_LLM_*` y
-  `CHATBOT_EMBEDDING_*`.
+- El servidor de IA (LiteLLM, vLLM, Ollama…) es externo. Su URL, modelos y claves se configuran
+  en la administración (ver [Configuración de la aplicación](#configuración-de-la-aplicación)).
 
 > El backend (API) debe ejecutarse con **una sola réplica**: el límite de peticiones se guarda
 > en memoria. Para repartir la indexación entre varios procesos, usa el despliegue escalado
@@ -87,8 +87,8 @@ Edita `.env` y revisa como mínimo:
 
 | Variable | Valor |
 |---|---|
-| `CHATBOT_LLM_BASE_URL`, `CHATBOT_LLM_API_KEY`, `CHATBOT_LLM_MODEL` | Servidor de IA y modelo de chat |
-| `CHATBOT_EMBEDDING_MODEL` (y `CHATBOT_EMBEDDING_BASE_URL` si es otro servidor) | Modelo de embeddings |
+| `CHATBOT_LLM_BASE_URL`, `CHATBOT_LLM_API_KEY`, `CHATBOT_LLM_MODEL` | Servidor de IA y modelo de chat (valores iniciales, ver abajo) |
+| `CHATBOT_EMBEDDING_MODEL` (y `CHATBOT_EMBEDDING_BASE_URL` si es otro servidor) | Modelo de embeddings (valor inicial) |
 | `CHATBOT_ADMIN_PASSWORD` | Contraseña de la administración (no se admite la de ejemplo de `.env.example`) |
 | `CHATBOT_SESSION_SECRET` | Clave aleatoria de al menos 16 caracteres, obligatoria si hay administración o LDAP: `python -c "import secrets; print(secrets.token_urlsafe(32))"` |
 | `CHATBOT_SESSION_COOKIE_SECURE` | `true` si se accede por HTTPS (recomendado) |
@@ -112,12 +112,55 @@ Se definen como variables de entorno al ejecutar `docker compose` o en el propio
 |---|---|---|
 | `CHATBOT_HTTP_PORT` | `8080` | Puerto publicado |
 | `CHATBOT_HTTP_BIND` | `0.0.0.0` | Interfaz; usa `127.0.0.1` si hay un proxy HTTPS en el mismo servidor |
-| `CHATBOT_MAX_BODY_SIZE` | `60m` | Tamaño máximo de una petición en nginx (debe superar `CHATBOT_UPLOAD_MAX_MB`) |
+| `CHATBOT_MAX_BODY_SIZE` | `60m` | Tamaño máximo de una petición en nginx (debe superar el tamaño máximo de subida de la configuración) |
 | `CHATBOT_UV_EXTRAS` | — | `local-embeddings` para incluir sentence-transformers en la imagen |
 | `CHATBOT_IMAGE_TAG` | `latest` | Etiqueta de las imágenes construidas |
 
-Con `CHATBOT_EMBEDDING_PROVIDER=local`, el modelo se descarga la primera vez en
+Con el proveedor de embeddings `local`, el modelo se descarga la primera vez en
 `/data/modelos` y se conserva entre reinicios.
+
+## Configuración de la aplicación
+
+Los parámetros de funcionamiento se guardan en la base de datos y se cambian desde la
+administración, sin reiniciar:
+
+| Grupo | Variables de `.env` (valores iniciales) |
+|---|---|
+| Modelo de lenguaje | `CHATBOT_LLM_*` |
+| Embeddings | `CHATBOT_EMBEDDING_*` |
+| Indexación | `CHATBOT_UPLOAD_MAX_MB`, `CHATBOT_CHUNK_SIZE_CHARS`, `CHATBOT_CHUNK_OVERLAP_CHARS` |
+| Recuperación | `CHATBOT_RAG_*` |
+| Conversación | `CHATBOT_CHAT_*`, `CHATBOT_SYSTEM_PROMPT_MAX_LENGTH` |
+| Límites de peticiones | `CHATBOT_RATE_LIMIT_*` |
+
+En el **primer arranque** se copian de `.env` a la base de datos; a partir de ahí esas
+variables **se ignoran** (si alguna no coincide con lo guardado, el log lo avisa:
+«`CHATBOT_LLM_MODEL` se ignora…»). Una instalación existente se migra sola al actualizar. Si
+se define `CHATBOT_DEFAULT_SYSTEM_PROMPT`, pasa a ser la primera versión del prompt de sistema.
+
+Siguen en `.env`, porque hacen falta para arrancar o dependen del despliegue: entorno, datos y
+base de datos, logs, sesión (`CHATBOT_SESSION_*`), cuenta local de administración, índice y
+cola (`CHATBOT_VECTOR_STORE`, `CHATBOT_QDRANT_*`, `CHATBOT_TASK_RUNNER`, `CHATBOT_REDIS_URL`,
+`CHATBOT_INDEXING_CONCURRENCY`) y, por ahora, los usuarios (`CHATBOT_AUTH_MODE`,
+`CHATBOT_LDAP_*`).
+
+- Las **claves de API** se guardan cifradas con una clave derivada de
+  `CHATBOT_SESSION_SECRET` y nunca se muestran. Si cambias `CHATBOT_SESSION_SECRET` (o
+  restauras una copia en un servidor con otra), no se pueden descifrar: se usa el valor de
+  `.env` y la administración pide volver a introducirlas.
+- Cambiar el **modelo de embeddings** o el **troceado** obliga a reindexar (*Administración →
+  Documentos → Reindexar todo*); la administración lo avisa y no lo permite mientras haya
+  documentos indexándose.
+- Los workers de indexación leen la configuración antes de cada documento.
+
+Para consultarla o, si una configuración deja la aplicación inservible, volver a los valores de
+`.env`:
+
+```bash
+docker compose exec backend python -m app.config show
+docker compose exec backend python -m app.config reset --group llm   # sin --group: todo
+docker compose restart backend
+```
 
 ## Usuarios con LDAP
 
@@ -133,7 +176,7 @@ conversaciones y, al pulsar «Terminar sesión» (o al caducar la sesión,
 activado, el historial compartido no se muestra (no se borra) y vuelve a verse al desactivarlo;
 las conversaciones privadas no aparecen en él. Todas se conservan en la base de datos para
 auditoría y cada sesión queda en el log («Sesión privada», con su `user_id`). Crear sesiones
-privadas tiene su propio límite por IP (el de `CHATBOT_RATE_LIMIT_CHAT_PER_MINUTE`), no el de
+privadas tiene su propio límite por IP (el del chat), no el de
 los inicios de sesión, para no bloquear a varias personas detrás de una misma IP. La sesión de
 administración y la sesión privada son independientes: entrar o salir de una no cierra la otra.
 
@@ -275,14 +318,14 @@ Docker rota los logs según su configuración (`/etc/docker/daemon.json`). Por e
   conexión, saturado, credenciales, conversación demasiado larga) y el detalle técnico queda en
   el log del backend. La pregunta del usuario se conserva en el historial.
 - Si el servicio de embeddings no responde, el chat sigue funcionando sin documentación.
-- Límite por IP y minuto, configurable (`0` lo desactiva):
-  `CHATBOT_RATE_LIMIT_CHAT_PER_MINUTE` (20) y `CHATBOT_RATE_LIMIT_LOGIN_PER_MINUTE` (5). Al
-  superarlo, la API responde `429` con la cabecera `Retry-After`.
+- Límite por IP y minuto, configurable en la administración (`0` lo desactiva): chat (20) e
+  inicios de sesión (5). Al superarlo, la API responde `429` con la cabecera `Retry-After`.
 
 ## Copias de seguridad
 
 Una copia incluye la base de datos (conversaciones, prompts, configuración y documentos) y los
-ficheros originales subidos. El índice vectorial no se incluye: se reconstruye a partir de los
+ficheros originales subidos. Las claves de API van cifradas con `CHATBOT_SESSION_SECRET`: para
+restaurarlas en otro servidor, usa la misma clave o vuelve a introducirlas. El índice vectorial no se incluye: se reconstruye a partir de los
 documentos al restaurar.
 
 ### Crear una copia
@@ -391,21 +434,21 @@ docker compose exec backend python -m app.diagnose index manual-empleado --trunc
   ahora a partir del fichero original;
 - cada vector guardado con el que devuelve ahora el servicio de embeddings, enviando los
   fragmentos de uno en uno (similitud mínima esperada: 0,99);
-- con `--batch-check`, los vectores calculados en lotes de `CHATBOT_EMBEDDING_BATCH_SIZE` con
-  los calculados de uno en uno. Si difieren, el servidor de embeddings no es fiable con lotes:
-  baja `CHATBOT_EMBEDDING_BATCH_SIZE` y pulsa *Reindexar todo*.
+- con `--batch-check`, los vectores calculados en lotes (tamaño de lote de la configuración de
+  embeddings) con los calculados de uno en uno. Si difieren, el servidor de embeddings no es
+  fiable con lotes: baja el tamaño de lote y pulsa *Reindexar todo*.
 
 - con `--truncation-check`, si el servidor de embeddings ignora el final de los fragmentos:
   añade un texto de control al final de cada uno y comprueba si el vector cambia. Si no
   cambia, el servidor recorta los textos (contexto del modelo demasiado corto) y el script
-  estima a partir de cuántos caracteres. En ese caso, baja `CHATBOT_CHUNK_SIZE_CHARS` por
+  estima a partir de cuántos caracteres. En ese caso, baja el tamaño de fragmento por
   debajo de ese límite o amplía el contexto del modelo en el servidor, y reindexa.
 
 También señala los vectores nulos, los textos distintos con el mismo vector y los fragmentos
 con aspecto de índice (tabla de contenidos). Termina con código 2 si encuentra anomalías.
 
 `query` busca la pregunta sin reformularla (el chat reescribe las preguntas de seguimiento) y
-marca con ✓ los fragmentos que llegarían al modelo según `CHATBOT_RAG_TOP_K`,
-`CHATBOT_RAG_MIN_SCORE` y `CHATBOT_RAG_MAX_CONTEXT_CHARS`. Con `--document` (se puede repetir)
+marca con ✓ los fragmentos que llegarían al modelo según el top-k, la puntuación mínima y el
+máximo de contexto de la configuración de recuperación. Con `--document` (se puede repetir)
 clasifica todo el índice y muestra en qué puesto quedan los fragmentos de ese documento, con
 la diferencia de score respecto al último fragmento que llega al modelo.

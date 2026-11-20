@@ -32,6 +32,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import Settings, get_settings
+from app.core.runtime_config import RuntimeConfig
 from app.db.models import Document, DocumentKind, DocumentStatus
 from app.db.session import build_engine, build_sessionmaker
 from app.services.backends import build_vector_store, close_vector_store
@@ -39,6 +40,7 @@ from app.services.documents import document_file_path
 from app.services.embeddings import EmbeddingError, Embeddings, build_embeddings
 from app.services.ingestion.chunker import chunk_sections
 from app.services.ingestion.parsers import ParseError, parse_document
+from app.services.runtime_config import load_runtime_config
 from app.services.vectorstore import SearchHit, StoredChunk, VectorStore, VectorStoreError
 
 # Por debajo de esta similitud, el vector guardado no es el que calcula ahora el servicio.
@@ -230,6 +232,7 @@ async def estimate_truncation(embeddings: Embeddings, text: str, full: Sequence[
 async def diagnose_document(
     document: Document,
     settings: Settings,
+    config: RuntimeConfig,
     store: VectorStore,
     embeddings: Embeddings,
     *,
@@ -277,7 +280,7 @@ async def diagnose_document(
             report.problems.append(f"No se puede leer el original: {exc}")
         else:
             expected = chunk_sections(
-                sections, settings.chunk_size_chars, settings.chunk_overlap_chars
+                sections, config.indexing.chunk_size_chars, config.indexing.chunk_overlap_chars
             )
             report.expected_chunks = len(expected)
             stored_texts = [chunk.text for chunk in stored]
@@ -303,7 +306,7 @@ async def diagnose_document(
         fresh = [await _embed_one(embeddings, chunk.text) for chunk in sample]
         batched = (
             await _batch_vectors(
-                embeddings, [chunk.text for chunk in sample], settings.embedding_batch_size
+                embeddings, [chunk.text for chunk in sample], config.embeddings.batch_size
             )
             if batch_check
             else None
@@ -351,7 +354,7 @@ async def diagnose_document(
     if batch_low:
         report.problems.append(
             f"El servicio devuelve vectores distintos en lotes de "
-            f"{settings.embedding_batch_size} que de uno en uno en {len(batch_low)} "
+            f"{config.embeddings.batch_size} que de uno en uno en {len(batch_low)} "
             f"fragmentos: {batch_low[:20]}"
         )
     if truncated:
@@ -369,8 +372,9 @@ async def diagnose_document(
         report.problems.append(
             f"El servicio de embeddings recorta los textos: ignora lo que hay a partir de "
             f"{limit} en {len(truncated)} de {len(sample)} fragmentos ({truncated[:20]}). "
-            f"Baja CHATBOT_CHUNK_SIZE_CHARS por debajo de ese límite o amplía el contexto del "
-            f"modelo de embeddings en el servidor, y reindexa"
+            f"Baja el tamaño de fragmento (Administración → Configuración → Indexación) por "
+            f"debajo de ese límite o amplía el contexto del modelo de embeddings en el servidor, "
+            f"y reindexa"
         )
     return report
 
@@ -388,7 +392,7 @@ class QueryHit:
 
 async def diagnose_query(
     query: str,
-    settings: Settings,
+    config: RuntimeConfig,
     store: VectorStore,
     embeddings: Embeddings,
     top: int,
@@ -399,8 +403,9 @@ async def diagnose_query(
     Con `full_ranking` se clasifica todo el índice (para ver en qué puesto queda un
     documento concreto); si no, solo los `top` primeros.
     """
+    rag = config.rag
     [vector] = await embeddings.embed([query])
-    limit = await store.count() if full_ranking else max(top, settings.rag_top_k)
+    limit = await store.count() if full_ranking else max(top, rag.top_k)
     if limit == 0:
         return []
     hits = sorted(await store.search(vector, limit), key=lambda h: h.score, reverse=True)
@@ -411,12 +416,12 @@ async def diagnose_query(
     for rank, hit in enumerate(hits, start=1):
         reason = ""
         if stopped is None:
-            if rank > settings.rag_top_k:
-                stopped = f"fuera de los {settings.rag_top_k} primeros (RAG_TOP_K)"
-            elif hit.score < settings.rag_min_score:
-                stopped = f"por debajo de RAG_MIN_SCORE ({settings.rag_min_score})"
-            elif used_count and used_chars + len(hit.text) > settings.rag_max_context_chars:
-                stopped = f"supera RAG_MAX_CONTEXT_CHARS ({settings.rag_max_context_chars})"
+            if rank > rag.top_k:
+                stopped = f"fuera de los {rag.top_k} primeros (top-k)"
+            elif hit.score < rag.min_score:
+                stopped = f"por debajo de la puntuación mínima ({rag.min_score})"
+            elif used_count and used_chars + len(hit.text) > rag.max_context_chars:
+                stopped = f"supera el máximo de contexto ({rag.max_context_chars} caracteres)"
         used = stopped is None
         if used:
             used_chars += len(hit.text)
@@ -531,9 +536,10 @@ def print_query_report(
 
 
 async def run(args: argparse.Namespace, settings: Settings, out: TextIO) -> int:
+    config = await load_runtime_config(settings)
     engine = build_engine(settings.resolved_database_url)
     store = build_vector_store(settings)
-    embeddings = build_embeddings(settings)
+    embeddings = build_embeddings(config)
     try:
         if args.command == "query":
             selected = (
@@ -542,7 +548,7 @@ async def run(args: argparse.Namespace, settings: Settings, out: TextIO) -> int:
                 else []
             )
             hits = await diagnose_query(
-                args.question, settings, store, embeddings, args.top, full_ranking=bool(selected)
+                args.question, config, store, embeddings, args.top, full_ranking=bool(selected)
             )
             print_query_report(args.question, hits, out, args.top, selected)
             return 0
@@ -552,7 +558,7 @@ async def run(args: argparse.Namespace, settings: Settings, out: TextIO) -> int:
             return 0
         print(
             f"Modelo de embeddings: {embeddings.model_name} · índice: {settings.vector_store} · "
-            f"lotes de {settings.embedding_batch_size}",
+            f"lotes de {config.embeddings.batch_size}",
             file=out,
         )
         reports = []
@@ -560,6 +566,7 @@ async def run(args: argparse.Namespace, settings: Settings, out: TextIO) -> int:
             report = await diagnose_document(
                 document,
                 settings,
+                config,
                 store,
                 embeddings,
                 min_similarity=args.min_similarity,
