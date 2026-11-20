@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { NavLink, useNavigate, useParams } from 'react-router'
 import {
   deleteConversation,
@@ -7,9 +7,16 @@ import {
   renameConversation,
   type Conversation,
 } from '../api/client'
+import { Pencil, Plus, Trash2 } from 'lucide-react'
 import { t } from '../i18n/es'
 
-export function Sidebar() {
+export const SIDEBAR_ID = 'historial'
+
+/**
+ * Historial de conversaciones. En pantallas de menos de 768 px se pliega tras el botón
+ * «Menú» de la cabecera (`open`); `onNavigate` lo cierra al elegir una opción.
+ */
+export function Sidebar({ open = false, onNavigate }: { open?: boolean; onNavigate?: () => void }) {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const { conversationId } = useParams()
@@ -39,30 +46,35 @@ export function Sidebar() {
 
   return (
     <nav
+      id={SIDEBAR_ID}
       aria-label={t.sidebar.label}
-      className="flex w-72 shrink-0 flex-col border-r border-gray-200 bg-white"
+      className={`${open ? 'flex' : 'hidden'} absolute inset-y-0 left-0 z-20 w-full max-w-xs flex-col border-r border-borde bg-fondo shadow-lg md:static md:flex md:w-72 md:max-w-none md:shrink-0 md:shadow-none`}
     >
       <div className="p-3">
         <button
           type="button"
-          onClick={() => navigate('/')}
-          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium hover:bg-gray-50"
+          onClick={() => {
+            onNavigate?.()
+            navigate('/')
+          }}
+          className="btn btn-secundario w-full"
         >
-          + {t.sidebar.newChat}
+          <Plus aria-hidden size={18} />
+          {t.sidebar.newChat}
         </button>
       </div>
       <div className="flex-1 overflow-y-auto px-2 pb-3">
         {conversations.isError && (
-          <p role="alert" className="px-2 text-sm text-red-700">
+          <p role="alert" className="px-2 text-sm text-error">
             {t.sidebar.loadError}
           </p>
         )}
         {conversations.data?.length === 0 && (
-          <p className="px-2 text-sm text-gray-500">{t.sidebar.empty}</p>
+          <p className="px-2 text-sm text-texto-secundario">{t.sidebar.empty}</p>
         )}
         <ul className="flex flex-col gap-1">
           {conversations.data?.map((conversation) => (
-            <li key={conversation.id} className="group flex items-center gap-1">
+            <li key={conversation.id} className="flex items-center gap-1">
               {editingId === conversation.id ? (
                 <RenameInput
                   initial={conversation.title}
@@ -76,25 +88,22 @@ export function Sidebar() {
                 <>
                   <NavLink
                     to={`/c/${conversation.id}`}
-                    className={({ isActive }) =>
-                      `flex-1 truncate rounded-md px-2 py-1.5 text-sm ${
-                        isActive ? 'bg-gray-100 font-medium' : 'hover:bg-gray-50'
-                      }`
-                    }
+                    onClick={onNavigate}
+                    className="nav-item min-w-0 flex-1 text-sm"
                   >
-                    {conversation.title}
+                    <span className="truncate">{conversation.title}</span>
                   </NavLink>
                   <IconButton
                     label={`${t.sidebar.rename}: ${conversation.title}`}
                     onClick={() => setEditingId(conversation.id)}
                   >
-                    ✎
+                    <Pencil aria-hidden size={16} />
                   </IconButton>
                   <IconButton
                     label={`${t.sidebar.delete}: ${conversation.title}`}
                     onClick={() => confirmDelete(conversation)}
                   >
-                    🗑
+                    <Trash2 aria-hidden size={16} />
                   </IconButton>
                 </>
               )}
@@ -106,14 +115,14 @@ export function Sidebar() {
   )
 }
 
-function IconButton(props: { label: string; onClick: () => void; children: string }) {
+function IconButton(props: { label: string; onClick: () => void; children: ReactNode }) {
   return (
     <button
       type="button"
       aria-label={props.label}
       title={props.label}
       onClick={props.onClick}
-      className="rounded px-1 text-gray-400 opacity-0 group-hover:opacity-100 hover:text-gray-700 focus:opacity-100"
+      className="btn btn-icono shrink-0"
     >
       {props.children}
     </button>
@@ -138,7 +147,7 @@ function RenameInput(props: {
         if (e.key === 'Enter') save()
         if (e.key === 'Escape') props.onCancel()
       }}
-      className="flex-1 rounded-md border border-blue-500 px-2 py-1 text-sm focus:outline-none"
+      className="campo min-w-0 flex-1 text-sm"
     />
   )
 }

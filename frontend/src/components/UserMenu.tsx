@@ -46,14 +46,14 @@ export function UserMenu() {
   return (
     <>
       {showAdmin && (
-        <Link to="/admin" className="text-sm text-blue-700 hover:underline">
+        <Link to="/admin" className="text-sm text-sobre-cabecera">
           {t.nav.admin}
         </Link>
       )}
       {!ldap && user && (
         <div className="flex items-center gap-3 text-sm">
           <span
-            className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-700"
+            className="rounded border border-borde bg-fondo-alt px-2 py-0.5 text-texto"
             title={t.nav.privateSessionHint}
           >
             {t.nav.privateSession}
@@ -64,12 +64,12 @@ export function UserMenu() {
             onClick={() => {
               if (window.confirm(t.nav.confirmEndPrivateSession)) restart.mutate()
             }}
-            className="rounded-md border border-gray-300 px-3 py-1.5 hover:bg-gray-50 disabled:opacity-50"
+            className="btn btn-cabecera"
           >
             {t.nav.endPrivateSession}
           </button>
           {restart.isError && (
-            <span role="alert" className="text-red-700">
+            <span role="alert" className="rounded bg-error-suave px-2 py-0.5 text-error">
               {t.nav.endPrivateSessionError}
             </span>
           )}
@@ -80,21 +80,15 @@ export function UserMenu() {
           {user.is_anonymous ? (
             // El id de un acceso anónimo no dice nada al usuario: se explica la sesión.
             <span
-              className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-700"
+              className="rounded border border-borde bg-fondo-alt px-2 py-0.5 text-texto"
               title={t.nav.anonymousSession}
             >
               {user.display_name}
             </span>
           ) : (
-            <span className="text-gray-700" title={user.id}>
-              {user.display_name}
-            </span>
+            <span title={user.id}>{user.display_name}</span>
           )}
-          <button
-            type="button"
-            onClick={() => signOut.mutate()}
-            className="rounded-md border border-gray-300 px-3 py-1.5 hover:bg-gray-50"
-          >
+          <button type="button" onClick={() => signOut.mutate()} className="btn btn-cabecera">
             {t.nav.logout}
           </button>
         </div>

@@ -1,9 +1,11 @@
 import { QueryClientProvider } from '@tanstack/react-query'
-import { useState } from 'react'
-import { BrowserRouter, Navigate, Outlet, Route, Routes } from 'react-router'
+import { Menu, X } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { BrowserRouter, Link, Navigate, Outlet, Route, Routes, useLocation } from 'react-router'
 import { RequireUser } from './auth/RequireUser'
 import { HealthBadge } from './components/HealthBadge'
-import { Sidebar } from './components/Sidebar'
+import { AppFooter, MAIN_ID, SkipLink } from './components/PageChrome'
+import { SIDEBAR_ID, Sidebar } from './components/Sidebar'
 import { UserMenu } from './components/UserMenu'
 import { t } from './i18n/es'
 import { ChatPage } from './pages/ChatPage'
@@ -16,21 +18,50 @@ import { LoginPage } from './pages/admin/LoginPage'
 import { PromptPage } from './pages/admin/PromptPage'
 
 export function Layout() {
+  const location = useLocation()
+  // El menú plegado (pantallas estrechas) se abre para la página actual: al navegar se
+  // cierra solo. También se cierra con Esc.
+  const [menuOpenAt, setMenuOpenAt] = useState<string | null>(null)
+  const menuOpen = menuOpenAt === location.pathname
+  const setMenuOpen = (open: boolean) => setMenuOpenAt(open ? location.pathname : null)
+  useEffect(() => {
+    if (!menuOpen) return
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setMenuOpenAt(null)
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [menuOpen])
+
   return (
-    <div className="flex h-full flex-col bg-gray-50 text-gray-900">
-      <header className="flex items-center justify-between border-b border-gray-200 bg-white px-6 py-3">
-        <h1 className="text-lg font-semibold">{t.appName}</h1>
-        <div className="flex items-center gap-4">
+    <div className="flex h-full flex-col bg-fondo-alt text-texto">
+      <SkipLink />
+      <header className="cabecera flex min-h-14 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-borde bg-cabecera px-4 py-2 text-sobre-cabecera md:min-h-16 md:px-6">
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            className="btn btn-cabecera md:hidden"
+            aria-expanded={menuOpen}
+            aria-controls={SIDEBAR_ID}
+            onClick={() => setMenuOpen(!menuOpen)}
+          >
+            {menuOpen ? <X aria-hidden size={20} /> : <Menu aria-hidden size={20} />}
+            {t.nav.menu}
+          </button>
+          <Link to="/" className="text-lg font-semibold text-sobre-cabecera no-underline">
+            {t.appName}
+          </Link>
+        </div>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <HealthBadge />
           <UserMenu />
         </div>
       </header>
-      <div className="flex min-h-0 flex-1">
-        <Sidebar />
-        <main className="flex min-h-0 flex-1 flex-col">
+      <div className="relative flex min-h-0 flex-1">
+        <Sidebar open={menuOpen} onNavigate={() => setMenuOpenAt(null)} />
+        <main id={MAIN_ID} tabIndex={-1} className="flex min-h-0 min-w-0 flex-1 flex-col">
           <Outlet />
         </main>
       </div>
+      <AppFooter />
     </div>
   )
 }

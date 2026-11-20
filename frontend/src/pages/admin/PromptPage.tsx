@@ -8,6 +8,7 @@ import {
   type SystemPrompt,
 } from '../../api/admin'
 import { ApiError } from '../../api/client'
+import { usePageTitle } from '../../hooks/usePageTitle'
 import { t } from '../../i18n/es'
 import { ADMIN_SESSION_KEY } from './session'
 
@@ -18,6 +19,7 @@ const formatDate = (iso: string) =>
   new Date(iso).toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' })
 
 export function PromptPage() {
+  usePageTitle(t.prompt.title)
   const queryClient = useQueryClient()
   const prompt = useQuery({ queryKey: PROMPT_KEY, queryFn: getPrompt })
   const versions = useQuery({ queryKey: VERSIONS_KEY, queryFn: listPromptVersions })
@@ -46,13 +48,13 @@ export function PromptPage() {
     <div className="mx-auto flex max-w-4xl flex-col gap-6">
       <section className="flex flex-col gap-3">
         <div>
-          <h2 className="text-xl font-semibold">{t.prompt.title}</h2>
-          <p className="text-sm text-gray-600">{t.prompt.description}</p>
+          <h1 className="text-2xl font-bold">{t.prompt.title}</h1>
+          <p className="text-sm text-texto-secundario">{t.prompt.description}</p>
         </div>
         {prompt.isPending ? (
-          <p className="text-gray-600">{t.common.loading}</p>
+          <p className="text-texto-secundario">{t.common.loading}</p>
         ) : prompt.isError ? (
-          <p role="alert" className="text-red-700">
+          <p role="alert" className="text-error">
             {t.prompt.loadError}
           </p>
         ) : (
@@ -64,18 +66,18 @@ export function PromptPage() {
           />
         )}
         {notice && (
-          <p role="status" className="text-sm text-emerald-700">
+          <p role="status" className="text-sm text-exito">
             {notice}
           </p>
         )}
       </section>
 
       <section aria-labelledby="versions-title" className="flex flex-col gap-3">
-        <h3 id="versions-title" className="text-lg font-semibold">
+        <h2 id="versions-title" className="text-lg font-bold">
           {t.prompt.history}
-        </h3>
+        </h2>
         {versions.data?.length === 0 && (
-          <p className="text-sm text-gray-600">{t.prompt.noHistory}</p>
+          <p className="text-sm text-texto-secundario">{t.prompt.noHistory}</p>
         )}
         <ol className="flex flex-col gap-2">
           {versions.data?.map((version) => {
@@ -84,17 +86,17 @@ export function PromptPage() {
               <li
                 key={version.id}
                 aria-label={`Versión ${version.id}`}
-                className="rounded-lg border border-gray-200 bg-white p-3"
+                className="rounded-lg border border-borde bg-fondo p-3"
               >
                 <div className="flex items-center justify-between gap-2 text-sm">
                   <span className="font-medium">
                     #{version.id}{' '}
-                    <span className="font-normal text-gray-600">
+                    <span className="font-normal text-texto-secundario">
                       {t.prompt.by(version.created_by, formatDate(version.created_at))}
                     </span>
                   </span>
                   {isCurrent ? (
-                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs text-emerald-800">
+                    <span className="rounded border border-exito bg-exito-suave px-2 py-0.5 text-xs text-exito">
                       {t.prompt.current}
                     </span>
                   ) : (
@@ -106,13 +108,13 @@ export function PromptPage() {
                           restore.mutate(version.id)
                         }
                       }}
-                      className="rounded-md border border-gray-300 px-2 py-1 text-xs hover:bg-gray-50"
+                      className="btn btn-secundario"
                     >
                       {t.prompt.restore}
                     </button>
                   )}
                 </div>
-                <p className="mt-2 line-clamp-3 text-sm whitespace-pre-wrap text-gray-700">
+                <p className="mt-2 line-clamp-3 text-sm whitespace-pre-wrap text-texto">
                   {version.content}
                 </p>
               </li>
@@ -143,7 +145,7 @@ function PromptEditor(props: {
       }}
     >
       {props.prompt.is_default && (
-        <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
+        <p className="rounded border border-aviso bg-aviso-suave px-3 py-2 text-sm text-aviso">
           {t.prompt.usingDefault}
         </p>
       )}
@@ -155,20 +157,16 @@ function PromptEditor(props: {
           props.onChange()
         }}
         rows={14}
-        className="rounded-lg border border-gray-300 p-3 font-mono text-sm focus:border-blue-500 focus:outline-none"
+        className="campo font-mono text-sm"
       />
       <div className="flex items-center justify-between">
-        <span className="text-xs text-gray-500">{t.prompt.characters(content.length)}</span>
-        <button
-          type="submit"
-          disabled={!canSave}
-          className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-        >
+        <span className="text-xs text-texto-secundario">{t.prompt.characters(content.length)}</span>
+        <button type="submit" disabled={!canSave} className="btn btn-primario">
           {save.isPending ? t.prompt.saving : t.prompt.save}
         </button>
       </div>
       {save.isError && (
-        <p role="alert" className="text-sm text-red-700">
+        <p role="alert" className="text-sm text-error">
           {t.prompt.saveError}
         </p>
       )}
