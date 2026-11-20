@@ -209,6 +209,12 @@ Notas:
 - Es imprescindible definir `CHATBOT_SESSION_SECRET`; con HTTPS, también
   `CHATBOT_SESSION_COOKIE_SECURE=true`.
 
+## Apariencia e identidad corporativa
+
+Los colores, tipos de letra, logo y textos del pie se configuran en *Administración →
+Apariencia*. Los valores para el Ayuntamiento de Valladolid, según su manual de estilos para
+aplicaciones internas, están en [estilos-valladolid.md](estilos-valladolid.md).
+
 ## HTTPS
 
 El contenedor sirve HTTP. Para HTTPS, coloca delante el proxy inverso de la organización
