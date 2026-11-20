@@ -11,6 +11,9 @@ export interface DocumentItem {
   chunk_count: number
   error: string | null
   embedding_model: string | null
+  /** Troceado con el que se indexó (null si fue antes de guardarlo). */
+  chunk_size_chars: number | null
+  chunk_overlap_chars: number | null
   uploaded_by: string
   created_at: string
   updated_at: string
@@ -28,6 +31,8 @@ export interface IndexStats {
   chunks: number
   by_status: Partial<Record<DocumentStatus, number>>
   embedding_model: string
+  /** Documentos indexados con otro modelo de embeddings u otro troceado. */
+  outdated: number
 }
 
 export const ACCEPTED_EXTENSIONS = ['.pdf', '.md', '.markdown', '.html', '.htm']

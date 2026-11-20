@@ -120,6 +120,11 @@ export function DocumentsPage() {
               {t.documents.model(stats.data.embedding_model)}
             </p>
           )}
+          {!busy && (stats.data?.outdated ?? 0) > 0 && (
+            <p role="status" className="mt-1 text-sm text-aviso">
+              {t.documents.outdated(stats.data!.outdated)}
+            </p>
+          )}
         </div>
         <button
           type="button"

@@ -121,8 +121,9 @@ Con el proveedor de embeddings `local`, el modelo se descarga la primera vez en
 
 ## Configuración de la aplicación
 
-Los parámetros de funcionamiento se guardan en la base de datos y se cambian desde la
-administración, sin reiniciar:
+Los parámetros de funcionamiento se guardan en la base de datos y se cambian en
+*Administración → Configuración*, sin reiniciar (con **Probar conexión** para el modelo de
+lenguaje y los embeddings):
 
 | Grupo | Variables de `.env` (valores iniciales) |
 |---|---|
@@ -148,9 +149,9 @@ cola (`CHATBOT_VECTOR_STORE`, `CHATBOT_QDRANT_*`, `CHATBOT_TASK_RUNNER`, `CHATBO
   `CHATBOT_SESSION_SECRET` y nunca se muestran. Si cambias `CHATBOT_SESSION_SECRET` (o
   restauras una copia en un servidor con otra), no se pueden descifrar: se usa el valor de
   `.env` y la administración pide volver a introducirlas.
-- Cambiar el **modelo de embeddings** o el **troceado** obliga a reindexar (*Administración →
-  Documentos → Reindexar todo*); la administración lo avisa y no lo permite mientras haya
-  documentos indexándose.
+- Cambiar el **modelo de embeddings** o el **troceado** obliga a reindexar: al guardar se
+  ofrece «Reindexar todo ahora» y *Documentos* avisa mientras queden documentos indexados con la
+  configuración anterior. No se permite el cambio mientras haya documentos indexándose.
 - Los workers de indexación leen la configuración antes de cada documento.
 
 Para consultarla o, si una configuración deja la aplicación inservible, volver a los valores de

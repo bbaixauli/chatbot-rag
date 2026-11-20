@@ -2,11 +2,23 @@ export const API_BASE = '/api/v1'
 
 export class ApiError extends Error {
   readonly status: number
+  /** Explicación del servidor (`detail` de FastAPI), si es un texto. */
+  readonly detail: string | null
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, detail: string | null = null) {
     super(message)
     this.name = 'ApiError'
     this.status = status
+    this.detail = detail
+  }
+}
+
+async function errorDetail(response: Response): Promise<string | null> {
+  try {
+    const data = (await response.json()) as { detail?: unknown }
+    return typeof data.detail === 'string' ? data.detail : null
+  } catch {
+    return null
   }
 }
 
@@ -18,7 +30,11 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
     headers: { ...headers, ...(init.headers as Record<string, string> | undefined) },
   })
   if (!response.ok) {
-    throw new ApiError(response.status, `${init.method ?? 'GET'} ${path} → ${response.status}`)
+    throw new ApiError(
+      response.status,
+      `${init.method ?? 'GET'} ${path} → ${response.status}`,
+      await errorDetail(response),
+    )
   }
   if (response.status === 204) return undefined as T
   return (await response.json()) as T

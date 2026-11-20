@@ -23,6 +23,7 @@ export const t = {
     documents: 'Documentos',
     chatStart: 'Mensaje inicial',
     appearance: 'Apariencia',
+    config: 'Configuración',
     logout: 'Cerrar sesión',
     anonymousSession:
       'Acceso anónimo: al cerrar sesión no podrás volver a ver estas conversaciones.',
@@ -113,6 +114,139 @@ export const t = {
     privateSessionsWarning:
       'Al desactivarlo se vuelve al historial compartido y las sesiones privadas abiertas se cierran.',
   },
+  config: {
+    title: 'Configuración',
+    description:
+      'Modelos de IA, indexación de documentos, recuperación y límites. Los cambios se aplican al guardar, sin reiniciar.',
+    loadError: 'No se pudo cargar la configuración.',
+    save: 'Guardar',
+    saving: 'Guardando…',
+    saved: 'Cambios guardados.',
+    noChanges: 'No había cambios que guardar.',
+    saveError: 'No se pudo guardar.',
+    test: 'Probar conexión',
+    testing: 'Probando…',
+    testError: 'No se pudo hacer la prueba.',
+    fromEnv: 'Valores iniciales tomados del fichero .env.',
+    updated: (by: string, at: string) =>
+      `Guardado por ${by} el ${new Date(at).toLocaleString('es-ES', {
+        dateStyle: 'short',
+        timeStyle: 'short',
+      })}.`,
+    reindexNote: 'Si cambias estos campos tendrás que reindexar los documentos.',
+    reindexNow: 'Reindexar todo ahora',
+    reindexing: 'Reindexando…',
+    reindexStarted: (n: number) =>
+      `Reindexación iniciada (${n} ${n === 1 ? 'documento' : 'documentos'}). Sigue el progreso en Documentos.`,
+    reindexError: 'No se pudo iniciar la reindexación.',
+    invalid: 'Revisa los campos marcados.',
+    required: 'Obligatorio.',
+    range: (min?: number, max?: number) =>
+      min !== undefined && max !== undefined
+        ? `Debe estar entre ${min} y ${max}.`
+        : min !== undefined
+          ? `Debe ser como mínimo ${min}.`
+          : `Debe ser como máximo ${max}.`,
+    integer: 'Debe ser un número entero.',
+    secret: {
+      configured: 'Hay una clave guardada. Escribe otra para cambiarla.',
+      empty: 'No hay ninguna clave guardada.',
+      unreadable:
+        'La clave guardada no se puede descifrar (ha cambiado CHATBOT_SESSION_SECRET): se usa la del fichero .env. Vuelve a introducirla.',
+      clear: 'Quitar la clave guardada',
+    },
+    providers: {
+      openai: 'Servidor compatible con la API de OpenAI',
+      local: 'Local (sentence-transformers en este servidor)',
+      fake: 'Simulado (solo pruebas)',
+    } as Record<string, string>,
+    groups: {
+      llm: {
+        title: 'Modelo de lenguaje',
+        description: 'Servidor de IA que genera las respuestas (LiteLLM, vLLM, Ollama…).',
+        fields: {
+          provider: 'Proveedor',
+          base_url: 'URL del servidor',
+          api_key: 'Clave de la API',
+          model: 'Modelo',
+          temperature: 'Temperatura',
+          timeout_seconds: 'Tiempo máximo de espera (segundos)',
+          max_retries: 'Reintentos',
+        },
+        hints: {
+          base_url: 'Por ejemplo, http://servidor-ia:4000/v1',
+          temperature: 'De 0 (respuestas más previsibles) a 2 (más creativas).',
+        },
+      },
+      embeddings: {
+        title: 'Embeddings',
+        description: 'Modelo que convierte documentos y preguntas en vectores para buscarlos.',
+        fields: {
+          provider: 'Proveedor',
+          base_url: 'URL del servidor',
+          api_key: 'Clave de la API',
+          model: 'Modelo',
+          batch_size: 'Fragmentos por petición',
+        },
+        hints: {
+          base_url: 'Vacía: la del modelo de lenguaje.',
+          api_key: 'Sin clave propia se usa la del modelo de lenguaje.',
+          model: 'Con LiteLLM, el model_name de su configuración.',
+          batch_size: 'Si el servidor da resultados distintos en lotes, bájalo.',
+        },
+      },
+      indexing: {
+        title: 'Indexación',
+        description: 'Subida de documentos y tamaño de los fragmentos en que se dividen.',
+        fields: {
+          upload_max_mb: 'Tamaño máximo de un fichero (MB)',
+          chunk_size_chars: 'Tamaño de fragmento (caracteres)',
+          chunk_overlap_chars: 'Solapamiento entre fragmentos (caracteres)',
+        },
+        hints: {
+          upload_max_mb: 'El proxy (CHATBOT_MAX_BODY_SIZE) debe admitir peticiones mayores.',
+        },
+      },
+      rag: {
+        title: 'Recuperación',
+        description: 'Cómo se buscan los fragmentos que se envían al modelo con cada pregunta.',
+        fields: {
+          enabled: 'Usar los documentos para responder',
+          top_k: 'Fragmentos por pregunta (top-k)',
+          min_score: 'Puntuación mínima (0-1)',
+          max_context_chars: 'Máximo de contexto (caracteres)',
+          condense_question: 'Reformular las preguntas de seguimiento antes de buscar',
+          condense_history_messages: 'Mensajes previos para reformular',
+        },
+        hints: {
+          min_score: 'Similitud mínima para usar un fragmento; depende del modelo de embeddings.',
+          max_context_chars: 'Protege la ventana de contexto del modelo.',
+          condense_question: 'Cuesta una llamada extra al modelo cuando hay historial.',
+        },
+      },
+      chat: {
+        title: 'Conversación',
+        description: 'Historial que se envía al modelo y longitud máxima de los textos.',
+        fields: {
+          history_max_messages: 'Mensajes de historial enviados al modelo',
+          max_message_length: 'Longitud máxima de una pregunta',
+          welcome_max_length: 'Longitud máxima del mensaje inicial',
+          suggested_question_max_length: 'Longitud máxima de una pregunta sugerida',
+          system_prompt_max_length: 'Longitud máxima del prompt de sistema',
+        },
+        hints: {},
+      },
+      limits: {
+        title: 'Límites de peticiones',
+        description: 'Peticiones por IP y minuto (0 = sin límite).',
+        fields: {
+          chat_per_minute: 'Preguntas al chat por minuto',
+          login_per_minute: 'Inicios de sesión por minuto',
+        },
+        hints: {},
+      },
+    },
+  },
   documents: {
     title: 'Documentos',
     description:
@@ -122,6 +256,10 @@ export const t = {
         chunks === 1 ? 'fragmento indexado' : 'fragmentos indexados'
       }`,
     model: (name: string) => `Modelo de embeddings: ${name}`,
+    outdated: (n: number) =>
+      n === 1
+        ? '1 documento se indexó con otro modelo de embeddings u otro troceado: pulsa «Reindexar todo».'
+        : `${n} documentos se indexaron con otro modelo de embeddings u otro troceado: pulsa «Reindexar todo».`,
     reindexAll: 'Reindexar todo',
     confirmReindexAll:
       '¿Reindexar todos los documentos? Es necesario si ha cambiado el modelo de embeddings. ' +

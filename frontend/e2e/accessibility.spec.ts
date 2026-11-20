@@ -69,6 +69,7 @@ for (const viewport of WIDTHS) {
         ['/admin/documents', 'Documentos'],
         ['/admin/chat', 'Mensaje inicial del chat'],
         ['/admin/appearance', 'Apariencia'],
+        ['/admin/config', 'Configuración'],
       ]) {
         await page.goto(path)
         await expect(page.getByRole('heading', { level: 1, name: heading })).toBeVisible()

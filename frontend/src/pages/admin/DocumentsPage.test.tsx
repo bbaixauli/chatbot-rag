@@ -14,6 +14,8 @@ const doc = (id: string, filename: string, patch: Partial<DocumentItem> = {}): D
   chunk_count: 3,
   error: null,
   embedding_model: 'fake',
+  chunk_size_chars: 3000,
+  chunk_overlap_chars: 400,
   uploaded_by: 'admin',
   created_at: '2026-11-17T10:00:00Z',
   updated_at: '2026-11-17T10:00:00Z',
@@ -25,6 +27,7 @@ const statsFor = (docs: DocumentItem[]): IndexStats => ({
   chunks: docs.filter((d) => d.status === 'ready').reduce((n, d) => n + d.chunk_count, 0),
   by_status: {},
   embedding_model: 'bge-m3',
+  outdated: docs.filter((d) => d.embedding_model !== 'fake').length,
 })
 
 function documentsApi(initial: DocumentItem[], overrides: Parameters<typeof mockApi>[0] = {}) {
@@ -69,6 +72,13 @@ describe('DocumentsPage', () => {
     const link = screen.getByRole('link', { name: 'Descargar guia.md' })
     expect(link).toHaveAttribute('href', '/api/v1/admin/documents/1/file')
     expect(screen.getByRole('row', { name: /guia\.md/ })).toHaveTextContent('2 KB')
+  })
+
+  it('avisa de los documentos indexados con otra configuración', async () => {
+    documentsApi([doc('1', 'a.md'), doc('2', 'b.md', { embedding_model: 'antiguo' })])
+    renderApp('/admin/documents')
+
+    expect(await screen.findByText(/1 documento se indexó con otro modelo/)).toBeInTheDocument()
   })
 
   it('indica cuando no hay documentos y desactiva reindexar todo', async () => {

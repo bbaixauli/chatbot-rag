@@ -14,6 +14,7 @@ import { createQueryClient } from './queryClient'
 import { AdminLayout } from './pages/admin/AdminLayout'
 import { AppearancePage } from './pages/admin/AppearancePage'
 import { ChatStartPage } from './pages/admin/ChatStartPage'
+import { ConfigPage } from './pages/admin/ConfigPage'
 import { DocumentsPage } from './pages/admin/DocumentsPage'
 import { LoginPage } from './pages/admin/LoginPage'
 import { PromptPage } from './pages/admin/PromptPage'
@@ -86,6 +87,7 @@ export function AppRoutes() {
         <Route path="documents" element={<DocumentsPage />} />
         <Route path="chat" element={<ChatStartPage />} />
         <Route path="appearance" element={<AppearancePage />} />
+        <Route path="config" element={<ConfigPage />} />
       </Route>
     </Routes>
   )
