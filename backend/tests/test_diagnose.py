@@ -14,6 +14,7 @@ from app.diagnose import (
     cosine,
     diagnose_document,
     diagnose_query,
+    estimate_truncation,
     find_documents,
     looks_like_toc,
     main,
@@ -49,10 +50,12 @@ class BatchSensitiveEmbeddings(FakeEmbeddings):
         return await super().embed([f"{text} ruido aleatorio del lote" for text in reversed(texts)])
 
 
-async def _upload(app: FastAPI, client: AsyncClient, name: str = "guia.md") -> Document:
+async def _upload(
+    app: FastAPI, client: AsyncClient, name: str = "guia.md", content: str = MARKDOWN
+) -> Document:
     assert (await client.post("/api/v1/admin/session", json=CREDENTIALS)).status_code == 200
     response = await client.post(
-        "/api/v1/admin/documents", files=[("files", (name, MARKDOWN.encode()))]
+        "/api/v1/admin/documents", files=[("files", (name, content.encode()))]
     )
     assert response.status_code == 200
     await app.state.tasks.drain()
@@ -229,3 +232,132 @@ def test_cli(settings: Settings, tmp_path: Path, capsys: pytest.CaptureFixture[s
 
     with pytest.raises(SystemExit):
         main(["index"], settings)
+
+
+# Índice tal como lo extrae PyMuPDF de muchos PDF: el número de página en otra línea.
+TOC_SPLIT_LINES = """Índice
+1. Introducción ...............
+3
+2. Vacaciones ...............
+5
+2.1 Solicitud
+6
+3. Teletrabajo
+9"""
+
+LONG_SECTION = " ".join(
+    f"El apartado {n} describe el procedimiento número {n} con sus requisitos, plazos y "
+    f"documentación necesaria para la tramitación del expediente."
+    for n in range(1, 25)
+)
+LONG_MARKDOWN = f"# Procedimientos\n\n{LONG_SECTION}\n"
+
+TRUNCATION_LIMIT = 300
+
+
+class TruncatingEmbeddings(FakeEmbeddings):
+    """Simula un servidor con contexto corto: ignora el texto a partir de un límite."""
+
+    async def embed(self, texts: Sequence[str]) -> list[list[float]]:
+        return await super().embed([text[:TRUNCATION_LIMIT] for text in texts])
+
+
+def test_toc_with_page_numbers_on_their_own_lines() -> None:
+    assert looks_like_toc(TOC_SPLIT_LINES)
+    # Una página normal con su número de página al pie no es un índice.
+    body = "\n".join(
+        [
+            "Las vacaciones se solicitan en el portal del empleado.",
+            "La solicitud debe hacerse con 15 días de antelación.",
+            "El responsable la aprueba o la rechaza en un plazo de 5 días.",
+            "Si se rechaza, el empleado puede proponer otras fechas.",
+            "Los días no disfrutados se pierden al final del año.",
+            "12",
+        ]
+    )
+    assert not looks_like_toc(body)
+
+
+async def test_truncation_check_without_truncation(
+    app: FastAPI, client: AsyncClient, settings: Settings
+) -> None:
+    document = await _upload(app, client, "largo.md", LONG_MARKDOWN)
+
+    report = await diagnose_document(
+        document,
+        settings,
+        app.state.vector_store,
+        app.state.embeddings,
+        truncation_check=True,
+    )
+
+    assert report.ok, report.problems
+    assert report.truncation_chars is None
+    assert all(c.probe_similarity is not None for c in report.chunks)
+    assert all(c.probe_similarity < 0.999 for c in report.chunks if c.probe_similarity)
+
+
+async def test_truncation_check_detects_and_estimates_the_limit(
+    app: FastAPI, client: AsyncClient, settings: Settings
+) -> None:
+    truncating = TruncatingEmbeddings()
+    app.state.documents._embeddings = truncating  # el servidor ya recortaba al indexar
+    document = await _upload(app, client, "largo.md", LONG_MARKDOWN)
+
+    report = await diagnose_document(
+        document, settings, app.state.vector_store, truncating, truncation_check=True
+    )
+
+    # Los vectores guardados coinciden con los actuales: sin esta prueba no se vería nada.
+    assert all(c.similarity == pytest.approx(1) for c in report.chunks)
+    assert report.truncation_chars is not None
+    assert TRUNCATION_LIMIT - 20 <= report.truncation_chars <= TRUNCATION_LIMIT
+    [problem] = report.problems
+    assert "recorta los textos" in problem
+    assert f"unos {report.truncation_chars} caracteres" in problem
+
+
+async def test_estimate_truncation_returns_whole_text_without_truncation() -> None:
+    embeddings = FakeEmbeddings()
+    text = "uno dos tres cuatro cinco seis siete ocho nueve diez"
+    [full] = await embeddings.embed([text])
+
+    assert await estimate_truncation(embeddings, text, full) >= len(text) - len("diez")
+
+
+async def test_query_full_ranking_for_a_document(
+    app: FastAPI, client: AsyncClient, settings: Settings
+) -> None:
+    await _upload(app, client)
+    other = await _upload(app, client, "largo.md", LONG_MARKDOWN)
+    total = await app.state.vector_store.count()
+
+    hits = await diagnose_query(
+        "días de vacaciones",
+        settings,
+        app.state.vector_store,
+        app.state.embeddings,
+        top=1,
+        full_ranking=True,
+    )
+
+    assert len(hits) == total
+    assert [item.rank for item in hits] == list(range(1, total + 1))
+    assert any(item.hit.document_id == other.id for item in hits)
+
+
+def test_cli_document_ranking_and_truncation(
+    settings: Settings, capsys: pytest.CaptureFixture[str]
+) -> None:
+    asyncio.run(_prepare(settings))
+
+    assert main(["query", "teletrabajo", "--top", "2", "--document", "guia"], settings) == 0
+    output = capsys.readouterr().out
+    assert "== guia.md (" in output
+    assert "el mejor queda en el puesto 1 de" in output
+    assert "Sus 2 mejores fragmentos:" in output
+
+    assert main(["index", "guia", "--truncation-check", "-v"], settings) == 0
+    output = capsys.readouterr().out
+    assert "recorte " in output
+    assert "Sin anomalías" in output

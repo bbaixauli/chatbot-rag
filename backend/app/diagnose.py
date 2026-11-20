@@ -6,13 +6,14 @@ recuperan para una pregunta.
 
 Uso (desde `backend/`, o con `docker compose exec backend` en Docker):
 
-    python -m app.diagnose index DOCUMENTO [DOCUMENTO ...] [--batch-check]
+    python -m app.diagnose index DOCUMENTO [DOCUMENTO ...] [--batch-check] [--truncation-check]
     python -m app.diagnose index --all [--max-chunks N]
-    python -m app.diagnose query "pregunta" [--top N]
+    python -m app.diagnose query "pregunta" [--top N] [--document DOCUMENTO]
 
 DOCUMENTO es el id del documento o parte de su nombre de fichero. Solo lee: no modifica la
 base de datos ni el índice. Cada fragmento se vuelve a enviar al servicio de embeddings, de
-uno en uno: en documentos grandes, limita la prueba con `--max-chunks`.
+uno en uno (y otra vez por cada comprobación opcional): en documentos grandes, limita la
+prueba con `--max-chunks`.
 
 Código de salida: 0 sin anomalías, 1 por error y 2 si se detecta alguna anomalía.
 """
@@ -46,10 +47,26 @@ DEFAULT_MIN_SIMILARITY = 0.99
 DUPLICATE_SIMILARITY = 0.9999
 SNIPPET_CHARS = 120
 
-# Línea de índice: termina en número de página, tras puntos de relleno o espacios.
-_TOC_LINE = re.compile(r"(?:\.{3,}|…+|\s)\s*\d{1,4}\s*$")
+# Líneas de un índice. Al extraer el texto de un PDF, el número de página puede quedar en la
+# misma línea que el título o en una línea aparte (y los puntos de relleno, en cualquiera).
+_TOC_LINE = re.compile(r"(?:\.{3,}|…+|\s)\s*\d{1,4}\s*$")  # «Vacaciones ..... 5»
+_PAGE_NUMBER_LINE = re.compile(r"^[.…·\s]*\d{1,4}$")  # «5» o «..... 5»
+_LEADER_LINE = re.compile(r"(?:\.{3,}|…+)\s*$")  # «Vacaciones .....»
 TOC_MIN_LINES = 5
-TOC_MIN_RATIO = 0.5
+TOC_MIN_RATIO = 0.4
+
+# Comprobación de recorte: texto sin relación que se añade al final de un fragmento. Si el
+# vector no cambia, el servidor no lo ha leído: recorta los textos antes de ese punto.
+TRUNCATION_PROBE = " ".join(
+    [
+        "Texto de control sin relación con el documento, añadido para comprobar si el",
+        "servicio de embeddings tiene en cuenta el final de cada fragmento. Incluye palabras",
+        "variadas: astronomía, cocina mediterránea, ferrocarriles, ajedrez, volcanes,",
+        "orquestas sinfónicas, arrecifes de coral, satélites meteorológicos y molinos de viento.",
+    ]
+    * 2
+)
+TRUNCATION_SIMILARITY = 0.999
 
 
 class DiagnoseError(Exception):
@@ -67,11 +84,15 @@ def cosine(a: Sequence[float], b: Sequence[float]) -> float:
 
 
 def looks_like_toc(text: str) -> bool:
-    """True si el texto parece un índice (mayoría de líneas acabadas en número de página)."""
+    """True si el texto parece un índice (muchas líneas con número de página o relleno)."""
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     if len(lines) < TOC_MIN_LINES:
         return False
-    matches = sum(1 for line in lines if _TOC_LINE.search(line))
+    matches = sum(
+        1
+        for line in lines
+        if _TOC_LINE.search(line) or _PAGE_NUMBER_LINE.match(line) or _LEADER_LINE.search(line)
+    )
     return matches / len(lines) >= TOC_MIN_RATIO
 
 
@@ -94,6 +115,8 @@ class ChunkCheck:
     location: str
     similarity: float | None = None
     batch_similarity: float | None = None
+    # Similitud entre el fragmento y el fragmento con texto añadido al final (≈1: recorte).
+    probe_similarity: float | None = None
     toc: bool = False
     snippet: str = ""
 
@@ -110,6 +133,8 @@ class DocumentReport:
     stored_chunks: int = 0
     expected_chunks: int | None = None
     checked_chunks: int = 0
+    # Caracteres a partir de los que el servidor de embeddings ignora el texto, si recorta.
+    truncation_chars: int | None = None
     problems: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
     chunks: list[ChunkCheck] = field(default_factory=list)
@@ -183,6 +208,25 @@ async def _batch_vectors(
     return vectors
 
 
+async def _embed_one(embeddings: Embeddings, text: str) -> list[float]:
+    return (await embeddings.embed([text]))[0]
+
+
+async def estimate_truncation(embeddings: Embeddings, text: str, full: Sequence[float]) -> int:
+    """Longitud mínima del principio de `text` cuyo vector ya es el del texto completo.
+
+    Búsqueda binaria: unas 12 peticiones para un fragmento de 3.000 caracteres.
+    """
+    low, high = 1, len(text)
+    while low < high:
+        middle = (low + high) // 2
+        if cosine(await _embed_one(embeddings, text[:middle]), full) >= TRUNCATION_SIMILARITY:
+            high = middle
+        else:
+            low = middle + 1
+    return low
+
+
 async def diagnose_document(
     document: Document,
     settings: Settings,
@@ -192,6 +236,7 @@ async def diagnose_document(
     min_similarity: float = DEFAULT_MIN_SIMILARITY,
     max_chunks: int | None = None,
     batch_check: bool = False,
+    truncation_check: bool = False,
 ) -> DocumentReport:
     """Compara lo indexado de un documento con lo que se generaría ahora."""
     report = DocumentReport(
@@ -255,12 +300,20 @@ async def diagnose_document(
         report.notes.append(f"Solo se comprueban los {len(sample)} primeros fragmentos")
     try:
         # Uno a uno: el resultado no depende de cómo agrupe el servidor las peticiones.
-        fresh = [(await embeddings.embed([chunk.text]))[0] for chunk in sample]
+        fresh = [await _embed_one(embeddings, chunk.text) for chunk in sample]
         batched = (
             await _batch_vectors(
                 embeddings, [chunk.text for chunk in sample], settings.embedding_batch_size
             )
             if batch_check
+            else None
+        )
+        probed = (
+            [
+                await _embed_one(embeddings, f"{chunk.text}\n\n{TRUNCATION_PROBE}")
+                for chunk in sample
+            ]
+            if truncation_check
             else None
         )
     except EmbeddingError as exc:
@@ -270,6 +323,7 @@ async def diagnose_document(
     report.checked_chunks = len(sample)
     low: list[int] = []
     batch_low: list[int] = []
+    truncated: list[int] = []
     for position, chunk in enumerate(sample):
         check = ChunkCheck(
             chunk_index=chunk.chunk_index,
@@ -284,6 +338,10 @@ async def diagnose_document(
             check.batch_similarity = cosine(batched[position], fresh[position])
             if check.batch_similarity < min_similarity:
                 batch_low.append(chunk.chunk_index)
+        if probed is not None:
+            check.probe_similarity = cosine(probed[position], fresh[position])
+            if check.probe_similarity >= TRUNCATION_SIMILARITY:
+                truncated.append(chunk.chunk_index)
         report.chunks.append(check)
     if low:
         report.problems.append(
@@ -295,6 +353,24 @@ async def diagnose_document(
             f"El servicio devuelve vectores distintos en lotes de "
             f"{settings.embedding_batch_size} que de uno en uno en {len(batch_low)} "
             f"fragmentos: {batch_low[:20]}"
+        )
+    if truncated:
+        # Se estima el límite con el fragmento recortado más largo.
+        longest = max(
+            (chunk for chunk in sample if chunk.chunk_index in truncated),
+            key=lambda chunk: len(chunk.text),
+        )
+        try:
+            full = fresh[sample.index(longest)]
+            report.truncation_chars = await estimate_truncation(embeddings, longest.text, full)
+            limit = f"unos {report.truncation_chars} caracteres"
+        except EmbeddingError:
+            limit = "una longitud que no se ha podido estimar"
+        report.problems.append(
+            f"El servicio de embeddings recorta los textos: ignora lo que hay a partir de "
+            f"{limit} en {len(truncated)} de {len(sample)} fragmentos ({truncated[:20]}). "
+            f"Baja CHATBOT_CHUNK_SIZE_CHARS por debajo de ese límite o amplía el contexto del "
+            f"modelo de embeddings en el servidor, y reindexa"
         )
     return report
 
@@ -311,15 +387,23 @@ class QueryHit:
 
 
 async def diagnose_query(
-    query: str, settings: Settings, store: VectorStore, embeddings: Embeddings, top: int
+    query: str,
+    settings: Settings,
+    store: VectorStore,
+    embeddings: Embeddings,
+    top: int,
+    full_ranking: bool = False,
 ) -> list[QueryHit]:
-    """Fragmentos más parecidos a la pregunta, con los criterios del `Retriever`."""
+    """Fragmentos más parecidos a la pregunta, con los criterios del `Retriever`.
+
+    Con `full_ranking` se clasifica todo el índice (para ver en qué puesto queda un
+    documento concreto); si no, solo los `top` primeros.
+    """
     [vector] = await embeddings.embed([query])
-    hits = sorted(
-        await store.search(vector, max(top, settings.rag_top_k)),
-        key=lambda h: h.score,
-        reverse=True,
-    )
+    limit = await store.count() if full_ranking else max(top, settings.rag_top_k)
+    if limit == 0:
+        return []
+    hits = sorted(await store.search(vector, limit), key=lambda h: h.score, reverse=True)
     result = []
     used_chars = 0
     used_count = 0
@@ -373,38 +457,77 @@ def print_document_report(report: DocumentReport, out: TextIO, verbose: bool) ->
         print("   ✓ Sin anomalías", file=out)
     if verbose:
         for check in report.chunks:
-            batch_text = (
-                f" lote {check.batch_similarity:.4f}" if check.batch_similarity is not None else ""
-            )
+            extra = ""
+            if check.batch_similarity is not None:
+                extra += f" lote {check.batch_similarity:.4f}"
+            if check.probe_similarity is not None:
+                extra += f" recorte {check.probe_similarity:.4f}"
             print(
                 f"     #{check.chunk_index:<4} {check.location:<12} "
-                f"{check.similarity or 0:.4f}{batch_text}{' [índice]' if check.toc else ''}  "
+                f"{check.similarity or 0:.4f}{extra}{' [índice]' if check.toc else ''}  "
                 f"{check.snippet}",
                 file=out,
             )
 
 
-def print_query_report(query: str, hits: Sequence[QueryHit], out: TextIO) -> None:
+def _print_hit(item: QueryHit, out: TextIO, reason: bool = True) -> None:
+    hit = item.hit
+    mark = "✓" if item.used else "·"
+    location = _location(hit.page, hit.heading)
+    print(
+        f"{mark} {item.rank:>3}. {hit.score:.4f}  {hit.filename} · {location} · "
+        f"#{hit.chunk_index}{' [índice]' if item.toc else ''}",
+        file=out,
+    )
+    print(f"        {_snippet(hit.text)}", file=out)
+    if reason and item.reason:
+        print(f"        no se usa: {item.reason}", file=out)
+
+
+def print_query_report(
+    query: str,
+    hits: Sequence[QueryHit],
+    out: TextIO,
+    top: int = 10,
+    documents: Sequence[Document] = (),
+) -> None:
     print(f"Pregunta: {query}", file=out)
     print("(sin reformular: el chat reescribe las preguntas de seguimiento)\n", file=out)
     if not hits:
         print("El índice no devuelve ningún fragmento.", file=out)
         return
-    for item in hits:
-        hit = item.hit
-        mark = "✓" if item.used else "·"
-        location = _location(hit.page, hit.heading)
+    shown = hits[:top]
+    for item in shown:
+        _print_hit(item, out)
+    used = [item for item in hits if item.used]
+    toc_used = sum(1 for item in used if item.toc)
+    print(f"\nEl chat usaría {len(used)} fragmentos; {toc_used} con aspecto de índice.", file=out)
+
+    for document in documents:
+        own = [item for item in hits if item.hit.document_id == document.id]
+        print(f"\n== {document.filename} ({document.id})", file=out)
+        if not own:
+            print("   El documento no tiene fragmentos en el índice.", file=out)
+            continue
+        best = own[0]
         print(
-            f"{mark} {item.rank:>2}. {hit.score:.4f}  {hit.filename} · {location} · "
-            f"#{hit.chunk_index}{' [índice]' if item.toc else ''}",
+            f"   {len(own)} fragmentos; el mejor queda en el puesto {best.rank} de {len(hits)} "
+            f"(score {best.hit.score:.4f})",
             file=out,
         )
-        print(f"       {_snippet(hit.text)}", file=out)
-        if item.reason:
-            print(f"       no se usa: {item.reason}", file=out)
-    toc_used = sum(1 for item in hits if item.used and item.toc)
-    used = sum(1 for item in hits if item.used)
-    print(f"\nEl chat usaría {used} fragmentos; {toc_used} con aspecto de índice.", file=out)
+        if used and not best.used:
+            last = used[-1]
+            print(
+                f"   El último fragmento que llega al modelo es el {last.rank} "
+                f"(score {last.hit.score:.4f}): faltan {last.hit.score - best.hit.score:.4f}",
+                file=out,
+            )
+        toc = sum(1 for item in own if item.toc)
+        if toc:
+            print(f"   {toc} de sus fragmentos tienen aspecto de índice", file=out)
+        print(f"   Sus {min(top, len(own))} mejores fragmentos:", file=out)
+        for item in own[:top]:
+            _print_hit(item, out, reason=False)
 
 
 async def run(args: argparse.Namespace, settings: Settings, out: TextIO) -> int:
@@ -413,8 +536,15 @@ async def run(args: argparse.Namespace, settings: Settings, out: TextIO) -> int:
     embeddings = build_embeddings(settings)
     try:
         if args.command == "query":
-            hits = await diagnose_query(args.question, settings, store, embeddings, args.top)
-            print_query_report(args.question, hits, out)
+            selected = (
+                await find_documents(build_sessionmaker(engine), args.document, False)
+                if args.document
+                else []
+            )
+            hits = await diagnose_query(
+                args.question, settings, store, embeddings, args.top, full_ranking=bool(selected)
+            )
+            print_query_report(args.question, hits, out, args.top, selected)
             return 0
         documents = await find_documents(build_sessionmaker(engine), args.documents, args.all)
         if not documents:
@@ -435,6 +565,7 @@ async def run(args: argparse.Namespace, settings: Settings, out: TextIO) -> int:
                 min_similarity=args.min_similarity,
                 max_chunks=args.max_chunks,
                 batch_check=args.batch_check,
+                truncation_check=args.truncation_check,
             )
             print_document_report(report, out, args.verbose)
             reports.append(report)
@@ -460,6 +591,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Compara también los vectores calculados en lotes con los calculados de uno en uno",
     )
     index.add_argument(
+        "--truncation-check",
+        action="store_true",
+        help="Comprueba si el servicio de embeddings ignora el final de los fragmentos",
+    )
+    index.add_argument(
         "--min-similarity",
         type=float,
         default=DEFAULT_MIN_SIMILARITY,
@@ -472,6 +608,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     query.add_argument("question")
     query.add_argument("--top", type=int, default=10, help="Resultados a mostrar (por defecto 10)")
+    query.add_argument(
+        "--document",
+        action="append",
+        metavar="DOCUMENTO",
+        help="Muestra en qué puesto quedan los fragmentos de este documento (se puede repetir)",
+    )
     return parser
 
 

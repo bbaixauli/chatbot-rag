@@ -376,6 +376,13 @@ docker compose exec backend python -m app.diagnose index --all --max-chunks 50
 
 # Qué fragmentos se recuperan para una pregunta y cuáles usaría el chat
 docker compose exec backend python -m app.diagnose query "¿cómo se solicitan las vacaciones?"
+
+# En qué puesto quedan los fragmentos del documento que debería responder
+docker compose exec backend python -m app.diagnose query "¿cómo se solicitan las vacaciones?" \
+  --document manual-empleado
+
+# ¿Recorta el servidor de embeddings los fragmentos largos?
+docker compose exec backend python -m app.diagnose index manual-empleado --truncation-check --max-chunks 10
 ```
 
 `index` compara, por documento:
@@ -388,9 +395,17 @@ docker compose exec backend python -m app.diagnose query "¿cómo se solicitan l
   los calculados de uno en uno. Si difieren, el servidor de embeddings no es fiable con lotes:
   baja `CHATBOT_EMBEDDING_BATCH_SIZE` y pulsa *Reindexar todo*.
 
+- con `--truncation-check`, si el servidor de embeddings ignora el final de los fragmentos:
+  añade un texto de control al final de cada uno y comprueba si el vector cambia. Si no
+  cambia, el servidor recorta los textos (contexto del modelo demasiado corto) y el script
+  estima a partir de cuántos caracteres. En ese caso, baja `CHATBOT_CHUNK_SIZE_CHARS` por
+  debajo de ese límite o amplía el contexto del modelo en el servidor, y reindexa.
+
 También señala los vectores nulos, los textos distintos con el mismo vector y los fragmentos
 con aspecto de índice (tabla de contenidos). Termina con código 2 si encuentra anomalías.
 
 `query` busca la pregunta sin reformularla (el chat reescribe las preguntas de seguimiento) y
 marca con ✓ los fragmentos que llegarían al modelo según `CHATBOT_RAG_TOP_K`,
-`CHATBOT_RAG_MIN_SCORE` y `CHATBOT_RAG_MAX_CONTEXT_CHARS`.
+`CHATBOT_RAG_MIN_SCORE` y `CHATBOT_RAG_MAX_CONTEXT_CHARS`. Con `--document` (se puede repetir)
+clasifica todo el índice y muestra en qué puesto quedan los fragmentos de ese documento, con
+la diferencia de score respecto al último fragmento que llega al modelo.
