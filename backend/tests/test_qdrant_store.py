@@ -204,3 +204,17 @@ async def test_gives_up_if_the_collection_never_becomes_ready(
 
     with pytest.raises(RuntimeError, match="no disponible"):
         await _add(store, "d1", CHUNKS)
+
+
+async def test_document_chunks_returns_vectors_in_order(store: QdrantVectorStore) -> None:
+    assert await store.document_chunks("d1") == []  # sin colección
+    embeddings = await _add(store, "d1", list(reversed(CHUNKS)))
+    await _add(store, "d2", CHUNKS[:1])
+
+    chunks = await store.document_chunks("d1")
+
+    assert [c.chunk_index for c in chunks] == [0, 1, 2]
+    assert [c.text for c in chunks] == [c.text for c in CHUNKS]
+    assert (chunks[0].page, chunks[1].heading) == (1, "Vacaciones")
+    [expected] = await embeddings.embed([CHUNKS[2].text])
+    assert chunks[2].vector == pytest.approx(expected, abs=1e-6)

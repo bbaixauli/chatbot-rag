@@ -25,6 +25,17 @@ class SearchHit:
     score: float
 
 
+@dataclass(frozen=True, slots=True)
+class StoredChunk:
+    """Fragmento guardado en el índice con su vector (para diagnóstico)."""
+
+    chunk_index: int
+    text: str
+    page: int | None
+    heading: str | None
+    vector: list[float]
+
+
 class VectorStoreError(Exception):
     """Error del índice con un mensaje comprensible para la administración."""
 
@@ -47,6 +58,10 @@ class VectorStore(Protocol):
         ...
 
     async def search(self, embedding: Sequence[float], limit: int) -> list[SearchHit]: ...
+
+    async def document_chunks(self, document_id: str) -> list[StoredChunk]:
+        """Fragmentos de un documento con sus vectores, ordenados por índice."""
+        ...
 
     async def count(self) -> int: ...
 
@@ -154,6 +169,31 @@ class ChromaVectorStore:
                 )
             )
         return hits
+
+    async def document_chunks(self, document_id: str) -> list[StoredChunk]:
+        result = await asyncio.to_thread(
+            self._collection.get,
+            where={"document_id": document_id},
+            include=["documents", "metadatas", "embeddings"],
+        )
+        documents = result["documents"] or []
+        metadatas = result["metadatas"] or []
+        embeddings = result["embeddings"]
+        vectors = [] if embeddings is None else embeddings
+        chunks = []
+        for text, metadata, vector in zip(documents, metadatas, vectors, strict=True):
+            page = metadata.get("page")
+            heading = metadata.get("heading")
+            chunks.append(
+                StoredChunk(
+                    chunk_index=int(str(metadata["chunk_index"])),
+                    text=text,
+                    page=int(str(page)) if page is not None else None,
+                    heading=str(heading) if heading is not None else None,
+                    vector=[float(v) for v in vector],
+                )
+            )
+        return sorted(chunks, key=lambda c: c.chunk_index)
 
     async def count(self) -> int:
         return await asyncio.to_thread(self._collection.count)

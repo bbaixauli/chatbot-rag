@@ -70,6 +70,11 @@ def _next_request_time(previous: datetime) -> datetime:
     return max(utcnow(), _as_utc(previous) + timedelta(microseconds=1))
 
 
+def document_file_path(settings: Settings, document: Document) -> Path:
+    """Ruta del original en disco (nombrado por id para evitar colisiones)."""
+    return settings.uploads_dir / f"{document.id}{Path(document.filename).suffix.lower()}"
+
+
 def safe_filename(filename: str) -> str:
     """Nombre visible del fichero sin rutas ni caracteres de control."""
     name = Path(filename.replace("\\", "/")).name
@@ -97,7 +102,7 @@ class DocumentService:
 
     def file_path(self, document: Document) -> Path:
         """Ruta del original en disco (nombrado por id para evitar colisiones)."""
-        return self._settings.uploads_dir / f"{document.id}{Path(document.filename).suffix.lower()}"
+        return document_file_path(self._settings, document)
 
     async def upload(self, filename: str, content: AsyncReadable, uploaded_by: str) -> UploadResult:
         """Guarda el fichero, detecta duplicados y programa su indexación."""

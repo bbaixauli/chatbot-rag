@@ -360,3 +360,37 @@ colección de Qdrant vaciada y reindexada por los workers). También se ejecuta 
 | «No se pudo conectar con el modelo» | El contenedor no alcanza `CHATBOT_LLM_BASE_URL`. Si el servidor de IA está en el mismo equipo, usa su IP o `host.docker.internal`, no `localhost` |
 | Las sesiones de administración se pierden al reiniciar (fuera de Docker) | Falta `CHATBOT_SESSION_SECRET` |
 | Todos los usuarios reciben `429` a la vez | Hay un proxy delante sin configurar `real_ip` (ver HTTPS) |
+| El modelo dice que los documentos no contienen la respuesta | Revisa el índice y la recuperación con `app.diagnose` (abajo) |
+
+### Diagnóstico del índice y de la recuperación
+
+`app.diagnose` solo lee: no modifica la base de datos ni el índice.
+
+```bash
+# ¿Están completos los fragmentos de un documento y coinciden sus vectores con los que
+# calcula ahora el servicio de embeddings? (id o parte del nombre del fichero)
+docker compose exec backend python -m app.diagnose index manual-empleado --batch-check -v
+
+# Todos los documentos indexados (limitando los fragmentos que se vuelven a calcular)
+docker compose exec backend python -m app.diagnose index --all --max-chunks 50
+
+# Qué fragmentos se recuperan para una pregunta y cuáles usaría el chat
+docker compose exec backend python -m app.diagnose query "¿cómo se solicitan las vacaciones?"
+```
+
+`index` compara, por documento:
+
+- los fragmentos que indica la base de datos, los que hay en el índice y los que se generan
+  ahora a partir del fichero original;
+- cada vector guardado con el que devuelve ahora el servicio de embeddings, enviando los
+  fragmentos de uno en uno (similitud mínima esperada: 0,99);
+- con `--batch-check`, los vectores calculados en lotes de `CHATBOT_EMBEDDING_BATCH_SIZE` con
+  los calculados de uno en uno. Si difieren, el servidor de embeddings no es fiable con lotes:
+  baja `CHATBOT_EMBEDDING_BATCH_SIZE` y pulsa *Reindexar todo*.
+
+También señala los vectores nulos, los textos distintos con el mismo vector y los fragmentos
+con aspecto de índice (tabla de contenidos). Termina con código 2 si encuentra anomalías.
+
+`query` busca la pregunta sin reformularla (el chat reescribe las preguntas de seguimiento) y
+marca con ✓ los fragmentos que llegarían al modelo según `CHATBOT_RAG_TOP_K`,
+`CHATBOT_RAG_MIN_SCORE` y `CHATBOT_RAG_MAX_CONTEXT_CHARS`.

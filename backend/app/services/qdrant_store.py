@@ -12,7 +12,7 @@ from typing import Any
 from qdrant_client import AsyncQdrantClient, models
 
 from app.services.ingestion.chunker import Chunk
-from app.services.vectorstore import SearchHit, VectorStoreError
+from app.services.vectorstore import SearchHit, StoredChunk, VectorStoreError
 
 logger = logging.getLogger(__name__)
 
@@ -165,6 +165,43 @@ class QdrantVectorStore:
             self._collection, query=list(embedding), limit=limit, with_payload=True
         )
         return [_hit(point.payload or {}, point.score) for point in result.points]
+
+    async def document_chunks(self, document_id: str) -> list[StoredChunk]:
+        if not await self._client.collection_exists(self._collection):
+            return []
+        condition = models.FieldCondition(
+            key="document_id", match=models.MatchValue(value=document_id)
+        )
+        chunks: list[StoredChunk] = []
+        offset: Any = None
+        while True:
+            points, offset = await self._client.scroll(
+                self._collection,
+                scroll_filter=models.Filter(must=[condition]),
+                limit=256,
+                offset=offset,
+                with_payload=True,
+                with_vectors=True,
+            )
+            for point in points:
+                payload = point.payload or {}
+                page = payload.get("page")
+                heading = payload.get("heading")
+                vector = point.vector
+                if not isinstance(vector, list):
+                    raise VectorStoreError("La colección no usa un único vector por fragmento")
+                chunks.append(
+                    StoredChunk(
+                        chunk_index=int(payload["chunk_index"]),
+                        text=str(payload["text"]),
+                        page=int(page) if page is not None else None,
+                        heading=str(heading) if heading else None,
+                        vector=[float(v) for v in vector],  # type: ignore[arg-type]
+                    )
+                )
+            if offset is None:
+                break
+        return sorted(chunks, key=lambda c: c.chunk_index)
 
     async def count(self) -> int:
         if not await self._client.collection_exists(self._collection):
