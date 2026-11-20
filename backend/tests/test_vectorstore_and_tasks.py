@@ -115,3 +115,24 @@ async def test_chroma_reset_allows_a_new_embedding_dimension(tmp_path: Path) -> 
     assert await store.count() == 0
     await store.add("d1", "a.md", [chunk], [[0.1] * 16])
     assert await store.count() == 1
+
+
+async def test_chroma_document_chunks_returns_vectors_in_order() -> None:
+    store = ChromaVectorStore(None, "fragmentos-documento")
+    embeddings = FakeEmbeddings(dimensions=16)
+    chunks = [
+        Chunk(index=1, text="Vacaciones: 23 días", page=None, heading="Vacaciones"),
+        Chunk(index=0, text="Horario de 8 a 15", page=1, heading=None),
+    ]
+    vectors = await embeddings.embed([c.text for c in chunks])
+    await store.add("d1", "d1.md", chunks, vectors)
+    await store.add("d2", "d2.md", chunks[:1], vectors[:1])
+
+    stored = await store.document_chunks("d1")
+
+    assert [c.chunk_index for c in stored] == [0, 1]
+    assert (stored[0].text, stored[0].page, stored[0].heading) == ("Horario de 8 a 15", 1, None)
+    assert stored[1].heading == "Vacaciones"
+    assert stored[0].vector == pytest.approx(vectors[1], abs=1e-6)
+    assert await store.document_chunks("otro") == []
+    store.drop()
