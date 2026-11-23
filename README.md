@@ -161,6 +161,16 @@ El informe muestra, por configuración, el acierto@k, MRR, recall, precisión y 
 y recomienda el tamaño de fragmento, el solapamiento, el top-k y la puntuación mínima.
 Tras cambiar el troceado hay que reindexar los documentos.
 
+### Cuadro de mando
+
+*Administración → Cuadro de mando* (la página de entrada de la administración) muestra, para
+un rango de fechas: sesiones (solo las que preguntan), usuarios, preguntas, tiempo medio y
+mediano de respuesta, porcentaje de preguntas respondidas sin decir que no se tiene la
+información, una gráfica diaria con su tabla equivalente y la tabla de preguntas y respuestas
+con su hora y tiempo, descargable en CSV y Excel. No muestra quién preguntó. Las preguntas se
+guardan en un registro propio que no se pierde al borrar conversaciones. Las frases que
+indican «sin información» se configuran en la misma página.
+
 ### Estilos y accesibilidad
 
 La interfaz sigue el *Manual de estilos para aplicaciones internas* (WCAG 2.1 AA). Los colores

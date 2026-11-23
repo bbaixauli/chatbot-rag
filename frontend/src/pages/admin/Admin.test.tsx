@@ -54,7 +54,8 @@ describe('Login', () => {
     await userEvent.type(screen.getByLabelText('Contraseña'), 'secreto')
     await userEvent.click(screen.getByRole('button', { name: 'Entrar' }))
 
-    expect(await screen.findByLabelText('Prompt de sistema')).toHaveValue('Prompt por defecto')
+    // La administración empieza en el cuadro de mando.
+    expect(await screen.findByRole('heading', { level: 1, name: 'Cuadro de mando' })).toBeVisible()
     expect(api).toHaveBeenCalledWith('/api/v1/admin/session', expect.anything())
   })
 
@@ -89,10 +90,10 @@ describe('Login', () => {
     expect(screen.queryByLabelText('Usuario')).toBeNull()
   })
 
-  it('con sesión iniciada, el login redirige al prompt', async () => {
+  it('con sesión iniciada, el login redirige al cuadro de mando', async () => {
     adminApi()
     renderApp('/admin/login')
-    expect(await screen.findByLabelText('Prompt de sistema')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Cuadro de mando' })).toBeVisible()
   })
 
   it('cierra sesión y vuelve al login', async () => {
@@ -113,7 +114,7 @@ describe('Login', () => {
     adminApi()
     renderApp('/')
     await userEvent.click(screen.getByRole('link', { name: 'Administración' }))
-    expect(await screen.findByLabelText('Prompt de sistema')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Cuadro de mando' })).toBeVisible()
   })
 })
 

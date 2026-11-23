@@ -33,7 +33,7 @@ async function adminLogin(page: Page) {
   await page.getByLabel('Usuario').fill('admin')
   await page.getByLabel('Contraseña').fill(ADMIN_PASSWORD)
   await page.getByRole('button', { name: 'Entrar' }).click()
-  await expect(page.getByRole('heading', { name: 'Prompt de sistema' })).toBeVisible()
+  await expect(page.getByRole('heading', { level: 1, name: 'Cuadro de mando' })).toBeVisible()
 }
 
 for (const viewport of WIDTHS) {
@@ -65,6 +65,7 @@ for (const viewport of WIDTHS) {
 
       await adminLogin(page)
       for (const [path, heading] of [
+        ['/admin/dashboard', 'Cuadro de mando'],
         ['/admin/prompt', 'Prompt de sistema'],
         ['/admin/documents', 'Documentos'],
         ['/admin/chat', 'Mensaje inicial del chat'],

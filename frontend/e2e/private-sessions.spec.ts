@@ -88,7 +88,7 @@ test('activadas, cada visitante ve solo sus conversaciones', async ({ browser })
   // Entrar y salir de la administración no cierra la sesión privada.
   await first.getByRole('banner').getByRole('link', { name: 'Administración' }).click()
   await adminLogin(first)
-  await expect(first.getByRole('heading', { name: 'Prompt de sistema' })).toBeVisible()
+  await expect(first.getByRole('heading', { level: 1, name: 'Cuadro de mando' })).toBeVisible()
   await first.getByRole('button', { name: 'Cerrar sesión' }).click()
   await first.goto('/')
   await expect(history(first).getByRole('link')).toHaveText([privateQuestion])
