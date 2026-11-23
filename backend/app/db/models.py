@@ -176,7 +176,7 @@ class AccessKind(StrEnum):
 
 
 class QuestionLog(Base):
-    """Registro de cada pregunta para el cuadro de mando (#51).
+    """Registro de cada pregunta para el cuadro de mando (#51) y la auditoría (#50).
 
     Es independiente de las conversaciones: si se borra la conversación, la fila y sus
     textos se conservan (`conversation_id` pasa a nulo).
@@ -187,7 +187,7 @@ class QuestionLog(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     asked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     session_id: Mapped[str | None] = mapped_column(String(64))
-    user_id: Mapped[str | None] = mapped_column(String(255))
+    user_id: Mapped[str | None] = mapped_column(String(255), index=True)
     access_kind: Mapped[str] = mapped_column(String(16))
     conversation_id: Mapped[str | None] = mapped_column(
         ForeignKey("conversations.id", ondelete="SET NULL"), index=True
@@ -202,3 +202,15 @@ class QuestionLog(Base):
     response_ms: Mapped[int | None] = mapped_column(Integer)
     sources_retrieved: Mapped[int] = mapped_column(Integer, default=0)
     sources_cited: Mapped[int] = mapped_column(Integer, default=0)
+    # Auditoría (#50): quién, desde dónde y con qué se respondió. La IP, el navegador y el
+    # nombre se anonimizan pasado el plazo configurado.
+    client_ip: Mapped[str | None] = mapped_column(String(45), index=True)
+    user_agent: Mapped[str | None] = mapped_column(String(300))
+    user_display_name: Mapped[str | None] = mapped_column(String(255))
+    model: Mapped[str | None] = mapped_column(String(255))
+    prompt_version_id: Mapped[int | None] = mapped_column(Integer)
+    # Consulta con la que se buscó en los documentos (la pregunta reformulada).
+    search_query: Mapped[str | None] = mapped_column(Text)
+    # [{"document_id", "filename", "page", "cited"}] de las fuentes mostradas.
+    cited_documents: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON)
+    error_detail: Mapped[str | None] = mapped_column(Text)
