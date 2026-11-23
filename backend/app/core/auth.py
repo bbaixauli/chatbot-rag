@@ -26,6 +26,7 @@ from fastapi import Depends, HTTPException, Request, status
 from app.api.deps import DbSession, RuntimeConfigDep
 from app.core.config import Settings
 from app.core.runtime_config import RuntimeConfig
+from app.db.models import AccessKind
 from app.services.access import AccessRepository
 
 ANONYMOUS_USER_ID = "anonymous"
@@ -34,6 +35,9 @@ ANONYMOUS_SESSION_PREFIX = "anon:"
 ANONYMOUS_DISPLAY_NAME = "Anónimo"
 SESSION_ADMIN_KEY = "admin"
 SESSION_USER_KEY = "user"
+# Identificador de la sesión de navegador del chat (cuadro de mando, #51). Cambia al iniciar
+# o cerrar sesión, al entrar de forma anónima y al terminar una sesión privada.
+SESSION_CHAT_ID_KEY = "sid"
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,6 +107,24 @@ def store_session_user(request: Request, user: CurrentUser, keep_admin: bool = F
 def end_session_user(request: Request) -> None:
     """Cierra la sesión del chat. La de administración de la cuenta local se conserva."""
     request.session.pop(SESSION_USER_KEY, None)
+    request.session.pop(SESSION_CHAT_ID_KEY, None)
+
+
+def chat_session_id(request: Request) -> str:
+    """Id de la sesión de navegador del chat; se crea la primera vez que se pregunta."""
+    current = request.session.get(SESSION_CHAT_ID_KEY)
+    if isinstance(current, str) and current:
+        return current
+    new_id = uuid.uuid4().hex
+    request.session[SESSION_CHAT_ID_KEY] = new_id
+    return new_id
+
+
+def access_kind(auth_mode: str, user: CurrentUser) -> AccessKind:
+    """Cómo ha accedido el usuario (para las estadísticas)."""
+    if auth_mode == "ldap":
+        return AccessKind.ANONYMOUS if user.is_anonymous else AccessKind.LDAP
+    return AccessKind.PRIVATE if user.is_anonymous else AccessKind.SHARED
 
 
 async def active_session_user(

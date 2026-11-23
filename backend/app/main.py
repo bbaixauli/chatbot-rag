@@ -10,11 +10,13 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from app.api import admin, appearance, auth, chat, conversations, documents, health
 from app.api import config as config_api
+from app.api import dashboard as dashboard_api
 from app.core.config import APP_TITLE, Settings, get_settings
 from app.core.ldap_auth import ConfigurableLdap
 from app.core.logging import RequestContextMiddleware, configure_logging
 from app.core.rate_limit import RateLimiter
 from app.db.session import build_engine, build_sessionmaker
+from app.services import dashboard
 from app.services.backends import build_task_runner, build_vector_store, close_vector_store
 from app.services.documents import DocumentService
 from app.services.embeddings import ConfigurableEmbeddings
@@ -68,6 +70,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             resumed = await app.state.documents.resume_pending()
             if resumed:
                 logger.info("Reanudada la indexación de %d documentos", resumed)
+            await dashboard.initialize(app.state.sessionmaker)
         except OperationalError:
             logger.warning("No se pudo consultar la BD al arrancar: ¿falta `alembic upgrade head`?")
         yield
@@ -99,6 +102,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         documents.public_router,
         appearance.router,
         appearance.public_router,
+        dashboard_api.router,
     ):
         app.include_router(router, prefix=API_PREFIX)
     return app

@@ -198,6 +198,10 @@ Documentación interactiva en http://localhost:8000/docs. Endpoints principales:
 | GET/POST/DELETE | `/api/v1/admin/session` | Estado / inicio / cierre de sesión de administración |
 | GET/PUT | `/api/v1/admin/chat-config` | Mensaje inicial y preguntas sugeridas (admin) |
 | GET | `/api/v1/appearance`, `/api/v1/appearance.css`, `/api/v1/appearance/logo` | Apariencia pública: textos, hoja de estilos y logo |
+| GET | `/api/v1/admin/dashboard/summary?from&to` | Cuadro de mando: sesiones, usuarios, preguntas, tiempos y serie diaria (admin) |
+| GET | `/api/v1/admin/dashboard/questions?from&to&page&size` | Preguntas y respuestas del rango, paginadas (admin) |
+| GET | `/api/v1/admin/dashboard/questions.csv`, `.xlsx` | Exportación de las preguntas del rango (admin) |
+| GET/PUT | `/api/v1/admin/dashboard/no-info-phrases` | Frases que indican «sin información»; al cambiarlas se reclasifica el registro (admin) |
 | GET/PUT/DELETE | `/api/v1/admin/appearance` | Apariencia: consultar, guardar (con avisos de contraste) y restablecer (admin) |
 | PUT/DELETE | `/api/v1/admin/appearance/logo` | Subir o quitar el logo (admin) |
 | GET/PUT | `/api/v1/admin/access` | Acceso anónimo (con LDAP) o sesiones privadas (sin LDAP) (admin) |

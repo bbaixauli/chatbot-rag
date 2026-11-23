@@ -1,9 +1,12 @@
 """Orquestación de una petición de chat con respuesta en streaming (SSE)."""
 
+import asyncio
 import json
 import logging
+import time
 from collections.abc import AsyncIterator, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import select
@@ -11,14 +14,27 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import Settings
 from app.core.runtime_config import RuntimeConfig
-from app.db.models import Document, Message, MessageRole, MessageSource
+from app.db.models import (
+    AccessKind,
+    Document,
+    Message,
+    MessageRole,
+    MessageSource,
+    QuestionStatus,
+    utcnow,
+)
 from app.services.condense import condense_question
 from app.services.conversations import ConversationRepository, make_title
+from app.services.dashboard import QuestionRecord, record_question
 from app.services.llm import ChatMessage, LLMClient, LLMError
 from app.services.prompts import PromptRepository
 from app.services.rag import ContextSource, Retriever, build_system_prompt, extract_citations
 
 logger = logging.getLogger(__name__)
+
+
+def _elapsed_ms(started: float) -> int:
+    return round((time.perf_counter() - started) * 1000)
 
 
 class ConversationNotFoundError(Exception):
@@ -75,6 +91,11 @@ class PreparedChat:
     question: str
     system_prompt: str
     history: list[ChatMessage]
+    # Para el cuadro de mando (#51).
+    asked_at: datetime = field(default_factory=utcnow)
+    started: float = field(default_factory=time.perf_counter)
+    session_id: str | None = None
+    access_kind: AccessKind = AccessKind.SHARED
 
 
 class ChatService:
@@ -96,11 +117,20 @@ class ChatService:
         self._config = config
         self._retriever = retriever
 
-    async def prepare(self, user_id: str, conversation_id: str | None, text: str) -> PreparedChat:
+    async def prepare(
+        self,
+        user_id: str,
+        conversation_id: str | None,
+        text: str,
+        *,
+        session_id: str | None = None,
+        access_kind: AccessKind = AccessKind.SHARED,
+    ) -> PreparedChat:
         """Guarda el mensaje del usuario y prepara el prompt.
 
         Se ejecuta antes de empezar el streaming para poder responder 404 si procede.
         """
+        started = time.perf_counter()
         async with self._sessionmaker() as session:
             repo = ConversationRepository(session)
             if conversation_id is None:
@@ -126,10 +156,35 @@ class ChatService:
                 question=text,
                 system_prompt=system_prompt.content,
                 history=to_chat_messages(history),
+                asked_at=user_message.created_at,
+                started=started,
+                session_id=session_id,
+                access_kind=access_kind,
             )
 
     async def stream(self, prepared: PreparedChat) -> AsyncIterator[str]:
-        """Emite los eventos SSE de la respuesta y guarda el mensaje del asistente."""
+        """Emite los eventos SSE de la respuesta y guarda el mensaje del asistente.
+
+        Al terminar, por cualquier motivo (respuesta, error del modelo o la persona cierra la
+        conexión), la pregunta queda en el registro del cuadro de mando.
+        """
+        record = QuestionRecord(
+            asked_at=prepared.asked_at,
+            session_id=prepared.session_id,
+            user_id=prepared.user_id,
+            access_kind=prepared.access_kind.value,
+            conversation_id=prepared.conversation_id,
+            question=prepared.question,
+        )
+        try:
+            async for event in self._stream(prepared, record):
+                yield event
+        finally:
+            record.response_ms = _elapsed_ms(prepared.started)
+            # Protegido: si la petición se cancela, el registro se completa igualmente.
+            await asyncio.shield(record_question(self._sessionmaker, record))
+
+    async def _stream(self, prepared: PreparedChat, record: QuestionRecord) -> AsyncIterator[str]:
         yield sse_event(
             "conversation",
             {
@@ -149,12 +204,17 @@ class ChatService:
             ),
             *prepared.history,
         ]
+        record.sources_retrieved = len(sources)
         parts: list[str] = []
         try:
             async for delta in self._llm.stream_chat(prompt):
+                if not parts:
+                    record.first_token_ms = _elapsed_ms(prepared.started)
                 parts.append(delta)
                 yield sse_event("token", {"content": delta})
         except LLMError as exc:
+            record.status = QuestionStatus.ERROR
+            record.answer = "".join(parts).strip() or None
             logger.error(
                 "Fallo del modelo en la conversación %s: %s",
                 prepared.conversation_id,
@@ -166,6 +226,7 @@ class ChatService:
 
         answer = "".join(parts).strip()
         if not answer:
+            record.status = QuestionStatus.ERROR
             # Respuesta vacía (p. ej. el modelo agotó los tokens o filtró la salida).
             logger.warning(
                 "El modelo devolvió una respuesta vacía en la conversación %s",
@@ -176,7 +237,10 @@ class ChatService:
                 {"detail": "El modelo no ha devuelto ninguna respuesta. Inténtalo de nuevo."},
             )
             return
+        record.status = QuestionStatus.OK
+        record.answer = answer
         shown = select_sources(sources, answer)
+        record.sources_cited = sum(1 for _, cited in shown if cited)
         if shown:
             yield sse_event("sources", {"sources": [source_payload(s, c) for s, c in shown]})
         async with self._sessionmaker() as session:
