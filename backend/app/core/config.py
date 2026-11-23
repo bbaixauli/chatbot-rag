@@ -4,6 +4,7 @@ import secrets
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -40,6 +41,8 @@ class Settings(BaseSettings):
     version: str = "0.1.0"
     environment: str = Field(default="development", pattern="^(development|test|production)$")
     log_level: str = "INFO"
+    # Zona horaria para mostrar fechas y contar días en el cuadro de mando.
+    timezone: str = "Europe/Madrid"
     # `text` para leer en consola; `json` (una línea por evento) para Docker y agregadores.
     log_format: Literal["text", "json"] = "text"
     data_dir: Path = Path("../data")
@@ -149,6 +152,12 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _check_consistency(self) -> "Settings":
+        try:
+            ZoneInfo(self.timezone)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError(
+                f"CHATBOT_TIMEZONE no es una zona horaria válida: {self.timezone}"
+            ) from exc
         if self.task_runner == "arq" and self.vector_store != "qdrant":
             # ChromaDB embebido vive en un único proceso: los workers no lo comparten.
             raise ValueError("CHATBOT_TASK_RUNNER=arq requiere CHATBOT_VECTOR_STORE=qdrant")
@@ -193,6 +202,11 @@ class Settings(BaseSettings):
             raise ValueError(
                 "CHATBOT_ADMIN_PASSWORD tiene el valor de ejemplo de .env.example: cámbiala."
             )
+
+    @property
+    def zone(self) -> ZoneInfo:
+        """Zona horaria de la aplicación (validada al arrancar)."""
+        return ZoneInfo(self.timezone)
 
     @property
     def uploads_dir(self) -> Path:

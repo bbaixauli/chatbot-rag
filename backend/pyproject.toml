@@ -14,10 +14,12 @@ dependencies = [
     "ldap3>=2.9.1",
     "markdown-it-py>=4.3.0",
     "openai>=3.53.0",
+    "openpyxl>=3.1",
     "pydantic-settings>=2.16.3",
     "pymupdf>=2.1",
     "python-multipart>=0.0.34",
     "sqlalchemy[asyncio]>=2.1.9",
+    "tzdata>=2025.2",
     "uvicorn[standard]>=0.54.0",
 ]
 
@@ -56,7 +58,7 @@ plugins = ["pydantic.mypy"]
 exclude = ["alembic/"]
 
 [[tool.mypy.overrides]]
-module = ["sentence_transformers.*", "ldap3.*"]
+module = ["sentence_transformers.*", "ldap3.*", "openpyxl.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

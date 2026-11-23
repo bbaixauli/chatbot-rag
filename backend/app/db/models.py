@@ -156,3 +156,49 @@ class MessageSource(Base):
     cited: Mapped[bool] = mapped_column(Boolean, default=True)
 
     message: Mapped[Message] = relationship(back_populates="sources")
+
+
+class QuestionStatus(StrEnum):
+    """Resultado de una pregunta en el registro del cuadro de mando."""
+
+    OK = "ok"  # el modelo respondió
+    ERROR = "error"  # el modelo falló o devolvió una respuesta vacía
+    CANCELLED = "cancelled"  # la persona cerró la conexión antes de terminar
+
+
+class AccessKind(StrEnum):
+    """Cómo accedió quien preguntó (para las estadísticas; no identifica a nadie)."""
+
+    LDAP = "ldap"
+    ANONYMOUS = "anonymous"  # acceso anónimo con LDAP
+    PRIVATE = "private"  # sesión privada sin LDAP
+    SHARED = "shared"  # historial compartido sin LDAP
+
+
+class QuestionLog(Base):
+    """Registro de cada pregunta para el cuadro de mando (#51).
+
+    Es independiente de las conversaciones: si se borra la conversación, la fila y sus
+    textos se conservan (`conversation_id` pasa a nulo).
+    """
+
+    __tablename__ = "question_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    asked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    session_id: Mapped[str | None] = mapped_column(String(64))
+    user_id: Mapped[str | None] = mapped_column(String(255))
+    access_kind: Mapped[str] = mapped_column(String(16))
+    conversation_id: Mapped[str | None] = mapped_column(
+        ForeignKey("conversations.id", ondelete="SET NULL"), index=True
+    )
+    question: Mapped[str] = mapped_column(Text)
+    answer: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(16))
+    # La respuesta dice que no tiene la información (frases configurables del cuadro de mando).
+    no_info: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Desde que llega la pregunta hasta el primer fragmento y hasta el último (milisegundos).
+    first_token_ms: Mapped[int | None] = mapped_column(Integer)
+    response_ms: Mapped[int | None] = mapped_column(Integer)
+    sources_retrieved: Mapped[int] = mapped_column(Integer, default=0)
+    sources_cited: Mapped[int] = mapped_column(Integer, default=0)

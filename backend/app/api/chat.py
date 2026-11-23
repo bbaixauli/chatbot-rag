@@ -7,7 +7,7 @@ from fastapi.responses import StreamingResponse
 
 from app.api.deps import DbSession, RuntimeConfigDep, SettingsDep
 from app.api.schemas import ChatConfigOut, ChatRequest
-from app.core.auth import CurrentUserDep
+from app.core.auth import CurrentUserDep, access_kind, chat_session_id
 from app.core.rate_limit import ChatRateLimit
 from app.services.chat import ChatService, ConversationNotFoundError
 from app.services.chat_config import ChatConfig, ChatConfigRepository
@@ -60,7 +60,13 @@ async def chat(
         request.app.state.sessionmaker, llm, settings, config, request.app.state.retriever
     )
     try:
-        prepared = await service.prepare(user.id, body.conversation_id, text)
+        prepared = await service.prepare(
+            user.id,
+            body.conversation_id,
+            text,
+            session_id=chat_session_id(request),
+            access_kind=access_kind(config.users.auth_mode, user),
+        )
     except ConversationNotFoundError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Conversación no encontrada") from exc
 
