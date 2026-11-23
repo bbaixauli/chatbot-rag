@@ -1,5 +1,6 @@
 """Punto de entrada de la API."""
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -9,6 +10,7 @@ from sqlalchemy.exc import OperationalError
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.api import admin, appearance, auth, chat, conversations, documents, health
+from app.api import audit as audit_api
 from app.api import config as config_api
 from app.api import dashboard as dashboard_api
 from app.core.config import APP_TITLE, Settings, get_settings
@@ -16,7 +18,8 @@ from app.core.ldap_auth import ConfigurableLdap
 from app.core.logging import RequestContextMiddleware, configure_logging
 from app.core.rate_limit import RateLimiter
 from app.db.session import build_engine, build_sessionmaker
-from app.services import dashboard
+from app.services import audit, dashboard
+from app.services.audit import AuditDeps
 from app.services.backends import build_task_runner, build_vector_store, close_vector_store
 from app.services.documents import DocumentService
 from app.services.embeddings import ConfigurableEmbeddings
@@ -73,7 +76,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await dashboard.initialize(app.state.sessionmaker)
         except OperationalError:
             logger.warning("No se pudo consultar la BD al arrancar: ¿falta `alembic upgrade head`?")
+        app.state.audit = AuditDeps(app.state.sessionmaker, config, settings)
+        # La revisión programada la hace la API (no en los tests: sería imprevisible).
+        scheduler = (
+            asyncio.create_task(audit.scheduler_loop(app.state.audit), name="auditoria")
+            if settings.environment != "test"
+            else None
+        )
         yield
+        if scheduler is not None:
+            scheduler.cancel()
+        for task in list(app.state.audit.tasks):
+            task.cancel()
         await tasks.close()
         await close_vector_store(app.state.vector_store)
         await engine.dispose()
@@ -103,6 +117,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         appearance.router,
         appearance.public_router,
         dashboard_api.router,
+        audit_api.router,
     ):
         app.include_router(router, prefix=API_PREFIX)
     return app

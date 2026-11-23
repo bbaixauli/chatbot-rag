@@ -342,6 +342,31 @@ Docker rota los logs según su configuración (`/etc/docker/daemon.json`). Por e
 - Límite por IP y minuto, configurable en la administración (`0` lo desactiva): chat (20) e
   inicios de sesión (5). Al superarlo, la API responde `429` con la cabecera `Retry-After`.
 
+## Auditoría
+
+Cada pregunta queda registrada con su respuesta, el usuario, la IP, el navegador, la hora, el
+tiempo de respuesta, el modelo, la versión del prompt, la consulta de búsqueda y los documentos
+mostrados. Un proceso revisa periódicamente lo nuevo desde la última ejecución:
+
+- **Reglas** (siempre): datos sensibles en la respuesta (DNI/NIE, IBAN, tarjetas, correos,
+  teléfonos, claves) e intentos de manipular al asistente en la pregunta.
+- **Modelo revisor** (activable): clasifica intención maliciosa, respuesta inapropiada e
+  información sensible. Solo revisa lo de los últimos `CHATBOT_AUDIT_LLM_HISTORY_DAYS` días.
+
+Los avisos se gestionan en *Administración → Auditoría*. La revisión se programa allí (cada hora
+o a diario) y la ejecuta la propia API; también se puede lanzar a mano desde esa pantalla o
+desde un cron externo:
+
+```bash
+docker compose exec backend python -m app.audit run
+```
+
+Nunca hay dos revisiones a la vez. Si se configuran los avisos por correo (SMTP), se envía un
+resumen de los avisos de la gravedad elegida, sin los textos de las preguntas. Pasado
+`CHATBOT_AUDIT_RETENTION_DAYS` días, el usuario se sustituye por un seudónimo irreversible
+(derivado de `CHATBOT_SESSION_SECRET`) y se borran la IP, el navegador y el nombre; los textos
+se conservan.
+
 ## Copias de seguridad
 
 Una copia incluye la base de datos (conversaciones, prompts, configuración y documentos) y los

@@ -1,6 +1,7 @@
 """Clientes del modelo de lenguaje."""
 
 import asyncio
+import json
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
 from typing import Literal, Protocol, cast
@@ -113,6 +114,20 @@ class FakeLLMClient:
     async def stream_chat(self, messages: Sequence[ChatMessage]) -> AsyncIterator[str]:
         question = next((m.content for m in reversed(messages) if m.role == "user"), "")
         system = next((m.content for m in messages if m.role == "system"), "")
+        if system.startswith("Eres el auditor de seguridad"):
+            # Revisión simulada (auditoría): marca como maliciosa una pregunta que contenga
+            # «simula ataque» (para pruebas y demos sin modelo).
+            malicious = "simula ataque" in question.lower()
+            yield json.dumps(
+                {
+                    "malicious_user": malicious,
+                    "inappropriate_response": False,
+                    "sensitive_information": False,
+                    "severity": "high" if malicious else "low",
+                    "reason": "Pregunta de prueba marcada como ataque" if malicious else "",
+                }
+            )
+            return
         if system.startswith("Reformula la pregunta"):
             # Reformulación simulada: preguntas anteriores del usuario + la de seguimiento.
             lines = question.splitlines()
