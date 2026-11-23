@@ -21,8 +21,9 @@ test('la administración exige iniciar sesión', async ({ page }) => {
   await expect(page.getByRole('alert')).toHaveText('Usuario o contraseña incorrectos.')
 
   await login(page)
-  await expect(page).toHaveURL(/\/admin\/prompt$/)
-  await expect(page.getByRole('heading', { name: 'Prompt de sistema' })).toBeVisible()
+  // La administración empieza en el cuadro de mando.
+  await expect(page).toHaveURL(/\/admin\/dashboard$/)
+  await expect(page.getByRole('heading', { level: 1, name: 'Cuadro de mando' })).toBeVisible()
 })
 
 test('edita el prompt, lo conserva al recargar y restaura una versión', async ({ page }) => {
@@ -65,7 +66,7 @@ test('edita el prompt, lo conserva al recargar y restaura una versión', async (
 test('cerrar sesión protege de nuevo la administración', async ({ page }) => {
   await page.goto('/admin/login')
   await login(page)
-  await expect(page.getByLabel('Prompt de sistema')).toBeVisible()
+  await expect(page.getByRole('heading', { level: 1, name: 'Cuadro de mando' })).toBeVisible()
 
   await page.getByRole('button', { name: 'Cerrar sesión' }).click()
   await expect(page).toHaveURL(/\/admin\/login$/)

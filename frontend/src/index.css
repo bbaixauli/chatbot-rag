@@ -42,6 +42,17 @@
   --font-mono: ui-monospace, Consolas, 'Courier New', monospace;
 }
 
+/*
+ * Series de las gráficas (paleta categórica validada para daltonismo: azul, naranja,
+ * aguamarina). No forman parte de la apariencia configurable: no dependen de la marca.
+ * El aguamarina no llega a 3:1 sobre blanco: las gráficas llevan leyenda, etiquetas y tabla.
+ */
+:root {
+  --serie-1: #2a78d6;
+  --serie-2: #eb6834;
+  --serie-3: #1baf7a;
+}
+
 @layer base {
   html,
   body,

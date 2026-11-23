@@ -52,7 +52,12 @@ test('un límite guardado se aplica de inmediato en otras pantallas', async ({ p
   await expect(section(page, 'Conversación').getByLabel(/mensaje inicial/)).toHaveValue('5')
 
   await page.getByRole('link', { name: 'Mensaje inicial' }).click()
-  await page.getByLabel('Mensaje inicial').fill('Demasiado largo')
+  // Se espera a la página nueva: en la de configuración, «Longitud máxima del mensaje
+  // inicial» también encajaría con una búsqueda de etiqueta no exacta.
+  await expect(
+    page.getByRole('heading', { level: 1, name: 'Mensaje inicial del chat' }),
+  ).toBeVisible()
+  await page.getByLabel('Mensaje inicial', { exact: true }).fill('Demasiado largo')
   await expect(page.getByText('15 / 5 caracteres')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Guardar' })).toBeDisabled()
 })

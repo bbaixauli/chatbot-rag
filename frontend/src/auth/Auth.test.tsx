@@ -168,7 +168,7 @@ describe('Administración con LDAP', () => {
     renderApp('/admin/login')
     await signIn('ana', 'clave-ana')
 
-    await waitFor(() => expect(screen.getByLabelText('Prompt de sistema')).toHaveValue('P'))
+    expect(await screen.findByRole('heading', { level: 1, name: 'Cuadro de mando' })).toBeVisible()
     expect(screen.getByText('ana')).toBeVisible()
   })
 })

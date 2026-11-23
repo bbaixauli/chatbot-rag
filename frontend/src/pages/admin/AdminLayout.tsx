@@ -72,6 +72,7 @@ export function AdminLayout() {
         className={`${menuOpen ? 'flex' : 'hidden'} flex-col gap-1 border-b border-borde bg-fondo px-4 py-2 md:flex md:flex-row md:px-6`}
       >
         {[
+          { to: '/admin/dashboard', label: t.nav.dashboard },
           { to: '/admin/prompt', label: t.nav.prompt },
           { to: '/admin/documents', label: t.nav.documents },
           { to: '/admin/chat', label: t.nav.chatStart },
