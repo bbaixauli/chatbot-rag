@@ -232,3 +232,18 @@ async def test_keeps_the_table_of_contents_mark(store: QdrantVectorStore) -> Non
 
     assert {h.text: h.toc for h in hits} == {"Índice": True, "Contenido": False}
     assert [c.toc for c in await store.document_chunks("d1")] == [True, False]
+
+
+# En memoria, Qdrant siempre busca de forma exacta y avisa de que `exact` no tiene efecto.
+@pytest.mark.filterwarnings("ignore:Local mode performs exact")
+async def test_search_limited_to_documents(store: QdrantVectorStore) -> None:
+    assert await store.search([0.1] * 32, 5, document_ids=["d1"]) == []  # sin colección
+    embeddings = await _add(store, "d1", CHUNKS)
+    await _add(store, "d2", CHUNKS[:1])
+    [query] = await embeddings.embed([CHUNKS[0].text])
+
+    hits = await store.search(query, 10, document_ids=["d2"])
+
+    assert [(h.document_id, h.text) for h in hits] == [("d2", CHUNKS[0].text)]
+    assert len(await store.search(query, 10, document_ids=["d1", "d2"])) == 4
+    assert await store.search(query, 10, document_ids=[]) == []

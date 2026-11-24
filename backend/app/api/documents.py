@@ -7,8 +7,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, stat
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict
 
+from app.api.schemas import PublicDocumentOut
 from app.core.auth import AdminDep, CurrentUserDep
-from app.db.models import Document
+from app.db.models import Document, DocumentStatus
 from app.services.documents import DocumentService, UploadError
 
 router = APIRouter(prefix="/admin/documents", tags=["documents"])
@@ -165,6 +166,14 @@ _INLINE_TYPES: dict[str, str] = {
     "markdown": "text/plain; charset=utf-8",
     "html": "text/html; charset=utf-8",
 }
+
+
+@public_router.get("", response_model=list[PublicDocumentOut])
+async def list_indexed_documents(service: DocumentsDep, _: CurrentUserDep) -> list[Document]:
+    """Documentos indexados, por nombre: para limitar la búsqueda del chat a algunos (#58)."""
+    documents = await service.list()
+    ready = [d for d in documents if d.status == DocumentStatus.READY.value]
+    return sorted(ready, key=lambda d: d.filename.casefold())
 
 
 @public_router.get("/{document_id}/file", response_class=FileResponse)

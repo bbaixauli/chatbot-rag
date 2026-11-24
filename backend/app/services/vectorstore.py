@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Any, Protocol, cast
 
 import chromadb
+import numpy as np
+import numpy.typing as npt
 from chromadb.config import Settings as ChromaSettings
 
 from app.services.ingestion.chunker import Chunk
@@ -60,7 +62,15 @@ class VectorStore(Protocol):
         """Elimina los fragmentos del documento con índice >= `first_index`."""
         ...
 
-    async def search(self, embedding: Sequence[float], limit: int) -> list[SearchHit]: ...
+    async def search(
+        self,
+        embedding: Sequence[float],
+        limit: int,
+        document_ids: Sequence[str] | None = None,
+    ) -> list[SearchHit]:
+        """Los `limit` fragmentos más parecidos, de todo el índice o solo de `document_ids`
+        (en ese caso, con búsqueda exacta: son pocos fragmentos y no se pierde ninguno)."""
+        ...
 
     async def document_chunks(self, document_id: str) -> list[StoredChunk]:
         """Fragmentos de un documento con sus vectores, ordenados por índice."""
@@ -71,6 +81,33 @@ class VectorStore(Protocol):
     async def reset(self) -> None:
         """Vacía el índice (antes de reindexarlo todo, p. ej. tras cambiar de modelo)."""
         ...
+
+
+def cosine_scores(embedding: Sequence[float], vectors: npt.ArrayLike) -> list[float]:
+    """Similitud coseno de `embedding` con cada vector (0 si alguno es nulo)."""
+    matrix = np.asarray(vectors, dtype=np.float64)
+    if matrix.size == 0:
+        return []
+    query = np.asarray(embedding, dtype=np.float64)
+    norms = np.linalg.norm(matrix, axis=1) * np.linalg.norm(query)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        scores = np.where(norms > 0, matrix @ query / norms, 0.0)
+    return [float(score) for score in scores]
+
+
+def _chroma_hit(text: str, metadata: Any, score: float) -> SearchHit:
+    page = metadata.get("page")
+    heading = metadata.get("heading")
+    return SearchHit(
+        document_id=str(metadata["document_id"]),
+        filename=str(metadata["filename"]),
+        chunk_index=int(str(metadata["chunk_index"])),
+        text=text,
+        page=int(str(page)) if page is not None else None,
+        heading=str(heading) if heading is not None else None,
+        score=score,
+        toc=bool(metadata.get("toc")),
+    )
 
 
 class ChromaVectorStore:
@@ -145,7 +182,14 @@ class ChromaVectorStore:
         }
         await asyncio.to_thread(self._collection.delete, where=where)
 
-    async def search(self, embedding: Sequence[float], limit: int) -> list[SearchHit]:
+    async def search(
+        self,
+        embedding: Sequence[float],
+        limit: int,
+        document_ids: Sequence[str] | None = None,
+    ) -> list[SearchHit]:
+        if document_ids is not None:
+            return await self._search_documents(embedding, limit, document_ids)
         total = await self.count()
         if total == 0:
             return []
@@ -158,23 +202,34 @@ class ChromaVectorStore:
         documents = (result["documents"] or [[]])[0]
         metadatas = (result["metadatas"] or [[]])[0]
         distances = (result["distances"] or [[]])[0]
-        hits = []
-        for text, metadata, distance in zip(documents, metadatas, distances, strict=True):
-            page = metadata.get("page")
-            heading = metadata.get("heading")
-            hits.append(
-                SearchHit(
-                    document_id=str(metadata["document_id"]),
-                    filename=str(metadata["filename"]),
-                    chunk_index=int(str(metadata["chunk_index"])),
-                    text=text,
-                    page=int(str(page)) if page is not None else None,
-                    heading=str(heading) if heading is not None else None,
-                    score=1.0 - float(distance),
-                    toc=bool(metadata.get("toc")),
-                )
-            )
-        return hits
+        return [
+            _chroma_hit(text, metadata, 1.0 - float(distance))
+            for text, metadata, distance in zip(documents, metadatas, distances, strict=True)
+        ]
+
+    async def _search_documents(
+        self, embedding: Sequence[float], limit: int, document_ids: Sequence[str]
+    ) -> list[SearchHit]:
+        """Búsqueda exacta entre los fragmentos de unos documentos.
+
+        El filtro de Chroma combinado con el índice HNSW puede saltarse resultados cuando
+        quedan pocos fragmentos: se comparan todos.
+        """
+        if not document_ids or limit <= 0:
+            return []
+        where: Any = {"document_id": {"$in": list(document_ids)}}
+        result = await asyncio.to_thread(
+            self._collection.get, where=where, include=["documents", "metadatas", "embeddings"]
+        )
+        documents = result["documents"] or []
+        metadatas = result["metadatas"] or []
+        vectors = result["embeddings"]
+        scores = cosine_scores(embedding, [] if vectors is None else vectors)
+        hits = [
+            _chroma_hit(text, metadata, score)
+            for text, metadata, score in zip(documents, metadatas, scores, strict=True)
+        ]
+        return sorted(hits, key=lambda hit: hit.score, reverse=True)[:limit]
 
     async def document_chunks(self, document_id: str) -> list[StoredChunk]:
         result = await asyncio.to_thread(

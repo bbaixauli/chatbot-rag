@@ -38,6 +38,13 @@ class MessageRole(StrEnum):
     ASSISTANT = "assistant"
 
 
+class ScopeSource(StrEnum):
+    """Origen de la limitación de la búsqueda a unos documentos (#58)."""
+
+    SELECTOR = "selector"  # elegidos en el chat
+    DETECTED = "detected"  # nombrados en la pregunta
+
+
 class Conversation(Base):
     """Conversación del chat."""
 
@@ -49,6 +56,8 @@ class Conversation(Base):
     title: Mapped[str] = mapped_column(String(200))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    # Documentos a los que se limita la búsqueda (elegidos en el chat, #58); nulo: todos.
+    document_ids: Mapped[list[str] | None] = mapped_column(JSON)
 
     messages: Mapped[list["Message"]] = relationship(
         back_populates="conversation",
@@ -227,6 +236,9 @@ class QuestionLog(Base):
     # [{"document_id", "filename", "page", "cited"}] de las fuentes mostradas.
     cited_documents: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON)
     error_detail: Mapped[str | None] = mapped_column(Text)
+    # Búsqueda limitada a unos documentos (#58): cuáles y por qué (`ScopeSource`).
+    scope_document_ids: Mapped[list[str] | None] = mapped_column(JSON)
+    scope_source: Mapped[str | None] = mapped_column(String(16))
 
 
 class AuditRunStatus(StrEnum):

@@ -159,11 +159,35 @@ class QdrantVectorStore:
             ]
         )
 
-    async def search(self, embedding: Sequence[float], limit: int) -> list[SearchHit]:
+    async def search(
+        self,
+        embedding: Sequence[float],
+        limit: int,
+        document_ids: Sequence[str] | None = None,
+    ) -> list[SearchHit]:
+        if document_ids is not None and (not document_ids or limit <= 0):
+            return []
         if not await self._client.collection_exists(self._collection):
             return []
+        # Limitada a unos documentos: con filtro y búsqueda exacta (pocos fragmentos).
+        query_filter = (
+            None
+            if document_ids is None
+            else models.Filter(
+                must=[
+                    models.FieldCondition(
+                        key="document_id", match=models.MatchAny(any=list(document_ids))
+                    )
+                ]
+            )
+        )
         result = await self._client.query_points(
-            self._collection, query=list(embedding), limit=limit, with_payload=True
+            self._collection,
+            query=list(embedding),
+            limit=limit,
+            with_payload=True,
+            query_filter=query_filter,
+            search_params=None if document_ids is None else models.SearchParams(exact=True),
         )
         return [_hit(point.payload or {}, point.score) for point in result.points]
 

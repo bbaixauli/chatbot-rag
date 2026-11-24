@@ -86,18 +86,23 @@ class Retriever:
             logger.warning("No se pudo consultar el índice", exc_info=True)
             return True
 
-    async def retrieve(self, query: str) -> list[ContextSource]:
+    async def retrieve(
+        self, query: str, document_ids: Sequence[str] | None = None
+    ) -> list[ContextSource]:
         """Fragmentos por encima del umbral, numerados y dentro del límite de contexto.
 
-        Si falla la búsqueda (p. ej. el servicio de embeddings no responde) se devuelve
-        una lista vacía: el chat sigue funcionando sin documentación.
+        Con `document_ids` solo se busca en esos documentos y se usa la puntuación mínima
+        de la búsqueda limitada (`scoped_min_score`): quien pregunta ya ha indicado dónde
+        está la respuesta. Si falla la búsqueda (p. ej. el servicio de embeddings no
+        responde) se devuelve una lista vacía: el chat sigue funcionando sin documentación.
         """
         rag = self._config.current.rag
         if not rag.enabled or not query.strip():
             return []
+        min_score = rag.min_score if document_ids is None else rag.scoped_min_score
         try:
             [vector] = await self._embeddings.embed([query])
-            hits = await self._store.search(vector, candidates_limit(rag))
+            hits = await self._store.search(vector, candidates_limit(rag), document_ids)
         except Exception:
             logger.warning("No se pudo recuperar contexto; se responde sin RAG", exc_info=True)
             return []
@@ -105,7 +110,7 @@ class Retriever:
         sources: list[ContextSource] = []
         used = 0
         for hit in rank_hits(hits, rag.toc_score_factor)[: rag.top_k]:
-            if hit.score < rag.min_score:
+            if hit.score < min_score:
                 break
             if used + len(hit.text) > rag.max_context_chars and sources:
                 break

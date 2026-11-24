@@ -136,6 +136,8 @@ class RagConfig(ConfigGroup):
     condense_history_messages: int = Field(ge=1)
     # Multiplica la puntuación de los fragmentos de índice (tabla de contenidos); 1 = igual.
     toc_score_factor: float = Field(ge=0, le=1)
+    # Puntuación mínima cuando la búsqueda se limita a unos documentos.
+    scoped_min_score: float = Field(ge=0, le=1)
 
 
 class ChatLimits(ConfigGroup):

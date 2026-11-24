@@ -276,6 +276,14 @@ tenía el índice del documento.
 Tras actualizar a una versión que cambia esta limpieza, *Documentos* indica que hay
 documentos desactualizados: pulsa *Reindexar todo*.
 
+#### Búsqueda limitada a unos documentos
+
+Cuando la búsqueda del chat se limita a unos documentos, se comparan todos sus fragmentos con
+la pregunta (búsqueda exacta) y se usa la **puntuación mínima al buscar en documentos
+concretos** (*Recuperación*, `CHATBOT_RAG_SCOPED_MIN_SCORE`, 0 por defecto) en lugar de la
+general: basta con el top-k. El registro de preguntas guarda a qué documentos se limitó cada
+búsqueda.
+
 Para consultarla o, si una configuración deja la aplicación inservible, volver a los valores de
 `.env`:
 
@@ -782,6 +790,10 @@ docker compose exec backend python -m app.diagnose query "¿cómo se solicitan l
 docker compose exec backend python -m app.diagnose query "¿cómo se solicitan las vacaciones?" \
   --document manual-empleado
 
+# Qué recuperaría el chat si la búsqueda se limita a un documento (se puede repetir)
+docker compose exec backend python -m app.diagnose query "resúmeme el procedimiento" \
+  --scope manual-empleado
+
 # ¿Recorta el servidor de embeddings los fragmentos largos?
 docker compose exec backend python -m app.diagnose index manual-empleado --truncation-check --max-chunks 10
 ```
@@ -812,4 +824,5 @@ marca con ✓ los fragmentos que llegarían al modelo según el top-k, la puntua
 máximo de contexto de la configuración de recuperación, y con el peso de los fragmentos de
 índice aplicado. Con `--document` (se puede repetir)
 clasifica todo el índice y muestra en qué puesto quedan los fragmentos de ese documento, con
-la diferencia de score respecto al último fragmento que llega al modelo.
+la diferencia de score respecto al último fragmento que llega al modelo. Con `--scope` (se
+puede repetir) busca solo en esos documentos, como el chat cuando se limita la búsqueda.

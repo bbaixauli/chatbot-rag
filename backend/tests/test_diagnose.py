@@ -416,3 +416,15 @@ async def test_query_lowers_tables_of_contents(
     toc = next(item for item in hits if item.toc)
     assert toc.hit.score == 0.0
     assert hits[0] is not toc
+
+
+def test_cli_query_with_scope(settings: Settings, capsys: pytest.CaptureFixture[str]) -> None:
+    asyncio.run(_prepare(settings))
+
+    assert main(["query", "vacaciones", "--scope", "guia.md"], settings) == 0
+    output = capsys.readouterr().out
+    assert "Búsqueda limitada a: guia.md" in output
+    assert "El chat usaría" in output
+
+    assert main(["query", "vacaciones", "--scope", "no-existe"], settings) == 1
+    assert "No hay ningún documento" in capsys.readouterr().err

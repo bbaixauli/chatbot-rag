@@ -178,6 +178,9 @@ class Settings(BaseSettings):
     # Multiplica la puntuación de los fragmentos que parecen un índice del documento para
     # que no desplacen a los de contenido (1 = sin cambios; 0 = descartarlos).
     rag_toc_score_factor: float = Field(default=0.8, ge=0, le=1)
+    # Puntuación mínima cuando la búsqueda se limita a unos documentos (#58): quien pregunta
+    # ya ha indicado dónde está la respuesta, así que basta con el top-k.
+    rag_scoped_min_score: float = Field(default=0.0, ge=0, le=1)
 
     # --- Valores iniciales (#42): conversación
     chat_history_max_messages: int = Field(default=20, ge=0)

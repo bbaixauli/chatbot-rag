@@ -21,6 +21,7 @@ from app.db.models import (
     MessageRole,
     MessageSource,
     QuestionStatus,
+    ScopeSource,
     utcnow,
 )
 from app.services.condense import condense_question
@@ -29,6 +30,7 @@ from app.services.dashboard import QuestionRecord, record_question
 from app.services.llm import ChatMessage, LLMClient, LLMError
 from app.services.prompts import PromptRepository
 from app.services.rag import ContextSource, Retriever, build_system_prompt, extract_citations
+from app.services.scope import ScopeDocument, resolve_scope
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +110,8 @@ class PreparedChat:
     # Auditoría (#50).
     requester: Requester = field(default_factory=Requester)
     prompt_version_id: int | None = None
+    # Documentos a los que se limita la búsqueda (#58); vacía: todos.
+    scope: list[ScopeDocument] = field(default_factory=list)
 
 
 class ChatService:
@@ -138,10 +142,14 @@ class ChatService:
         session_id: str | None = None,
         access_kind: AccessKind = AccessKind.SHARED,
         requester: Requester | None = None,
+        document_ids: Sequence[str] | None = None,
     ) -> PreparedChat:
         """Guarda el mensaje del usuario y prepara el prompt.
 
-        Se ejecuta antes de empezar el streaming para poder responder 404 si procede.
+        Se ejecuta antes de empezar el streaming para poder responder 404 (conversación) o
+        422 (`ScopeError`: algún documento de `document_ids` no existe) si procede.
+        `document_ids` cambia la limitación de la búsqueda de la conversación (ver
+        `resolve_scope`).
         """
         started = time.perf_counter()
         async with self._sessionmaker() as session:
@@ -153,6 +161,7 @@ class ChatService:
                 if found is None:
                     raise ConversationNotFoundError(conversation_id)
                 conversation = found
+            scope = await resolve_scope(session, conversation, document_ids)
             user_message = await repo.add_message(conversation, MessageRole.USER, text)
             history = await repo.recent_messages(
                 conversation.id, self._config.chat.history_max_messages + 1
@@ -175,6 +184,7 @@ class ChatService:
                 access_kind=access_kind,
                 requester=requester or Requester(),
                 prompt_version_id=system_prompt.version.id if system_prompt.version else None,
+                scope=scope,
             )
 
     async def stream(self, prepared: PreparedChat) -> AsyncIterator[str]:
@@ -213,11 +223,22 @@ class ChatService:
                 "user_message_id": prepared.user_message_id,
             },
         )
+        scope_ids = [document.id for document in prepared.scope]
+        if scope_ids:
+            record.scope_document_ids = scope_ids
+            record.scope_source = ScopeSource.SELECTOR.value
+            yield sse_event(
+                "scope",
+                {
+                    "documents": [{"id": d.id, "filename": d.filename} for d in prepared.scope],
+                    "source": ScopeSource.SELECTOR.value,
+                },
+            )
         sources: list[ContextSource] = []
         if self._retriever:
             query = await self._search_query(prepared)
             record.search_query = query
-            sources = await self._retriever.retrieve(query)
+            sources = await self._retriever.retrieve(query, scope_ids or None)
         prompt = [
             ChatMessage(
                 role="system", content=build_system_prompt(prepared.system_prompt, sources)

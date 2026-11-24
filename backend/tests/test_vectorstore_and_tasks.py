@@ -7,7 +7,7 @@ import pytest
 from app.services.embeddings import FakeEmbeddings
 from app.services.ingestion.chunker import Chunk
 from app.services.tasks import InProcessTaskRunner
-from app.services.vectorstore import ChromaVectorStore
+from app.services.vectorstore import ChromaVectorStore, cosine_scores
 
 
 async def test_chroma_add_search_and_delete(tmp_path: Path) -> None:
@@ -156,3 +156,32 @@ async def test_chroma_keeps_the_table_of_contents_mark() -> None:
     await store.add("d1", "d1.pdf", [Chunk(0, "Ya no es índice", 1, None)], vectors[:1])
     assert [c.toc for c in await store.document_chunks("d1")] == [False, False]
     store.drop()
+
+
+async def test_chroma_search_limited_to_documents_is_exact() -> None:
+    store = ChromaVectorStore(None, "busqueda-limitada")
+    embeddings = FakeEmbeddings(dimensions=16)
+    texts = {"d1": ["Vacaciones anuales", "Permisos"], "d2": ["Dietas de viaje"], "d3": ["Otro"]}
+    for document_id, chunk_texts in texts.items():
+        chunks = [Chunk(i, text, 1, None) for i, text in enumerate(chunk_texts)]
+        await store.add(
+            document_id, f"{document_id}.md", chunks, await embeddings.embed(chunk_texts)
+        )
+    [query] = await embeddings.embed(["Vacaciones anuales"])
+
+    hits = await store.search(query, 10, document_ids=["d1", "d2"])
+
+    assert {h.document_id for h in hits} == {"d1", "d2"}
+    assert hits[0].text == "Vacaciones anuales"
+    assert hits[0].score == pytest.approx(1.0, abs=1e-6)
+    assert [h.score for h in hits] == sorted((h.score for h in hits), reverse=True)
+    assert len(await store.search(query, 1, document_ids=["d1", "d2"])) == 1
+    assert await store.search(query, 10, document_ids=[]) == []
+    assert await store.search(query, 10, document_ids=["no-existe"]) == []
+    store.drop()
+
+
+def test_cosine_scores() -> None:
+    assert cosine_scores([1, 0], [[1, 0], [0, 1], [0, 0]]) == pytest.approx([1.0, 0.0, 0.0])
+    assert cosine_scores([0, 0], [[1, 0]]) == [0.0]
+    assert cosine_scores([1, 0], []) == []

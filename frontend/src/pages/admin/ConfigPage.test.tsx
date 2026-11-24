@@ -73,6 +73,7 @@ function appConfig(): AppConfig {
           condense_question: true,
           condense_history_messages: 6,
           toc_score_factor: 0.8,
+          scoped_min_score: 0,
         },
         { updated_by: 'ana', updated_at: '2026-11-20T12:30:00Z' },
       ),
@@ -220,6 +221,7 @@ describe('ConfigPage', () => {
           condense_question: false,
           condense_history_messages: 6,
           toc_score_factor: 0.8,
+          scoped_min_score: 0,
         },
       },
     ])
