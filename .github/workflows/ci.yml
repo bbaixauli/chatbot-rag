@@ -27,6 +27,36 @@ jobs:
       - run: uv run mypy app tests
       - run: uv run pytest
 
+  backend-postgres:
+    name: Backend (tests con PostgreSQL)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: chatbot
+          POSTGRES_PASSWORD: chatbot
+          POSTGRES_DB: chatbot_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U chatbot -d chatbot_test"
+          --health-interval 5s
+          --health-retries 12
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      CHATBOT_TEST_DATABASE_URL: postgresql+asyncpg://chatbot:chatbot@localhost:5432/chatbot_test
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      # La cobertura se exige en el job con SQLite (aquí se omiten los tests solo de SQLite).
+      - run: uv run pytest --no-cov
+
   frontend:
     name: Frontend (lint, tipos, tests, build)
     runs-on: ubuntu-latest

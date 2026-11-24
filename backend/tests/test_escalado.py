@@ -249,6 +249,7 @@ def test_worker_settings() -> None:
     assert worker.WorkerSettings.max_tries == 3
 
 
+@pytest.mark.sqlite_only
 async def test_sqlite_uses_wal_and_waits_for_locks(app: FastAPI) -> None:
     async with app.state.engine.connect() as connection:
         mode = (await connection.execute(text("PRAGMA journal_mode"))).scalar()

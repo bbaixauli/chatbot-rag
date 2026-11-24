@@ -6,6 +6,7 @@ requires-python = ">=3.12"
 dependencies = [
     "aiosqlite>=0.22.1",
     "alembic>=1.20.1",
+    "asyncpg>=0.32.0",
     "beautifulsoup4>=4.15.0",
     "chromadb>=1.5.9",
     "cryptography>=50.0.2",
@@ -65,6 +66,7 @@ ignore_missing_imports = true
 testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+markers = ["sqlite_only: depende de SQLite; se omite con CHATBOT_TEST_DATABASE_URL"]
 addopts = "--cov=app --cov-report=term-missing"
 # Avisos internos de ldap3 con versiones recientes de pyasn1.
 filterwarnings = [

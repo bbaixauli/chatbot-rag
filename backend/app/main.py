@@ -6,7 +6,6 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from sqlalchemy.exc import OperationalError
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.api import admin, appearance, auth, chat, conversations, documents, health
@@ -17,7 +16,7 @@ from app.core.config import APP_TITLE, Settings, get_settings
 from app.core.ldap_auth import ConfigurableLdap
 from app.core.logging import RequestContextMiddleware, configure_logging
 from app.core.rate_limit import RateLimiter
-from app.db.session import build_engine, build_sessionmaker
+from app.db.session import DATABASE_NOT_READY, build_engine, build_sessionmaker
 from app.services import audit, dashboard
 from app.services.audit import AuditDeps
 from app.services.backends import build_task_runner, build_vector_store, close_vector_store
@@ -50,7 +49,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             # Primer arranque: copia a la BD la configuración de las variables CHATBOT_*.
             await config.load(seed=True)
-        except OperationalError:
+        except DATABASE_NOT_READY:
             logger.warning("No se pudo leer la configuración de la BD: se usa la de CHATBOT_*")
         app.state.config = config
         # Sigue la configuración de usuarios; no abre conexiones hasta un inicio de sesión.
@@ -74,7 +73,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if resumed:
                 logger.info("Reanudada la indexación de %d documentos", resumed)
             await dashboard.initialize(app.state.sessionmaker)
-        except OperationalError:
+        except DATABASE_NOT_READY:
             logger.warning("No se pudo consultar la BD al arrancar: ¿falta `alembic upgrade head`?")
         app.state.audit = AuditDeps(app.state.sessionmaker, config, settings)
         # La revisión programada la hace la API (no en los tests: sería imprevisible).

@@ -49,6 +49,11 @@ def test_regular_user_and_member_uid_groups(ldap: Settings) -> None:
     assert (pepe.display_name, pepe.is_admin) == ("pepe", True)
 
 
+def test_long_directory_values_fit_the_database_columns(ldap: Settings) -> None:
+    user = mock_authenticator(ldap).authenticate("largo", "clave-larga")
+    assert user.display_name == ("Nombre " * 50)[:255]
+
+
 def test_without_admin_group_nobody_is_admin(settings: Settings) -> None:
     authenticator = mock_authenticator(ldap_settings(settings, ldap_admin_group_dn=None))
     assert authenticator.authenticate("ana", PASSWORDS["ana"]).is_admin is False
