@@ -56,7 +56,26 @@ export interface Conversation {
   title: string
   created_at: string
   updated_at: string
+  /** Documentos a los que se limita la búsqueda (vacía o ausente: todos). */
+  document_ids?: string[]
 }
+
+/** Documento indexado, para elegir dónde buscar. */
+export interface IndexedDocument {
+  id: string
+  filename: string
+  kind: 'pdf' | 'markdown' | 'html'
+}
+
+/** Documentos a los que se limitó la búsqueda de una respuesta. */
+export interface Scope {
+  documents: { id: string; filename: string }[]
+  /** `selector`: elegidos en el chat; `detected`: nombrados en la pregunta. */
+  source: 'selector' | 'detected'
+}
+
+/** Como mucho, documentos a los que se puede limitar la búsqueda (igual que el servidor). */
+export const MAX_SCOPE_DOCUMENTS = 5
 
 export interface Source {
   number: number
@@ -74,6 +93,7 @@ export interface Message {
   content: string
   created_at: string
   sources?: Source[]
+  scope?: Scope | null
 }
 
 /** URL para ver el original de una fuente (los PDF se abren en la página citada). */
@@ -98,6 +118,15 @@ export const renameConversation = (id: string, title: string) =>
     method: 'PATCH',
     body: JSON.stringify({ title }),
   })
+
+/** Limita la búsqueda de la conversación a esos documentos (lista vacía: todos). */
+export const updateConversationScope = (id: string, documentIds: string[]) =>
+  apiRequest<Conversation>(`/conversations/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ document_ids: documentIds }),
+  })
+
+export const listIndexedDocuments = () => apiGet<IndexedDocument[]>('/documents')
 
 export const deleteConversation = (id: string) =>
   apiRequest<void>(`/conversations/${id}`, { method: 'DELETE' })

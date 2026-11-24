@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { streamChat } from '../api/chat'
-import { ApiError, listMessages, type Source } from '../api/client'
+import { ApiError, listMessages, type Scope, type Source } from '../api/client'
 import { t } from '../i18n/es'
 
 export interface PendingExchange {
@@ -10,6 +10,8 @@ export interface PendingExchange {
   /** Id del mensaje del usuario ya guardado; los mensajes desde él se muestran como pendientes. */
   userMessageId: number | null
   sources: Source[]
+  /** Documentos a los que se limitó la búsqueda, si se limitó. */
+  scope: Scope | null
 }
 
 interface Options {
@@ -37,16 +39,17 @@ export function useChat({ conversationId, onConversationCreated }: Options) {
   useEffect(() => () => abortRef.current?.abort(), [])
 
   const send = useCallback(
-    async (question: string) => {
+    async (question: string, documentIds?: string[]) => {
       const controller = new AbortController()
       abortRef.current = controller
       streamingFor.current = conversationId
       setError(null)
-      setPending({ question, answer: '', userMessageId: null, sources: [] })
+      setPending({ question, answer: '', userMessageId: null, sources: [], scope: null })
       let activeId = conversationId
       let finished = false
       try {
-        for await (const event of streamChat(question, conversationId, controller.signal)) {
+        const events = streamChat(question, conversationId, controller.signal, documentIds)
+        for await (const event of events) {
           if (event.event === 'conversation') {
             activeId = event.data.id
             const userMessageId = event.data.user_message_id
@@ -56,6 +59,9 @@ export function useChat({ conversationId, onConversationCreated }: Options) {
               onConversationCreated(activeId)
             }
             void queryClient.invalidateQueries({ queryKey: ['conversations'] })
+          } else if (event.event === 'scope') {
+            const scope = event.data
+            setPending((p) => p && { ...p, scope })
           } else if (event.event === 'token') {
             const delta = event.data.content
             setPending((p) => p && { ...p, answer: p.answer + delta })

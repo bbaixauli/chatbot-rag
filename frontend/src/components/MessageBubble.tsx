@@ -1,8 +1,8 @@
-import { FileText } from 'lucide-react'
+import { FileText, Files } from 'lucide-react'
 import type { ComponentProps } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { sourceUrl, type Source } from '../api/client'
+import { sourceUrl, type Scope, type Source } from '../api/client'
 import { t } from '../i18n/es'
 import { linkCitations, sourceLabel } from '../utils/citations'
 
@@ -10,6 +10,8 @@ interface Props {
   role: 'user' | 'assistant'
   content: string
   sources?: Source[]
+  /** Documentos a los que se limitó la búsqueda de la respuesta. */
+  scope?: Scope | null
   streaming?: boolean
 }
 
@@ -18,7 +20,13 @@ function ExternalLink({ node: _node, ...props }: ComponentProps<'a'> & { node?: 
   return <a {...props} target="_blank" rel="noopener noreferrer" />
 }
 
-export function MessageBubble({ role, content, sources = [], streaming = false }: Props) {
+export function MessageBubble({
+  role,
+  content,
+  sources = [],
+  scope = null,
+  streaming = false,
+}: Props) {
   const isUser = role === 'user'
   return (
     <li
@@ -43,9 +51,21 @@ export function MessageBubble({ role, content, sources = [], streaming = false }
         ) : (
           <p className="text-texto-secundario italic">{t.chat.thinking}</p>
         )}
+        {!isUser && scope && scope.documents.length > 0 && <ScopeNote scope={scope} />}
         {!isUser && sources.length > 0 && <SourceList sources={sources} />}
       </div>
     </li>
+  )
+}
+
+function ScopeNote({ scope }: { scope: Scope }) {
+  const names = scope.documents.map((d) => d.filename).join(', ')
+  return (
+    <p className="mt-2 text-xs text-texto-secundario">
+      <Files aria-hidden size={14} className="inline align-[-2px]" /> {t.chat.scope.searchedIn}:{' '}
+      {names}
+      {scope.source === 'detected' && ` ${t.chat.scope.detected}`}
+    </p>
   )
 }
 

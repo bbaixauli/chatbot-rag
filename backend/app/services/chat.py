@@ -225,6 +225,7 @@ class ChatService:
             },
         )
         sources: list[ContextSource] = []
+        scope_payload: dict[str, Any] | None = None
         if self._retriever:
             query = await self._search_query(prepared)
             record.search_query = query
@@ -238,13 +239,11 @@ class ChatService:
             if scope_ids:
                 record.scope_document_ids = scope_ids
                 record.scope_source = origin.value
-                yield sse_event(
-                    "scope",
-                    {
-                        "documents": [{"id": d.id, "filename": d.filename} for d in scope],
-                        "source": origin.value,
-                    },
-                )
+                scope_payload = {
+                    "documents": [{"id": d.id, "filename": d.filename} for d in scope],
+                    "source": origin.value,
+                }
+                yield sse_event("scope", scope_payload)
             sources = await self._retriever.retrieve(query, scope_ids or None)
         prompt = [
             ChatMessage(
@@ -310,6 +309,7 @@ class ChatService:
                 yield sse_event("error", {"detail": "La conversación ya no existe."})
                 return
             message = await repo.add_message(conversation, MessageRole.ASSISTANT, answer)
+            message.scope = scope_payload
             # Un documento puede borrarse mientras se genera la respuesta: su referencia se
             # guarda sin enlace (si no, la clave foránea impediría guardar la respuesta).
             existing = set(

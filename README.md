@@ -145,8 +145,10 @@ como «Fuentes consultadas».
 Las preguntas de seguimiento («¿y con cuánta antelación?») se reformulan con el historial antes
 de buscar (se puede desactivar en la configuración de recuperación); la respuesta se genera con la pregunta original.
 
-La búsqueda se puede **limitar a uno o varios documentos** (hasta 5): la limitación se guarda en
-la conversación y se aplica a sus preguntas siguientes hasta que se quita. Entonces solo se
+La búsqueda se puede **limitar a uno o varios documentos** (hasta 5) con el botón **«Buscar en»**
+que hay sobre el campo de texto del chat, que permite filtrar la lista de documentos por nombre:
+la limitación se guarda en la conversación y se aplica a sus preguntas siguientes hasta que se
+quita. Bajo cada respuesta limitada se indica en qué documentos se buscó. Entonces solo se
 busca en esos documentos (comparando con todos sus fragmentos) y en lugar de la puntuación
 mínima general se usa la de la búsqueda limitada (*Recuperación*, 0 por defecto: basta con el
 top-k), porque quien pregunta ya ha indicado dónde está la respuesta.
