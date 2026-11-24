@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from pydantic import ValidationError
 
 from app.core.config import Settings
+from app.core.runtime_config import RuntimeConfig
 from app.db.models import Document, DocumentStatus
 from app.evaluation import (
     CaseResult,
@@ -281,3 +282,51 @@ async def test_cli_without_progress(tmp_path: Path) -> None:
 
     assert code == 0
     assert status.getvalue() == ""
+
+
+async def test_run_evaluation_with_preprocessing(tmp_path: Path) -> None:
+    (tmp_path / "guia.md").write_text("# Guía\n\nContenido de la guía.", encoding="utf-8")
+    cases = [EvaluationCase(pregunta="contenido", esperado=[{"fichero": "guia.md"}])]
+    indexing = RuntimeConfig.from_settings(Settings()).indexing
+
+    report = await run_evaluation(
+        cases,
+        documents_from_folder(tmp_path),
+        [ChunkConfig(500, 0)],
+        [3],
+        [0.1],
+        FakeEmbeddings(),
+        indexing=indexing,
+        toc_score_factor=0.8,
+    )
+
+    assert report.preprocessing == "v1;lineas=0.5;relleno;contexto"
+    assert report.toc_score_factor == 0.8
+    assert (
+        "Preprocesado: `v1;lineas=0.5;relleno;contexto` · peso de los fragmentos de índice: 0.8"
+        in (format_report(report))
+    )
+    assert report.best.best.hit_rate == 1.0
+
+
+async def test_cli_without_preprocessing(tmp_path: Path) -> None:
+    settings = Settings(embedding_provider="fake", llm_provider="fake")
+    output = tmp_path / "informe.json"
+
+    code = await main_async(
+        [
+            "--dataset",
+            str(EXAMPLE / "preguntas.json"),
+            "--documents",
+            str(EXAMPLE / "documentos"),
+            "--sin-preprocesado",
+            "--output",
+            str(output),
+        ],
+        settings,
+        io.StringIO(),
+    )
+
+    assert code == 0
+    data = json.loads(output.read_text(encoding="utf-8"))
+    assert (data["preprocessing"], data["toc_score_factor"]) == ("ninguno", 1.0)

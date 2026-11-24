@@ -31,13 +31,19 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
 from app.core.config import Settings, get_settings
+from app.core.runtime_config import IndexingConfig
 from app.db.models import Document, DocumentKind, DocumentStatus
 from app.db.session import build_engine, build_sessionmaker
 from app.services.condense import condense_question
 from app.services.embeddings import Embeddings, build_embeddings
-from app.services.ingestion.chunker import chunk_sections
 from app.services.ingestion.parsers import ParseError, kind_for_filename, parse_document
+from app.services.ingestion.preprocess import (
+    build_chunks,
+    embedding_texts,
+    preprocessing_signature,
+)
 from app.services.llm import ChatMessage, LLMClient, build_llm_client
+from app.services.rag import rank_hits
 from app.services.runtime_config import load_runtime_config
 from app.services.vectorstore import ChromaVectorStore, SearchHit
 
@@ -216,6 +222,18 @@ def format_duration(seconds: float) -> str:
     return f"{hours} h {minutes:02d} min"
 
 
+# Sin preprocesado del texto (el troceado se sustituye por el de cada configuración).
+_NO_PREPROCESSING = IndexingConfig(
+    upload_max_mb=1,
+    chunk_size_chars=3000,
+    chunk_overlap_chars=0,
+    strip_repeated_lines=False,
+    repeated_line_min_ratio=1,
+    clean_toc_leaders=False,
+    context_prefix=False,
+)
+
+
 @dataclass(frozen=True, slots=True)
 class ChunkConfig:
     size: int
@@ -240,6 +258,9 @@ class EvaluationReport:
     unanswerable: int
     configs: list[ConfigReport]
     skipped_documents: dict[str, str] = field(default_factory=dict)
+    # Preprocesado del texto (`preprocessing_signature`) y peso de los fragmentos de índice.
+    preprocessing: str = "ninguno"
+    toc_score_factor: float = 1.0
 
     @property
     def best(self) -> ConfigReport:
@@ -248,7 +269,7 @@ class EvaluationReport:
 
 async def _build_index(
     documents: Sequence[SourceDocument],
-    config: ChunkConfig,
+    indexing: IndexingConfig,
     embeddings: Embeddings,
     skipped: dict[str, str],
     progress: Progress,
@@ -264,8 +285,8 @@ async def _build_index(
             skipped[document.filename] = str(exc)
             progress(f"{label} documento {number}/{len(documents)}: omitido {document.filename}")
             continue
-        chunks = chunk_sections(sections, config.size, config.overlap)
-        vectors = await embeddings.embed([c.text for c in chunks])
+        chunks = build_chunks(sections, indexing)
+        vectors = await embeddings.embed(embedding_texts(chunks, document.filename, indexing))
         await store.add(document.filename, document.filename, chunks, vectors)
         total += len(chunks)
         elapsed = time.monotonic() - started
@@ -298,10 +319,15 @@ async def run_evaluation(
     embeddings: Embeddings,
     llm: LLMClient | None = None,
     progress: Progress = _no_progress,
+    indexing: IndexingConfig | None = None,
+    toc_score_factor: float = 1.0,
 ) -> EvaluationReport:
     """Evalúa cada configuración de troceado con todos los top-k y umbrales.
 
-    `progress` recibe mensajes de avance (documento a documento) para mostrarlos.
+    `indexing` indica el preprocesado del texto, como al indexar (sin él, no se aplica);
+    su troceado se sustituye por el de cada configuración. `toc_score_factor` resta peso
+    a los fragmentos de índice, como el chat. `progress` recibe mensajes de avance
+    (documento a documento) para mostrarlos.
     """
     if not documents:
         raise ValueError("No hay documentos que evaluar")
@@ -313,13 +339,21 @@ async def run_evaluation(
     progress(f"Calculando los embeddings de {len(queries)} preguntas con {embeddings.model_name}…")
     query_vectors = await embeddings.embed(queries)
     max_k = max(top_ks)
+    # Con fragmentos de índice penalizados se piden más candidatos, como el chat.
+    limit = max_k if toc_score_factor >= 1 else max_k * 2
+    base = _NO_PREPROCESSING if indexing is None else indexing
     skipped: dict[str, str] = {}
     reports = []
     for number, config in enumerate(configs, start=1):
         label = f"[{number}/{len(configs)}] fragmento {config.size}, solape {config.overlap}:"
         progress(f"{label} indexando {len(documents)} documentos…")
         config_started = time.monotonic()
-        store, total = await _build_index(documents, config, embeddings, skipped, progress, label)
+        chunk_indexing = base.model_copy(
+            update={"chunk_size_chars": config.size, "chunk_overlap_chars": config.overlap}
+        )
+        store, total = await _build_index(
+            documents, chunk_indexing, embeddings, skipped, progress, label
+        )
         progress(
             f"{label} {total} fragmentos indexados en "
             f"{format_duration(time.monotonic() - config_started)}; buscando…"
@@ -327,7 +361,8 @@ async def run_evaluation(
         try:
             results = []
             for case, query, vector in zip(cases, queries, query_vectors, strict=True):
-                hits = await store.search(vector, max_k)
+                found = await store.search(vector, limit)
+                hits = rank_hits(found, toc_score_factor)[:max_k]
                 ranked = [
                     RankedHit(h.score, any(e.matches(h) for e in case.esperado)) for h in hits
                 ]
@@ -354,6 +389,8 @@ async def run_evaluation(
         unanswerable=sum(1 for c in cases if not c.esperado),
         configs=reports,
         skipped_documents=skipped,
+        preprocessing=preprocessing_signature(base) if indexing is not None else "ninguno",
+        toc_score_factor=toc_score_factor,
     )
 
 
@@ -370,6 +407,8 @@ def format_report(report: EvaluationReport) -> str:
         "# Evaluación de la recuperación",
         "",
         f"- Modelo de embeddings: `{report.embedding_model}`",
+        f"- Preprocesado: `{report.preprocessing}` · peso de los fragmentos de índice: "
+        f"{report.toc_score_factor:g}",
         f"- Documentos: {len(report.documents)} · Preguntas: {report.questions} "
         f"({report.unanswerable} sin respuesta en los documentos)",
     ]
@@ -459,6 +498,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--output", type=Path, help="guarda el informe completo en JSON")
     parser.add_argument(
+        "--sin-preprocesado",
+        action="store_true",
+        help="no aplica el preprocesado del texto ni resta peso a los índices (para comparar)",
+    )
+    parser.add_argument(
         "--sin-progreso",
         action="store_true",
         help="no muestra el avance (por defecto se muestra en la salida de errores)",
@@ -498,6 +542,8 @@ async def main_async(
         build_embeddings(config),
         llm,
         progress,
+        indexing=None if args.sin_preprocesado else config.indexing,
+        toc_score_factor=1.0 if args.sin_preprocesado else config.rag.toc_score_factor,
     )
     out.write(format_report(report))
     if args.output:

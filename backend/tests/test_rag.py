@@ -12,9 +12,11 @@ from app.services.rag import (
     ContextSource,
     Retriever,
     build_system_prompt,
+    candidates_limit,
     extract_citations,
+    rank_hits,
 )
-from app.services.vectorstore import ChromaVectorStore
+from app.services.vectorstore import ChromaVectorStore, SearchHit
 
 TEXTS = [
     "Los empleados tienen 23 días de vacaciones al año.",
@@ -126,3 +128,39 @@ def test_system_prompt_includes_numbered_context_only_when_there_are_sources() -
 )
 def test_extract_citations(answer: str, expected: list[int]) -> None:
     assert extract_citations(answer, available=3) == expected
+
+
+def _hit(text: str, score: float, toc: bool = False) -> SearchHit:
+    return SearchHit("d1", "rrhh.pdf", 0, text, 1, None, score, toc=toc)
+
+
+def test_rank_hits_lowers_tables_of_contents() -> None:
+    hits = [_hit("contenido", 0.40), _hit("índice", 0.45, toc=True), _hit("otro", 0.30)]
+
+    assert [h.text for h in rank_hits(hits, 1.0)] == ["índice", "contenido", "otro"]
+    ranked = rank_hits(hits, 0.8)
+    assert [h.text for h in ranked] == ["contenido", "índice", "otro"]
+    assert ranked[1].score == pytest.approx(0.36)
+    assert hits[1].score == 0.45  # no modifica los originales
+
+
+def test_candidates_limit() -> None:
+    rag = RuntimeConfig.from_settings(Settings(rag_top_k=5)).rag
+    assert candidates_limit(rag) == 10
+    assert candidates_limit(rag.model_copy(update={"toc_score_factor": 1.0})) == 5
+
+
+async def test_retriever_applies_the_toc_factor(tmp_path: Path) -> None:
+    store = ChromaVectorStore(tmp_path / "chroma")
+    texts = ["Índice de vacaciones y permisos", "Vacaciones y permisos del personal"]
+    chunks = [Chunk(0, texts[0], 1, None, toc=True), Chunk(1, texts[1], 2, None)]
+    await store.add("d1", "rrhh.pdf", chunks, await FakeEmbeddings().embed(texts))
+
+    plain = await _retriever(store, rag_toc_score_factor=1.0).retrieve(texts[0])
+    lowered = await _retriever(store, rag_toc_score_factor=0.5).retrieve(texts[0])
+
+    assert plain[0].text == texts[0]
+    assert plain[0].score == pytest.approx(1.0, abs=1e-4)
+    toc = next(s for s in lowered if s.text == texts[0])
+    assert toc.score == pytest.approx(0.5, abs=1e-4)
+    assert [s.number for s in lowered] == [1, 2]

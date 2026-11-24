@@ -222,7 +222,7 @@ lenguaje y los embeddings):
 |---|---|
 | Modelo de lenguaje | `CHATBOT_LLM_*` |
 | Embeddings | `CHATBOT_EMBEDDING_*` |
-| Indexación | `CHATBOT_UPLOAD_MAX_MB`, `CHATBOT_CHUNK_SIZE_CHARS`, `CHATBOT_CHUNK_OVERLAP_CHARS` |
+| Indexación | `CHATBOT_UPLOAD_MAX_MB`, `CHATBOT_CHUNK_SIZE_CHARS`, `CHATBOT_CHUNK_OVERLAP_CHARS`, `CHATBOT_INDEXING_*` |
 | Recuperación | `CHATBOT_RAG_*` |
 | Conversación | `CHATBOT_CHAT_*`, `CHATBOT_SYSTEM_PROMPT_MAX_LENGTH` |
 | Límites de peticiones | `CHATBOT_RATE_LIMIT_*` |
@@ -243,10 +243,38 @@ cola (`CHATBOT_VECTOR_STORE`, `CHATBOT_QDRANT_*`, `CHATBOT_TASK_RUNNER`, `CHATBO
   `CHATBOT_SESSION_SECRET` y nunca se muestran. Si cambias `CHATBOT_SESSION_SECRET` (o
   restauras una copia en un servidor con otra), no se pueden descifrar: se usa el valor de
   `.env` y la administración pide volver a introducirlas.
-- Cambiar el **modelo de embeddings** o el **troceado** obliga a reindexar: al guardar se
+- Cambiar el **modelo de embeddings**, el **troceado** o la **limpieza del texto** obliga a
+  reindexar: al guardar se
   ofrece «Reindexar todo ahora» y *Documentos* avisa mientras queden documentos indexados con la
   configuración anterior. No se permite el cambio mientras haya documentos indexándose.
 - Los workers de indexación leen la configuración antes de cada documento.
+
+#### Limpieza del texto antes de indexar
+
+Antes de trocear e indexar un documento se limpia el texto, para que la búsqueda no se
+confunda con lo que se repite en todas las páginas. Cada paso se puede desactivar en
+*Indexación*:
+
+- **Encabezados y pies repetidos** (`CHATBOT_INDEXING_STRIP_REPEATED_LINES`): en los PDF de 3
+  o más páginas se quitan las líneas que aparecen en al menos la proporción de páginas
+  indicada (`CHATBOT_INDEXING_REPEATED_LINE_MIN_RATIO`, 0,5 por defecto). Para compararlas se
+  ignoran mayúsculas, espacios y números, así que se quitan los sellos de firma electrónica
+  (con su código de verificación y fecha), las cabeceras corporativas y los «Página 3 de 27».
+- **Puntos de relleno de los índices** (`CHATBOT_INDEXING_CLEAN_TOC_LEADERS`):
+  «Objetivo ........ 5» pasa a «Objetivo 5».
+- **Título del documento y sección** (`CHATBOT_INDEXING_CONTEXT_PREFIX`): el vector de cada
+  fragmento se calcula con «Documento: <nombre del fichero>» y la sección delante, así que
+  las preguntas que nombran el documento («¿qué dice el NOR-013?») encuentran sus
+  fragmentos. Las fuentes que se muestran conservan el texto original.
+
+Además, los fragmentos que parecen el índice del documento (tabla de contenidos) se marcan al
+indexar y la búsqueda multiplica su puntuación por el **peso de los fragmentos de índice**
+(*Recuperación*, `CHATBOT_RAG_TOC_SCORE_FACTOR`, 0,8 por defecto; 1 no cambia nada). Así no
+desplazan a las páginas de contenido, que es lo que hacía que el modelo respondiera que solo
+tenía el índice del documento.
+
+Tras actualizar a una versión que cambia esta limpieza, *Documentos* indica que hay
+documentos desactualizados: pulsa *Reindexar todo*.
 
 Para consultarla o, si una configuración deja la aplicación inservible, volver a los valores de
 `.env`:
@@ -774,11 +802,14 @@ docker compose exec backend python -m app.diagnose index manual-empleado --trunc
   estima a partir de cuántos caracteres. En ese caso, baja el tamaño de fragmento por
   debajo de ese límite o amplía el contexto del modelo en el servidor, y reindexa.
 
-También señala los vectores nulos, los textos distintos con el mismo vector y los fragmentos
-con aspecto de índice (tabla de contenidos). Termina con código 2 si encuentra anomalías.
+También señala los vectores nulos, los textos distintos con el mismo vector, los fragmentos
+con aspecto de índice (tabla de contenidos) y los documentos indexados con otra limpieza del
+texto. Aplica la misma limpieza y el mismo título y sección que la indexación, así que los
+vectores deben coincidir. Termina con código 2 si encuentra anomalías.
 
 `query` busca la pregunta sin reformularla (el chat reescribe las preguntas de seguimiento) y
 marca con ✓ los fragmentos que llegarían al modelo según el top-k, la puntuación mínima y el
-máximo de contexto de la configuración de recuperación. Con `--document` (se puede repetir)
+máximo de contexto de la configuración de recuperación, y con el peso de los fragmentos de
+índice aplicado. Con `--document` (se puede repetir)
 clasifica todo el índice y muestra en qué puesto quedan los fragmentos de ese documento, con
 la diferencia de score respecto al último fragmento que llega al modelo.

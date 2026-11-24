@@ -16,12 +16,12 @@ from app.diagnose import (
     diagnose_query,
     estimate_truncation,
     find_documents,
-    looks_like_toc,
     main,
 )
 from app.main import create_app
 from app.services.embeddings import FakeEmbeddings
 from app.services.ingestion.chunker import Chunk
+from app.services.ingestion.preprocess import looks_like_toc
 from tests.conftest import set_config
 from tests.factories import MARKDOWN
 
@@ -381,3 +381,38 @@ def test_cli_document_ranking_and_truncation(
     output = capsys.readouterr().out
     assert "recorte " in output
     assert "Sin anomalías" in output
+
+
+async def test_detects_documents_indexed_with_another_preprocessing(
+    app: FastAPI, client: AsyncClient, settings: Settings
+) -> None:
+    document = await _upload(app, client)
+    await set_config(app, "indexing", context_prefix=False)
+
+    report = await diagnose_document(
+        document,
+        settings,
+        app.state.config.current,
+        app.state.vector_store,
+        app.state.embeddings,
+    )
+
+    assert any("otro preprocesado" in problem for problem in report.problems)
+    # El vector guardado se calculó con el título delante: ya no coincide.
+    assert any("vector guardado distinto" in problem for problem in report.problems)
+
+
+async def test_query_lowers_tables_of_contents(
+    app: FastAPI, client: AsyncClient, settings: Settings
+) -> None:
+    await _upload(app, client, "indice.md", f"# Guía\n\n{TOC}\n\n# Vacaciones\n\n{MARKDOWN}")
+    await set_config(app, "rag", top_k=10, min_score=0.0, toc_score_factor=0.0)
+
+    hits = await diagnose_query(
+        TOC, app.state.config.current, app.state.vector_store, app.state.embeddings, top=10
+    )
+
+    # Sin restarle peso, el índice sería el primero: la pregunta es su propio texto.
+    toc = next(item for item in hits if item.toc)
+    assert toc.hit.score == 0.0
+    assert hits[0] is not toc

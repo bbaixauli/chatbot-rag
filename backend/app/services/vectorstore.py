@@ -23,6 +23,8 @@ class SearchHit:
     page: int | None
     heading: str | None
     score: float
+    # El fragmento parece un índice del documento (ver `ingestion/preprocess.py`).
+    toc: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,6 +36,7 @@ class StoredChunk:
     page: int | None
     heading: str | None
     vector: list[float]
+    toc: bool = False
 
 
 class VectorStoreError(Exception):
@@ -122,6 +125,8 @@ class ChromaVectorStore:
                 metadata["page"] = chunk.page
             if chunk.heading:
                 metadata["heading"] = chunk.heading
+            # Siempre explícita: al reindexar, `upsert` podría conservar la marca anterior.
+            metadata["toc"] = int(chunk.toc)
             metadatas.append(metadata)
         await asyncio.to_thread(
             self._collection.upsert,
@@ -166,6 +171,7 @@ class ChromaVectorStore:
                     page=int(str(page)) if page is not None else None,
                     heading=str(heading) if heading is not None else None,
                     score=1.0 - float(distance),
+                    toc=bool(metadata.get("toc")),
                 )
             )
         return hits
@@ -191,6 +197,7 @@ class ChromaVectorStore:
                     page=int(str(page)) if page is not None else None,
                     heading=str(heading) if heading is not None else None,
                     vector=[float(v) for v in vector],
+                    toc=bool(metadata.get("toc")),
                 )
             )
         return sorted(chunks, key=lambda c: c.chunk_index)

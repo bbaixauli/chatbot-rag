@@ -50,6 +50,7 @@ const ldapMode = (state: FormState) => state.values.auth_mode === 'ldap'
 const dailyAudit = (state: FormState) => state.values.schedule === 'daily'
 const auditWithModel = (state: FormState) => state.values.use_llm === true
 const auditEmail = (state: FormState) => state.values.notify_enabled === true
+const stripRepeatedLines = (state: FormState) => state.values.strip_repeated_lines === true
 
 // Rangos: los mismos que valida el servidor (backend/app/core/runtime_config.py).
 const GROUPS: GroupSpec[] = [
@@ -83,6 +84,17 @@ const GROUPS: GroupSpec[] = [
       { name: 'upload_max_mb', kind: 'number', min: 1, integer: true },
       { name: 'chunk_size_chars', kind: 'number', min: 200, integer: true },
       { name: 'chunk_overlap_chars', kind: 'number', min: 0, integer: true },
+      { name: 'strip_repeated_lines', kind: 'boolean' },
+      {
+        name: 'repeated_line_min_ratio',
+        kind: 'number',
+        min: 0.05,
+        max: 1,
+        step: 0.05,
+        visible: stripRepeatedLines,
+      },
+      { name: 'clean_toc_leaders', kind: 'boolean' },
+      { name: 'context_prefix', kind: 'boolean' },
     ],
   },
   {
@@ -94,6 +106,7 @@ const GROUPS: GroupSpec[] = [
       { name: 'max_context_chars', kind: 'number', min: 500, integer: true },
       { name: 'condense_question', kind: 'boolean' },
       { name: 'condense_history_messages', kind: 'number', min: 1, integer: true },
+      { name: 'toc_score_factor', kind: 'number', min: 0, max: 1, step: 0.05 },
     ],
   },
   {

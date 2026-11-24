@@ -14,6 +14,8 @@ class Chunk:
     text: str
     page: int | None
     heading: str | None
+    # Parece un índice del documento (tabla de contenidos): la búsqueda le resta peso.
+    toc: bool = False
 
 
 _SENTENCE_END = re.compile(r"(?<=[.!?…])\s+")
