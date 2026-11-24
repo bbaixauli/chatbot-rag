@@ -107,6 +107,7 @@ const GROUPS: GroupSpec[] = [
       { name: 'condense_question', kind: 'boolean' },
       { name: 'condense_history_messages', kind: 'number', min: 1, integer: true },
       { name: 'toc_score_factor', kind: 'number', min: 0, max: 1, step: 0.05 },
+      { name: 'detect_document_names', kind: 'boolean' },
       { name: 'scoped_min_score', kind: 'number', min: 0, max: 1, step: 0.01 },
     ],
   },

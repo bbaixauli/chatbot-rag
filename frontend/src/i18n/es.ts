@@ -249,6 +249,7 @@ export const t = {
           condense_question: 'Reformular las preguntas de seguimiento antes de buscar',
           condense_history_messages: 'Mensajes previos para reformular',
           toc_score_factor: 'Peso de los fragmentos de índice (0-1)',
+          detect_document_names: 'Buscar solo en los documentos que nombre la pregunta',
           scoped_min_score: 'Puntuación mínima al buscar en documentos concretos (0-1)',
         },
         hints: {
@@ -257,6 +258,8 @@ export const t = {
           condense_question: 'Cuesta una llamada extra al modelo cuando hay historial.',
           toc_score_factor:
             'Multiplica su puntuación para que no desplacen al contenido; 1 = sin cambios.',
+          detect_document_names:
+            'Por su código («NOR-013») o su título completo. El chat indica en qué documentos busca.',
           scoped_min_score:
             'Cuando se limita la búsqueda a unos documentos; con 0 basta con el top-k.',
         },

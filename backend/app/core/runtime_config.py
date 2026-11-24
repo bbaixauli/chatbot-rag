@@ -138,6 +138,8 @@ class RagConfig(ConfigGroup):
     toc_score_factor: float = Field(ge=0, le=1)
     # Puntuación mínima cuando la búsqueda se limita a unos documentos.
     scoped_min_score: float = Field(ge=0, le=1)
+    # Limita la búsqueda a los documentos que se nombran en la pregunta (código o título).
+    detect_document_names: bool
 
 
 class ChatLimits(ConfigGroup):

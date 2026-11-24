@@ -151,6 +151,12 @@ busca en esos documentos (comparando con todos sus fragmentos) y en lugar de la 
 mínima general se usa la de la búsqueda limitada (*Recuperación*, 0 por defecto: basta con el
 top-k), porque quien pregunta ya ha indicado dónde está la respuesta.
 
+Si la pregunta **nombra un documento**, por su código («¿qué dice el NOR-013?», también «nor
+13») o por su título completo («la normativa de control de acceso lógico en DTIC»), la búsqueda
+se limita a él solo para esa pregunta y sus preguntas de seguimiento (se reconoce también en la
+pregunta reformulada). Si se nombran más de 5 documentos, no se limita. Se puede desactivar en
+la configuración de recuperación.
+
 Antes de indexar se limpia el texto: se quitan de los PDF los encabezados y pies que se repiten
 en todas las páginas (sellos de firma electrónica, «Página 3 de 27»…), se quitan los puntos de
 relleno de los índices y cada fragmento se busca con el título del documento y su sección

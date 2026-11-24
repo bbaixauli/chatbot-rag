@@ -27,10 +27,11 @@ from app.db.models import (
 from app.services.condense import condense_question
 from app.services.conversations import ConversationRepository, make_title
 from app.services.dashboard import QuestionRecord, record_question
+from app.services.document_names import detect_documents
 from app.services.llm import ChatMessage, LLMClient, LLMError
 from app.services.prompts import PromptRepository
 from app.services.rag import ContextSource, Retriever, build_system_prompt, extract_citations
-from app.services.scope import ScopeDocument, resolve_scope
+from app.services.scope import ScopeDocument, indexed_documents, resolve_scope
 
 logger = logging.getLogger(__name__)
 
@@ -223,21 +224,27 @@ class ChatService:
                 "user_message_id": prepared.user_message_id,
             },
         )
-        scope_ids = [document.id for document in prepared.scope]
-        if scope_ids:
-            record.scope_document_ids = scope_ids
-            record.scope_source = ScopeSource.SELECTOR.value
-            yield sse_event(
-                "scope",
-                {
-                    "documents": [{"id": d.id, "filename": d.filename} for d in prepared.scope],
-                    "source": ScopeSource.SELECTOR.value,
-                },
-            )
         sources: list[ContextSource] = []
         if self._retriever:
             query = await self._search_query(prepared)
             record.search_query = query
+            # La limitación elegida en el chat tiene prioridad; si no hay, se busca en los
+            # documentos que nombre la pregunta (o su reformulación, en las de seguimiento).
+            scope, origin = prepared.scope, ScopeSource.SELECTOR
+            if not scope:
+                scope = await self._detect_scope(prepared.question, query)
+                origin = ScopeSource.DETECTED
+            scope_ids = [document.id for document in scope]
+            if scope_ids:
+                record.scope_document_ids = scope_ids
+                record.scope_source = origin.value
+                yield sse_event(
+                    "scope",
+                    {
+                        "documents": [{"id": d.id, "filename": d.filename} for d in scope],
+                        "source": origin.value,
+                    },
+                )
             sources = await self._retriever.retrieve(query, scope_ids or None)
         prompt = [
             ChatMessage(
@@ -329,6 +336,15 @@ class ChatService:
             )
             await session.commit()
         yield sse_event("done", {"message_id": message.id})
+
+    async def _detect_scope(self, question: str, query: str) -> list[ScopeDocument]:
+        """Documentos que nombra la pregunta, si la detección está activada."""
+        rag = self._config.rag
+        if not rag.enabled or not rag.detect_document_names:
+            return []
+        async with self._sessionmaker() as session:
+            documents = await indexed_documents(session)
+        return detect_documents([question, query], documents)
 
     async def _search_query(self, prepared: PreparedChat) -> str:
         """Consulta para la búsqueda: la pregunta, reformulada si hay historial."""

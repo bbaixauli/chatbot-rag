@@ -282,7 +282,21 @@ Cuando la búsqueda del chat se limita a unos documentos, se comparan todos sus 
 la pregunta (búsqueda exacta) y se usa la **puntuación mínima al buscar en documentos
 concretos** (*Recuperación*, `CHATBOT_RAG_SCOPED_MIN_SCORE`, 0 por defecto) en lugar de la
 general: basta con el top-k. El registro de preguntas guarda a qué documentos se limitó cada
-búsqueda.
+búsqueda y si fue porque se eligieron en el chat o porque la pregunta los nombraba.
+
+Con **«Buscar solo en los documentos que nombre la pregunta»** (`CHATBOT_RAG_DETECT_DOCUMENT_NAMES`,
+activado por defecto), la búsqueda se limita a los documentos que la pregunta nombra:
+
+- por su **código**: letras mayúsculas y números del nombre del fichero («NOR-013»,
+  «PRO_02», «IT0045»), que en la pregunta se reconocen con o sin guion, en minúsculas y sin
+  ceros a la izquierda («nor 13»);
+- por su **título completo**, sin tener en cuenta mayúsculas ni acentos, con o sin la versión
+  y el código («Control de acceso lógico en DTIC»). Los títulos de menos de 3 palabras o 15
+  caracteres no se reconocen, para no confundirlos con palabras sueltas.
+
+Si se nombran más de 5 documentos no se limita. Los documentos elegidos en el chat tienen
+prioridad. `app.diagnose query` aplica la misma detección e indica qué documentos ha
+reconocido.
 
 Para consultarla o, si una configuración deja la aplicación inservible, volver a los valores de
 `.env`:
