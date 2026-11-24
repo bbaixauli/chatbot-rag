@@ -17,9 +17,10 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         # Se sustituye (no se añade) para que el cliente no pueda falsear su IP y saltarse
-        # el límite de peticiones. Si hay otro proxy delante, ver docs/despliegue.md.
+        # el límite de peticiones. Detrás de otro proxy, $remote_addr es la IP real si ese
+        # proxy está en CHATBOT_TRUSTED_PROXIES (ver docker/25-proxies-de-confianza.sh).
         proxy_set_header X-Forwarded-For $remote_addr;
-        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Proto $chatbot_forwarded_proto;
         proxy_set_header X-Request-ID $request_id;
 
         # Respuestas del chat en streaming (SSE): sin búfer y con tiempo de espera amplio.

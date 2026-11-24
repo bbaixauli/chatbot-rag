@@ -1,0 +1,40 @@
+# Proxy HTTPS del despliegue con docker-compose.https.yml (ver docs/despliegue.md, «HTTPS»).
+# Las variables {$CHATBOT_*} las pasa el compose desde .env.
+{
+	# Puertos dentro del contenedor (los mismos que en el servidor): la redirección de HTTP a
+	# HTTPS apunta así al puerto correcto aunque no sea el 443.
+	http_port {$CHATBOT_HTTP_REDIRECT_PORT}
+	https_port {$CHATBOT_HTTPS_PORT}
+	# La CA interna no se instala en el almacén del contenedor: no serviría de nada.
+	skip_install_trust
+	# La redirección automática omite el puerto si no es el 443: se define abajo.
+	auto_https disable_redirects
+}
+
+# Todo lo que llega por HTTP se redirige a HTTPS (308 conserva el método y el cuerpo).
+http:// {
+	redir https://{host}:{$CHATBOT_HTTPS_PORT}{uri} 308
+}
+
+# Los dos modos fijan el certificado con `tls`: nunca se piden a Let's Encrypt ni a otra
+# CA pública, así que el servidor no necesita salida a Internet.
+
+# Certificado firmado por la CA interna de Caddy, que lo renueva solo. Los navegadores
+# avisan salvo que se instale en los equipos su certificado raíz.
+(tls-interno) {
+	tls internal
+}
+
+# Certificado de la organización (o de una CA comercial), en el directorio de certificados.
+(tls-certificado) {
+	tls /certs/cert.pem /certs/key.pem
+}
+
+{$CHATBOT_DOMAIN} {
+	import tls-{$CHATBOT_TLS}
+
+	header Strict-Transport-Security "max-age={$CHATBOT_HSTS_MAX_AGE}"
+
+	# Sin `encode`: comprimir retendría el streaming del chat (SSE). Ya comprime nginx.
+	reverse_proxy frontend:8080
+}

@@ -22,8 +22,10 @@ frontend/
   e2e/               Tests de interfaz con Playwright
   docker/            Configuración de nginx para la imagen
 docs/                Guía de despliegue
-scripts/             Prueba de humo del despliegue con Docker
-docker-compose.yml   Despliegue con Docker (y docker-compose.escalado.yml: Qdrant, Redis y workers)
+scripts/             Pruebas de humo del despliegue con Docker
+docker-compose.yml   Despliegue con Docker (y docker-compose.escalado.yml: Qdrant, Redis y workers;
+                     docker-compose.https.yml: HTTPS con Caddy)
+deploy/caddy/        Configuración de Caddy (proxy HTTPS)
 data/                Datos locales: BD, índice y ficheros subidos (no versionado)
 ```
 
@@ -39,9 +41,10 @@ cp .env.example .env      # configura el servidor de IA y la contraseña de admi
 docker compose up -d --build
 ```
 
-La aplicación queda en http://localhost:8080. La [guía de despliegue](docs/despliegue.md)
-explica la configuración, HTTPS, actualizaciones, logs y copias de seguridad
-(`docker compose exec backend python -m app.backup create`).
+La aplicación queda en http://localhost:8080. Para servirla por HTTPS (certificado autofirmado o
+de la organización), añade `docker-compose.https.yml`, que incluye Caddy como proxy. La
+[guía de despliegue](docs/despliegue.md) explica la configuración, HTTPS, actualizaciones, logs
+y copias de seguridad (`docker compose exec backend python -m app.backup create`).
 
 ## Puesta en marcha en local
 

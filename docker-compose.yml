@@ -26,6 +26,8 @@ services:
     image: chatbot-rag-frontend:${CHATBOT_IMAGE_TAG:-latest}
     environment:
       CHATBOT_MAX_BODY_SIZE: ${CHATBOT_MAX_BODY_SIZE:-60m}
+      # IP o rangos del proxy HTTPS propio, si lo hay (ver docs/despliegue.md, «HTTPS»).
+      CHATBOT_TRUSTED_PROXIES: ${CHATBOT_TRUSTED_PROXIES:-}
     ports:
       - "${CHATBOT_HTTP_BIND:-0.0.0.0}:${CHATBOT_HTTP_PORT:-8080}:8080"
     depends_on:
