@@ -256,7 +256,12 @@ async def test_command_line_tools_read_the_database(tmp_path: Path) -> None:
 
     assert (await load_runtime_config(store._settings)).indexing.chunk_size_chars == 700
     # Sin BD (o sin migrar) se usan las variables de entorno.
-    empty = Settings(data_dir=tmp_path / "no-existe", chunk_size_chars=1000)
+    missing = tmp_path / "no-existe"
+    empty = Settings(
+        data_dir=missing,
+        database_url=f"sqlite+aiosqlite:///{(missing / 'app.db').as_posix()}",
+        chunk_size_chars=1000,
+    )
     assert (await load_runtime_config(empty)).indexing.chunk_size_chars == 1000
 
 
@@ -372,6 +377,10 @@ async def test_update_validation(admin: AsyncClient) -> None:
     assert bad_clear.status_code == 422
     bad_secret = await admin.put(f"{URL}/llm", json={"api_key": 3})
     assert bad_secret.status_code == 422
+    # El nombre del modelo se guarda en columnas de 255 caracteres.
+    long_model = await admin.put(f"{URL}/llm", json={"model": "m" * 256})
+    assert long_model.status_code == 422
+    assert "model" in long_model.json()["detail"]
 
 
 async def test_secrets_are_kept_replaced_or_cleared(app: FastAPI, admin: AsyncClient) -> None:

@@ -12,6 +12,9 @@ from app.core.config import Settings
 from app.main import create_app
 from tests.factories import MARKDOWN
 
+# Las copias con PostgreSQL llegan con el formato portable (#60, parte C).
+pytestmark = pytest.mark.sqlite_only
+
 CREDENTIALS = {"username": "admin", "password": "secreto"}
 
 

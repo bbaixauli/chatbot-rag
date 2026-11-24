@@ -60,6 +60,8 @@ def build_directory() -> Server:
             "userPassword": PASSWORDS["pepe"],
         },
     )
+    # Nombre visible más largo que las columnas donde se guarda.
+    add(f"uid=largo,{PEOPLE}", _person("largo", "Nombre " * 50, "clave-larga"))
     # Dos entradas con el mismo uid: no se puede saber quién es.
     add(f"uid=dup,ou=a,{PEOPLE}", _person("dup", "Duplicado A", "x"))
     add(f"uid=dup,ou=b,{PEOPLE}", _person("dup", "Duplicado B", "x"))

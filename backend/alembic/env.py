@@ -3,8 +3,8 @@ from logging.config import fileConfig
 
 from alembic import context
 from sqlalchemy import pool
-from sqlalchemy.engine import Connection
-from sqlalchemy.ext.asyncio import async_engine_from_config
+from sqlalchemy.engine import URL, Connection
+from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.core.config import get_settings
 from app.db import models  # noqa: F401  (registra los modelos en Base.metadata)
@@ -25,10 +25,20 @@ if config.config_file_name is not None:
 # target_metadata = mymodel.Base.metadata
 target_metadata = Base.metadata
 
-if not config.get_main_option("sqlalchemy.url"):
-    _settings = get_settings()
-    _settings.data_dir.mkdir(parents=True, exist_ok=True)
-    config.set_main_option("sqlalchemy.url", _settings.resolved_database_url)
+
+def database_url() -> str | URL:
+    """La URL de `sqlalchemy.url` (tests) o la de la configuración de la aplicación.
+
+    La de la aplicación no se guarda en `config`: su contraseña podría contener `%`, que
+    configparser interpretaría.
+    """
+    configured = config.get_main_option("sqlalchemy.url")
+    if configured:
+        return configured
+    settings = get_settings()
+    settings.data_dir.mkdir(parents=True, exist_ok=True)
+    return settings.resolved_database_url
+
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:
@@ -48,9 +58,8 @@ def run_migrations_offline() -> None:
     script output.
 
     """
-    url = config.get_main_option("sqlalchemy.url")
     context.configure(
-        url=url,
+        url=database_url(),
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -74,11 +83,7 @@ async def run_async_migrations() -> None:
 
     """
 
-    connectable = async_engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
-    )
+    connectable = create_async_engine(database_url(), poolclass=pool.NullPool)
 
     async with connectable.connect() as connection:
         await connection.run_sync(do_run_migrations)

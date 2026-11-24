@@ -5,6 +5,7 @@ from typing import Any
 
 import pytest
 from pydantic import ValidationError
+from sqlalchemy.engine import make_url
 
 from app.core.config import (
     EXAMPLE_ADMIN_PASSWORD,
@@ -13,17 +14,38 @@ from app.core.config import (
     get_settings,
 )
 from app.main import create_app
+from tests.conftest import TEST_DATABASE_URL
 
 
-def test_default_database_url_points_to_data_dir(tmp_path: Path) -> None:
-    settings = Settings(data_dir=tmp_path)
-    expected = f"sqlite+aiosqlite:///{(tmp_path / 'app.db').as_posix()}"
-    assert settings.resolved_database_url == expected
+def test_default_database_url_points_to_data_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("CHATBOT_DATABASE_URL", raising=False)
+    url = Settings(data_dir=tmp_path).resolved_database_url
+    assert url.drivername == "sqlite+aiosqlite"
+    assert url.database == (tmp_path / "app.db").as_posix()
 
 
 def test_explicit_database_url_wins() -> None:
     settings = Settings(database_url="sqlite+aiosqlite:///:memory:")
-    assert settings.resolved_database_url == "sqlite+aiosqlite:///:memory:"
+    url = settings.resolved_database_url
+    assert (url.drivername, url.database) == ("sqlite+aiosqlite", ":memory:")
+
+
+def test_database_password_is_kept_apart_from_the_url() -> None:
+    password = "p@ss:/%#?wörd"  # noqa: S105 (caracteres que habría que codificar en la URL)
+    settings = Settings(
+        database_url="postgresql+asyncpg://chatbot:otra@db:5432/chatbot",
+        database_password=password,
+    )
+    url = settings.resolved_database_url
+    assert (url.username, url.host, url.port, url.database) == ("chatbot", "db", 5432, "chatbot")
+    # Sustituye a la de la URL y no aparece al mostrarla (logs, diagnóstico).
+    assert url.password == password
+    assert password not in str(url)
+    assert password not in repr(settings)
+    # Se codifica correctamente si hay que pasarla como texto.
+    assert make_url(url.render_as_string(hide_password=False)).password == password
 
 
 def test_env_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -38,7 +60,9 @@ def test_tests_ignore_local_env_file(tmp_path: Path, monkeypatch: pytest.MonkeyP
     monkeypatch.chdir(tmp_path)
 
     assert Settings().log_level == "INFO"
-    assert not [name for name in os.environ if name.upper().startswith("CHATBOT_")]
+    # Salvo la BD de pruebas, si se usa una (ver conftest.py).
+    expected = ["CHATBOT_DATABASE_URL"] if TEST_DATABASE_URL else []
+    assert [name for name in os.environ if name.upper().startswith("CHATBOT_")] == expected
 
 
 def test_invalid_environment_rejected() -> None:

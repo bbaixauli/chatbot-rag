@@ -3,12 +3,18 @@
 from typing import Any
 
 from sqlalchemy import event
+from sqlalchemy.engine import URL, make_url
+from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
 )
+
+# Errores de una BD inaccesible o sin migrar: SQLite da `OperationalError` («no such table»)
+# y PostgreSQL `ProgrammingError` (tabla inexistente) u `OperationalError` (sin conexión).
+DATABASE_NOT_READY = (OperationalError, ProgrammingError)
 
 
 def _configure_sqlite(dbapi_connection: Any, _record: Any) -> None:
@@ -22,10 +28,14 @@ def _configure_sqlite(dbapi_connection: Any, _record: Any) -> None:
     cursor.close()
 
 
-def build_engine(database_url: str) -> AsyncEngine:
+def build_engine(database_url: str | URL) -> AsyncEngine:
     """Crea el motor asíncrono para la URL indicada."""
-    engine = create_async_engine(database_url)
-    if engine.dialect.name == "sqlite":
+    url = make_url(database_url)
+    is_sqlite = url.get_backend_name() == "sqlite"
+    # Un servidor (PostgreSQL) puede reiniciarse o cerrar conexiones inactivas: se comprueban
+    # antes de usarlas en lugar de fallar en la siguiente petición.
+    engine = create_async_engine(url, pool_pre_ping=not is_sqlite)
+    if is_sqlite:
         event.listen(engine.sync_engine, "connect", _configure_sqlite)
     return engine
 

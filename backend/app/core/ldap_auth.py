@@ -26,6 +26,8 @@ logger = logging.getLogger(__name__)
 
 # Regla de coincidencia de Active Directory para pertenencia a grupos anidados.
 AD_IN_CHAIN = "1.2.840.113556.1.4.1941"
+# Longitud de las columnas donde se guardan el usuario y su nombre (conversaciones, registro).
+USER_FIELD_MAX_LENGTH = 255
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,9 +128,10 @@ class LdapAuthenticator:
                     raise InvalidCredentialsError
                 user_connection.unbind()
                 user_id = _first(entry, config.ldap_user_id_attribute) or username
+                display_name = _first(entry, config.ldap_display_name_attribute) or user_id
                 return LdapUser(
-                    id=user_id.lower(),
-                    display_name=_first(entry, config.ldap_display_name_attribute) or user_id,
+                    id=user_id.lower()[:USER_FIELD_MAX_LENGTH],
+                    display_name=display_name[:USER_FIELD_MAX_LENGTH],
                     dn=entry.entry_dn,
                     is_admin=self._in_group(
                         service, config.ldap_admin_group_dn, entry.entry_dn, user_id

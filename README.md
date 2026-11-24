@@ -265,13 +265,23 @@ Documentación interactiva en http://localhost:8000/docs. Endpoints principales:
 | Tipos | `uv run mypy app tests` | `npm run typecheck` |
 | Tests unitarios | `uv run pytest` (cobertura ≥ 85 %) | `npm test` (cobertura ≥ 80 %) |
 | Tests de interfaz | — | `npm run test:e2e` (Playwright) |
-| Despliegue | `scripts/docker-smoke.sh`, `ldap-smoke.sh` y `escalado-smoke.sh` (desde la raíz; requieren Docker) | |
+| Tests con PostgreSQL | `CHATBOT_TEST_DATABASE_URL=… uv run pytest --no-cov` (ver abajo) | |
+| Despliegue | `scripts/docker-smoke.sh`, `ldap-smoke.sh`, `escalado-smoke.sh` y `https-smoke.sh` (desde la raíz; requieren Docker) | |
 
 Los tests E2E levantan automáticamente backend (puerto 8001, con modelo simulado) y frontend
 (puerto 5174) con una carpeta de datos temporal. La primera vez instala el navegador con
 `npx playwright install chromium`. Los tests que cambian la configuración global del chat se
 ejecutan en un proyecto aparte, después del resto. Si en un equipo lento fallan por tiempo de
 espera al ejecutarse en paralelo, prueba con `npm run test:e2e -- --workers=1`.
+
+Los tests del backend usan un SQLite temporal por test. Con `CHATBOT_TEST_DATABASE_URL` usan
+en su lugar esa base de datos PostgreSQL, que **vacían antes de cada test** (usa una exclusiva
+para los tests) y omiten los que dependen de SQLite:
+
+```bash
+docker run -d --name chatbot-pg-test -p 127.0.0.1:55432:5432 -e POSTGRES_USER=chatbot   -e POSTGRES_PASSWORD=chatbot -e POSTGRES_DB=chatbot_test postgres:18-alpine
+CHATBOT_TEST_DATABASE_URL=postgresql+asyncpg://chatbot:chatbot@127.0.0.1:55432/chatbot_test   uv run pytest --no-cov
+```
 
 El CI de GitHub Actions ejecuta todo lo anterior en cada pull request.
 

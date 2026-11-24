@@ -16,6 +16,10 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 
 from app.core.config import Settings
 
+# Los nombres de modelo se guardan en columnas de 255 caracteres (registro de preguntas,
+# documentos, auditoría).
+MODEL_NAME_MAX_LENGTH = 255
+
 
 class ConfigGroup(BaseModel):
     """Grupo de parámetros que se guarda como una fila de `app_settings`."""
@@ -64,7 +68,7 @@ class LlmConfig(ConfigGroup):
     provider: Literal["openai", "fake"]
     base_url: str = Field(min_length=1)
     api_key: SecretStr | None
-    model: str = Field(min_length=1)
+    model: str = Field(min_length=1, max_length=MODEL_NAME_MAX_LENGTH)
     temperature: float = Field(ge=0, le=2)
     timeout_seconds: float = Field(gt=0)
     max_retries: int = Field(ge=0)
@@ -80,7 +84,7 @@ class EmbeddingConfig(ConfigGroup):
     provider: Literal["openai", "local", "fake"]
     base_url: str | None
     api_key: SecretStr | None
-    model: str = Field(min_length=1)
+    model: str = Field(min_length=1, max_length=MODEL_NAME_MAX_LENGTH)
     batch_size: int = Field(gt=0)
 
 
@@ -200,7 +204,7 @@ class AuditConfig(ConfigGroup):
     schedule: Literal["hourly", "daily"]
     daily_time: str = Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
     use_llm: bool
-    llm_model: str | None
+    llm_model: str | None = Field(max_length=MODEL_NAME_MAX_LENGTH)
     max_per_run: int = Field(ge=1, le=10_000)
     llm_history_days: int = Field(ge=0)
     retention_days: int = Field(ge=0)

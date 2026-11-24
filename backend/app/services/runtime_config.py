@@ -24,14 +24,14 @@ from typing import Any
 
 from pydantic import SecretStr, ValidationError
 from sqlalchemy import delete, select
-from sqlalchemy.exc import IntegrityError, OperationalError
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import Settings
 from app.core.runtime_config import GROUPS, ConfigGroup, RuntimeConfig
 from app.core.secrets import SecretCipher, SecretUnreadableError
 from app.db.models import AppSetting, SystemPromptVersion, utcnow
-from app.db.session import build_engine, build_sessionmaker
+from app.db.session import DATABASE_NOT_READY, build_engine, build_sessionmaker
 
 logger = logging.getLogger(__name__)
 
@@ -139,7 +139,7 @@ class ConfigStore:
         """Vuelve a leer la configuración (p. ej. un worker antes de cada trabajo)."""
         try:
             await self.load(seed=False)
-        except OperationalError:
+        except DATABASE_NOT_READY:
             logger.warning("No se pudo leer la configuración; se mantiene la anterior")
 
     async def save(self, name: str, value: ConfigGroup, author: str) -> None:
@@ -248,7 +248,7 @@ async def load_runtime_config(settings: Settings) -> RuntimeConfig:
         store = ConfigStore(build_sessionmaker(engine), settings)
         try:
             await store.load(seed=False)
-        except OperationalError:
+        except DATABASE_NOT_READY:
             logger.warning("No se pudo leer la configuración de la BD: se usa la de CHATBOT_*")
         return store.current
     finally:

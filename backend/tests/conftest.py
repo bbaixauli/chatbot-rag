@@ -1,5 +1,11 @@
-"""Fixtures comunes de los tests del backend."""
+"""Fixtures comunes de los tests del backend.
 
+Con `CHATBOT_TEST_DATABASE_URL` (p. ej. `postgresql+asyncpg://chatbot:chatbot@localhost:55432/
+chatbot_test`) la suite usa esa base de datos en lugar de un SQLite por test: se vacía antes de
+cada test y los tests propios de SQLite (`@pytest.mark.sqlite_only`) se omiten.
+"""
+
+import asyncio
 import json
 import os
 from collections.abc import AsyncIterator, Sequence
@@ -9,19 +15,49 @@ from typing import Any
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import pool, text
+from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.core.config import Settings
 
 # Los tests no dependen de la máquina: no se lee `backend/.env` ni se heredan variables
 # CHATBOT_* del entorno (un test que necesite una la define con `monkeypatch.setenv`).
 # Se hace antes de importar `app.main`, que crea una aplicación al importarse.
+TEST_DATABASE_URL = os.environ.get("CHATBOT_TEST_DATABASE_URL")
 for _name in [name for name in os.environ if name.upper().startswith("CHATBOT_")]:
     del os.environ[_name]
 Settings.model_config["env_file"] = None
+if TEST_DATABASE_URL:
+    # Todas las instancias de Settings de los tests usan la BD de pruebas.
+    os.environ["CHATBOT_DATABASE_URL"] = TEST_DATABASE_URL
 
 from app.db.base import Base  # noqa: E402
 from app.main import create_app  # noqa: E402
 from app.services.llm import ChatMessage, LLMError  # noqa: E402
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    if not TEST_DATABASE_URL:
+        return
+    skip = pytest.mark.skip(reason="solo con SQLite")
+    for item in items:
+        if "sqlite_only" in item.keywords:
+            item.add_marker(skip)
+
+
+async def _empty_test_database(url: str) -> None:
+    engine = create_async_engine(url, poolclass=pool.NullPool)
+    async with engine.begin() as connection:
+        await connection.execute(text("DROP SCHEMA public CASCADE"))
+        await connection.execute(text("CREATE SCHEMA public"))
+    await engine.dispose()
+
+
+@pytest.fixture(autouse=True)
+def _empty_database() -> None:
+    """Con una BD de pruebas compartida, cada test empieza con ella vacía."""
+    if TEST_DATABASE_URL:
+        asyncio.run(_empty_test_database(TEST_DATABASE_URL))
 
 
 class ScriptedLLM:

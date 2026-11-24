@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine import URL, make_url
 
 APP_TITLE = "Chatbot RAG"
 
@@ -46,7 +47,11 @@ class Settings(BaseSettings):
     # `text` para leer en consola; `json` (una línea por evento) para Docker y agregadores.
     log_format: Literal["text", "json"] = "text"
     data_dir: Path = Path("../data")
+    # Por defecto, SQLite en `data_dir`. PostgreSQL: postgresql+asyncpg://usuario@servidor/bd
     database_url: str | None = None
+    # Contraseña de la BD, aparte de la URL: sin codificar caracteres especiales y sin que
+    # aparezca al mostrar la URL. Sustituye a la que lleve la URL.
+    database_password: SecretStr | None = None
 
     # --- Valores iniciales (#42): modelo de lenguaje, servidor compatible con la API de OpenAI.
     # `fake` usa un modelo simulado sin red, útil para tests E2E y demos.
@@ -245,11 +250,15 @@ class Settings(BaseSettings):
         return self.data_dir / "chroma"
 
     @property
-    def resolved_database_url(self) -> str:
-        """URL de la base de datos; por defecto un SQLite dentro de `data_dir`."""
-        if self.database_url:
-            return self.database_url
-        return f"sqlite+aiosqlite:///{(self.data_dir / 'app.db').as_posix()}"
+    def resolved_database_url(self) -> URL:
+        """URL de la base de datos (por defecto, un SQLite dentro de `data_dir`) con la
+        contraseña de `database_password`. Al convertirla en texto se oculta la contraseña."""
+        url = make_url(
+            self.database_url or f"sqlite+aiosqlite:///{(self.data_dir / 'app.db').as_posix()}"
+        )
+        if self.database_password is not None:
+            url = url.set(password=self.database_password.get_secret_value())
+        return url
 
 
 _GENERATE_KEY_HINT = 'Genera una con: python -c "import secrets; print(secrets.token_urlsafe(32))"'
