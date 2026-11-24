@@ -75,6 +75,7 @@ function appConfig(): AppConfig {
           toc_score_factor: 0.8,
           scoped_min_score: 0,
           detect_document_names: true,
+          neighbor_chunks: 0,
         },
         { updated_by: 'ana', updated_at: '2026-11-20T12:30:00Z' },
       ),
@@ -224,6 +225,7 @@ describe('ConfigPage', () => {
           toc_score_factor: 0.8,
           scoped_min_score: 0,
           detect_document_names: true,
+          neighbor_chunks: 0,
         },
       },
     ])

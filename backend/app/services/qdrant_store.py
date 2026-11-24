@@ -191,6 +191,17 @@ class QdrantVectorStore:
         )
         return [_hit(point.payload or {}, point.score) for point in result.points]
 
+    async def chunks_by_index(self, document_id: str, indices: Sequence[int]) -> list[SearchHit]:
+        if not indices or not await self._client.collection_exists(self._collection):
+            return []
+        points = await self._client.retrieve(
+            self._collection,
+            ids=[point_id(document_id, index) for index in indices],
+            with_payload=True,
+        )
+        hits = [_hit(point.payload or {}, 0.0) for point in points]
+        return sorted(hits, key=lambda hit: hit.chunk_index)
+
     async def document_chunks(self, document_id: str) -> list[StoredChunk]:
         if not await self._client.collection_exists(self._collection):
             return []

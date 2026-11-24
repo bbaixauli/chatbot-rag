@@ -104,6 +104,7 @@ const GROUPS: GroupSpec[] = [
       { name: 'top_k', kind: 'number', min: 1, max: 50, integer: true },
       { name: 'min_score', kind: 'number', min: 0, max: 1, step: 0.01 },
       { name: 'max_context_chars', kind: 'number', min: 500, integer: true },
+      { name: 'neighbor_chunks', kind: 'number', min: 0, max: 3, integer: true },
       { name: 'condense_question', kind: 'boolean' },
       { name: 'condense_history_messages', kind: 'number', min: 1, integer: true },
       { name: 'toc_score_factor', kind: 'number', min: 0, max: 1, step: 0.05 },

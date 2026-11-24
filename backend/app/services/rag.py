@@ -7,6 +7,7 @@ from dataclasses import dataclass, replace
 
 from app.core.runtime_config import ConfigSource, RagConfig
 from app.services.embeddings import Embeddings
+from app.services.passages import contiguous_runs, join_chunks
 from app.services.vectorstore import SearchHit, VectorStore
 
 logger = logging.getLogger(__name__)
@@ -39,11 +40,17 @@ class ContextSource:
     chunk_index: int
     score: float
     text: str
+    # Pasaje con fragmentos vecinos: última página y texto del fragmento encontrado (el que
+    # se muestra como extracto de la fuente).
+    page_end: int | None = None
+    match_text: str | None = None
 
     @property
     def label(self) -> str:
         """Descripción legible del origen: fichero y página o sección."""
         if self.page is not None:
+            if self.page_end is not None and self.page_end != self.page:
+                return f"{self.filename}, págs. {self.page}-{self.page_end}"
             return f"{self.filename}, pág. {self.page}"
         if self.heading:
             return f"{self.filename} — {self.heading}"
@@ -51,7 +58,7 @@ class ContextSource:
 
     @property
     def snippet(self) -> str:
-        text = " ".join(self.text.split())
+        text = " ".join((self.match_text or self.text).split())
         return text if len(text) <= SNIPPET_CHARS else text[: SNIPPET_CHARS - 1].rstrip() + "…"
 
 
@@ -107,27 +114,89 @@ class Retriever:
             logger.warning("No se pudo recuperar contexto; se responde sin RAG", exc_info=True)
             return []
 
-        sources: list[ContextSource] = []
+        selected: list[SearchHit] = []
         used = 0
         for hit in rank_hits(hits, rag.toc_score_factor)[: rag.top_k]:
             if hit.score < min_score:
                 break
-            if used + len(hit.text) > rag.max_context_chars and sources:
+            if used + len(hit.text) > rag.max_context_chars and selected:
                 break
             used += len(hit.text)
-            sources.append(
-                ContextSource(
-                    number=len(sources) + 1,
-                    document_id=hit.document_id,
-                    filename=hit.filename,
-                    page=hit.page,
-                    heading=hit.heading,
-                    chunk_index=hit.chunk_index,
-                    score=hit.score,
-                    text=hit.text,
-                )
-            )
-        return sources
+            selected.append(hit)
+        if rag.neighbor_chunks and selected:
+            try:
+                return await self._with_neighbors(selected, rag, used)
+            except Exception:
+                logger.warning("No se pudieron añadir los fragmentos vecinos", exc_info=True)
+        return [_source(number, [hit], hit) for number, hit in enumerate(selected, start=1)]
+
+    async def _with_neighbors(
+        self, selected: list[SearchHit], rag: RagConfig, used: int
+    ) -> list[ContextSource]:
+        """Añade a cada fragmento sus vecinos (primero los más cercanos y de los fragmentos
+        más relevantes) mientras quepan, y une los contiguos de un documento en un pasaje."""
+        included: dict[str, dict[int, SearchHit]] = {}
+        for hit in selected:
+            included.setdefault(hit.document_id, {})[hit.chunk_index] = hit
+        wanted = {
+            document_id: {
+                index + offset
+                for index in chunks
+                for offset in range(-rag.neighbor_chunks, rag.neighbor_chunks + 1)
+                if index + offset >= 0 and index + offset not in chunks
+            }
+            for document_id, chunks in included.items()
+        }
+        available = {
+            document_id: {
+                hit.chunk_index: hit
+                for hit in await self._store.chunks_by_index(document_id, sorted(indices))
+            }
+            for document_id, indices in wanted.items()
+        }
+        for distance in range(1, rag.neighbor_chunks + 1):
+            for hit in selected:
+                for index in (hit.chunk_index - distance, hit.chunk_index + distance):
+                    chunks = included[hit.document_id]
+                    neighbor = available[hit.document_id].get(index)
+                    if neighbor is None or index in chunks:
+                        continue
+                    if used + len(neighbor.text) > rag.max_context_chars:
+                        continue
+                    used += len(neighbor.text)
+                    chunks[index] = neighbor
+
+        # Un pasaje por tramo de fragmentos contiguos, en el orden de su mejor fragmento.
+        best = {(hit.document_id, hit.chunk_index): hit for hit in selected}
+        passages: list[tuple[SearchHit, list[SearchHit]]] = []
+        for document_id, chunks in included.items():
+            for run in contiguous_runs(list(chunks)):
+                found = [best[(document_id, i)] for i in run if (document_id, i) in best]
+                if found:
+                    top = max(found, key=lambda hit: hit.score)
+                    passages.append((top, [chunks[i] for i in run]))
+        passages.sort(key=lambda passage: passage[0].score, reverse=True)
+        return [
+            _source(number, chunks, top) for number, (top, chunks) in enumerate(passages, start=1)
+        ]
+
+
+def _source(number: int, chunks: Sequence[SearchHit], top: SearchHit) -> ContextSource:
+    """Fuente numerada a partir de fragmentos consecutivos de un documento (o de uno solo)."""
+    pages = [chunk.page for chunk in chunks if chunk.page is not None]
+    joined = len(chunks) > 1
+    return ContextSource(
+        number=number,
+        document_id=top.document_id,
+        filename=top.filename,
+        page=min(pages) if pages else None,
+        heading=top.heading,
+        chunk_index=top.chunk_index,
+        score=top.score,
+        text=join_chunks([chunk.text for chunk in chunks]) if joined else top.text,
+        page_end=max(pages) if joined and pages else None,
+        match_text=top.text if joined else None,
+    )
 
 
 def build_system_prompt(base_prompt: str, sources: Sequence[ContextSource]) -> str:

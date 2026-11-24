@@ -76,6 +76,10 @@ class VectorStore(Protocol):
         """Fragmentos de un documento con sus vectores, ordenados por índice."""
         ...
 
+    async def chunks_by_index(self, document_id: str, indices: Sequence[int]) -> list[SearchHit]:
+        """Fragmentos concretos de un documento (sin puntuación); se omiten los que no existen."""
+        ...
+
     async def count(self) -> int: ...
 
     async def reset(self) -> None:
@@ -230,6 +234,22 @@ class ChromaVectorStore:
             for text, metadata, score in zip(documents, metadatas, scores, strict=True)
         ]
         return sorted(hits, key=lambda hit: hit.score, reverse=True)[:limit]
+
+    async def chunks_by_index(self, document_id: str, indices: Sequence[int]) -> list[SearchHit]:
+        if not indices:
+            return []
+        result = await asyncio.to_thread(
+            self._collection.get,
+            ids=[f"{document_id}:{index}" for index in indices],
+            include=["documents", "metadatas"],
+        )
+        documents = result["documents"] or []
+        metadatas = result["metadatas"] or []
+        hits = [
+            _chroma_hit(text, metadata, 0.0)
+            for text, metadata in zip(documents, metadatas, strict=True)
+        ]
+        return sorted(hits, key=lambda hit: hit.chunk_index)
 
     async def document_chunks(self, document_id: str) -> list[StoredChunk]:
         result = await asyncio.to_thread(

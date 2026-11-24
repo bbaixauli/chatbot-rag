@@ -298,6 +298,17 @@ Si se nombran más de 5 documentos no se limita. Los documentos elegidos en el c
 prioridad. `app.diagnose query` aplica la misma detección e indica qué documentos ha
 reconocido.
 
+#### Fragmentos vecinos
+
+Si la respuesta queda partida entre dos fragmentos (una tabla que sigue en la página siguiente,
+un procedimiento que empieza al final de un fragmento), con **«Fragmentos vecinos que se
+añaden»** (*Recuperación*, `CHATBOT_RAG_NEIGHBOR_CHUNKS`, de 0 a 3; 0 por defecto) se añaden a
+cada fragmento recuperado los anteriores y posteriores del mismo documento: primero los más
+cercanos y los de los fragmentos más relevantes, mientras quepan en el máximo de contexto. Los
+fragmentos contiguos se unen en un solo pasaje sin repetir el solapamiento del troceado, y la
+fuente indica el rango de páginas («págs. 4-5»). Aumenta el texto que se envía al modelo en
+cada pregunta: conviene subir también el máximo de contexto.
+
 Para consultarla o, si una configuración deja la aplicación inservible, volver a los valores de
 `.env`:
 
