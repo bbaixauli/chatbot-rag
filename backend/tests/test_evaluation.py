@@ -19,6 +19,7 @@ from app.evaluation import (
     compute_metrics,
     documents_from_app,
     documents_from_folder,
+    format_duration,
     format_report,
     load_dataset,
     main_async,
@@ -103,6 +104,14 @@ def test_recommend_prefers_higher_threshold_on_ties() -> None:
     assert best.utility == 1.0
 
 
+@pytest.mark.parametrize(
+    ("seconds", "text"),
+    [(0.4, "0 s"), (45, "45 s"), (185, "3 min 05 s"), (3725, "1 h 02 min")],
+)
+def test_format_duration(seconds: float, text: str) -> None:
+    assert format_duration(seconds) == text
+
+
 def test_argument_parsers() -> None:
     assert _int_list("1000, 2000,") == [1000, 2000]
     assert _thresholds("0.2,0.4") == [0.2, 0.4]
@@ -155,11 +164,26 @@ async def test_run_evaluation_reports_skipped_and_failed(tmp_path: Path) -> None
         EvaluationCase(pregunta="vacaciones", esperado=[{"fichero": "roto.pdf"}]),
     ]
 
+    messages: list[str] = []
+
     report = await run_evaluation(
-        cases, documents_from_folder(tmp_path), [ChunkConfig(500, 0)], [3], [0.1], FakeEmbeddings()
+        cases,
+        documents_from_folder(tmp_path),
+        [ChunkConfig(500, 0)],
+        [3],
+        [0.1],
+        FakeEmbeddings(),
+        progress=messages.append,
     )
 
     assert "No se pudo leer" in report.skipped_documents["roto.pdf"]
+    assert messages[0] == "Calculando los embeddings de 2 preguntas con fake-hashing…"
+    assert messages[1] == "[1/1] fragmento 500, solape 0: indexando 2 documentos…"
+    assert messages[2].startswith("[1/1] fragmento 500, solape 0: documento 1/2 (1 fragmentos")
+    assert "quedan unos" in messages[2]
+    assert messages[3] == "[1/1] fragmento 500, solape 0: documento 2/2: omitido roto.pdf"
+    assert messages[4].startswith("[1/1] fragmento 500, solape 0: 1 fragmentos indexados en")
+    assert messages[-1].startswith("Evaluación terminada en")
     text = format_report(report)
     assert "⚠️ Omitido `roto.pdf`" in text
     assert "### Preguntas sin la fuente esperada" in text
@@ -205,6 +229,7 @@ async def test_cli_writes_report_and_json(tmp_path: Path) -> None:
     settings = Settings(embedding_provider="fake", llm_provider="fake", chunk_size_chars=800)
     output = tmp_path / "informe.json"
     out = io.StringIO()
+    status = io.StringIO()
 
     code = await main_async(
         [
@@ -222,10 +247,37 @@ async def test_cli_writes_report_and_json(tmp_path: Path) -> None:
         ],
         settings,
         out,
+        status,
     )
 
     assert code == 0
     assert out.getvalue().startswith("# Evaluación de la recuperación")
+    progress = status.getvalue()
+    assert "9 preguntas · " in progress
+    assert "Reformulando con el modelo 1 preguntas con historial…" in progress
+    assert "Evaluación terminada en" in progress
+    assert "Evaluación terminada" not in out.getvalue()
     data = json.loads(output.read_text(encoding="utf-8"))
     assert data["embedding_model"] == "fake-hashing"
     assert [(c["chunk_size"], c["chunk_overlap"]) for c in data["configs"]] == [(800, 400)]
+
+
+async def test_cli_without_progress(tmp_path: Path) -> None:
+    settings = Settings(embedding_provider="fake", llm_provider="fake")
+    status = io.StringIO()
+
+    code = await main_async(
+        [
+            "--dataset",
+            str(EXAMPLE / "preguntas.json"),
+            "--documents",
+            str(EXAMPLE / "documentos"),
+            "--sin-progreso",
+        ],
+        settings,
+        io.StringIO(),
+        status,
+    )
+
+    assert code == 0
+    assert status.getvalue() == ""
