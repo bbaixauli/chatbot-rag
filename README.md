@@ -165,6 +165,11 @@ El informe muestra, por configuración, el acierto@k, MRR, recall, precisión y 
 y recomienda el tamaño de fragmento, el solapamiento, el top-k y la puntuación mínima.
 Tras cambiar el troceado hay que reindexar los documentos.
 
+Mientras trabaja muestra el avance documento a documento (con una estimación del tiempo que
+queda) en la salida de errores, así que `> informe.md` guarda solo el informe; `--sin-progreso`
+lo oculta. Con muchos documentos y embeddings locales en CPU, cada tamaño de fragmento puede
+tardar bastante, porque se vuelven a calcular los embeddings de todo el corpus.
+
 ### Cuadro de mando
 
 *Administración → Cuadro de mando* (la página de entrada de la administración) muestra, para
