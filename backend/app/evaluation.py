@@ -11,14 +11,18 @@ Uso (desde `backend/`):
         --documents eval/ejemplo/documentos --chunk-sizes 1000,3000 --top-k 3,5
 
 Sin `--documents` se evalúan los documentos subidos a la aplicación (`data/`).
+
+Mientras trabaja muestra el progreso en la salida de errores (el informe va a la salida
+estándar, así que se puede redirigir a un fichero sin mezclarse).
 """
 
 import argparse
 import asyncio
 import json
 import sys
+import time
 import uuid
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import TextIO
@@ -193,6 +197,24 @@ def recommend(results: Sequence[CaseResult], top_k: int, thresholds: Sequence[fl
 
 # --- Ejecución --------------------------------------------------------------------------
 
+Progress = Callable[[str], None]
+
+
+def _no_progress(message: str) -> None:
+    pass
+
+
+def format_duration(seconds: float) -> str:
+    """Duración legible: `45 s`, `3 min 05 s`, `1 h 02 min`."""
+    total = round(seconds)
+    if total < 60:
+        return f"{total} s"
+    minutes, secs = divmod(total, 60)
+    if minutes < 60:
+        return f"{minutes} min {secs:02d} s"
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours} h {minutes:02d} min"
+
 
 @dataclass(frozen=True, slots=True)
 class ChunkConfig:
@@ -229,19 +251,30 @@ async def _build_index(
     config: ChunkConfig,
     embeddings: Embeddings,
     skipped: dict[str, str],
+    progress: Progress,
+    label: str,
 ) -> tuple[ChromaVectorStore, int]:
     store = ChromaVectorStore(None, collection=f"eval-{uuid.uuid4().hex}")
     total = 0
-    for document in documents:
+    started = time.monotonic()
+    for number, document in enumerate(documents, start=1):
         try:
             sections = await asyncio.to_thread(parse_document, document.path, document.kind)
         except ParseError as exc:
             skipped[document.filename] = str(exc)
+            progress(f"{label} documento {number}/{len(documents)}: omitido {document.filename}")
             continue
         chunks = chunk_sections(sections, config.size, config.overlap)
         vectors = await embeddings.embed([c.text for c in chunks])
         await store.add(document.filename, document.filename, chunks, vectors)
         total += len(chunks)
+        elapsed = time.monotonic() - started
+        remaining = elapsed / number * (len(documents) - number)
+        eta = f" · quedan unos {format_duration(remaining)}" if number < len(documents) else ""
+        progress(
+            f"{label} documento {number}/{len(documents)} ({len(chunks)} fragmentos, "
+            f"{total} en total) · {format_duration(elapsed)}{eta}"
+        )
     return store, total
 
 
@@ -264,17 +297,33 @@ async def run_evaluation(
     thresholds: Sequence[float],
     embeddings: Embeddings,
     llm: LLMClient | None = None,
+    progress: Progress = _no_progress,
 ) -> EvaluationReport:
-    """Evalúa cada configuración de troceado con todos los top-k y umbrales."""
+    """Evalúa cada configuración de troceado con todos los top-k y umbrales.
+
+    `progress` recibe mensajes de avance (documento a documento) para mostrarlos.
+    """
     if not documents:
         raise ValueError("No hay documentos que evaluar")
+    started = time.monotonic()
+    with_history = sum(1 for case in cases if case.historial)
+    if llm is not None and with_history:
+        progress(f"Reformulando con el modelo {with_history} preguntas con historial…")
     queries = await _queries(cases, llm)
+    progress(f"Calculando los embeddings de {len(queries)} preguntas con {embeddings.model_name}…")
     query_vectors = await embeddings.embed(queries)
     max_k = max(top_ks)
     skipped: dict[str, str] = {}
     reports = []
-    for config in configs:
-        store, total = await _build_index(documents, config, embeddings, skipped)
+    for number, config in enumerate(configs, start=1):
+        label = f"[{number}/{len(configs)}] fragmento {config.size}, solape {config.overlap}:"
+        progress(f"{label} indexando {len(documents)} documentos…")
+        config_started = time.monotonic()
+        store, total = await _build_index(documents, config, embeddings, skipped, progress, label)
+        progress(
+            f"{label} {total} fragmentos indexados en "
+            f"{format_duration(time.monotonic() - config_started)}; buscando…"
+        )
         try:
             results = []
             for case, query, vector in zip(cases, queries, query_vectors, strict=True):
@@ -297,6 +346,7 @@ async def run_evaluation(
                 cases=results,
             )
         )
+    progress(f"Evaluación terminada en {format_duration(time.monotonic() - started)}")
     return EvaluationReport(
         embedding_model=embeddings.model_name,
         documents=[d.filename for d in documents],
@@ -408,10 +458,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="reformula con el modelo las preguntas que tienen historial",
     )
     parser.add_argument("--output", type=Path, help="guarda el informe completo en JSON")
+    parser.add_argument(
+        "--sin-progreso",
+        action="store_true",
+        help="no muestra el avance (por defecto se muestra en la salida de errores)",
+    )
     return parser
 
 
-async def main_async(argv: Sequence[str], settings: Settings, out: TextIO) -> int:
+async def main_async(
+    argv: Sequence[str], settings: Settings, out: TextIO, status: TextIO | None = None
+) -> int:
+    """Ejecuta la evaluación: el informe va a `out` y el progreso, a `status`."""
     args = build_parser().parse_args(argv)
     cases = load_dataset(args.dataset)
     documents = (
@@ -420,6 +478,12 @@ async def main_async(argv: Sequence[str], settings: Settings, out: TextIO) -> in
         else await documents_from_app(settings)
     )
     config = await load_runtime_config(settings)
+
+    def progress(message: str) -> None:
+        if status is not None and not args.sin_progreso:
+            print(f"{time.strftime('%H:%M:%S')} {message}", file=status, flush=True)
+
+    progress(f"{len(cases)} preguntas · {len(documents)} documentos")
     sizes = args.chunk_sizes or [config.indexing.chunk_size_chars]
     overlaps = args.overlaps if args.overlaps is not None else [config.indexing.chunk_overlap_chars]
     configs = [ChunkConfig(s, min(o, s // 2)) for s in sizes for o in overlaps]
@@ -433,6 +497,7 @@ async def main_async(argv: Sequence[str], settings: Settings, out: TextIO) -> in
         args.thresholds,
         build_embeddings(config),
         llm,
+        progress,
     )
     out.write(format_report(report))
     if args.output:
@@ -444,9 +509,10 @@ async def main_async(argv: Sequence[str], settings: Settings, out: TextIO) -> in
 
 def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - envoltorio de CLI
     # La consola de Windows usa cp1252 por defecto; el informe lleva caracteres Unicode.
-    if hasattr(sys.stdout, "reconfigure"):
-        sys.stdout.reconfigure(encoding="utf-8")
-    return asyncio.run(main_async(argv or sys.argv[1:], get_settings(), sys.stdout))
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
+    return asyncio.run(main_async(argv or sys.argv[1:], get_settings(), sys.stdout, sys.stderr))
 
 
 if __name__ == "__main__":  # pragma: no cover
