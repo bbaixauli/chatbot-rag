@@ -13,6 +13,7 @@ import { UserLoginPage } from './pages/UserLoginPage'
 import { createQueryClient } from './queryClient'
 import { AdminLayout } from './pages/admin/AdminLayout'
 import { AppearancePage } from './pages/admin/AppearancePage'
+import { AuditPage } from './pages/admin/AuditPage'
 import { ChatStartPage } from './pages/admin/ChatStartPage'
 import { DashboardPage } from './pages/admin/DashboardPage'
 import { ConfigPage } from './pages/admin/ConfigPage'
@@ -85,6 +86,7 @@ export function AppRoutes() {
       <Route path="admin" element={<AdminLayout />}>
         <Route index element={<Navigate to="dashboard" replace />} />
         <Route path="dashboard" element={<DashboardPage />} />
+        <Route path="audit" element={<AuditPage />} />
         <Route path="prompt" element={<PromptPage />} />
         <Route path="documents" element={<DocumentsPage />} />
         <Route path="chat" element={<ChatStartPage />} />

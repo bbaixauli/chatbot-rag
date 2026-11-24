@@ -37,10 +37,23 @@ async def admin_client(client: AsyncClient) -> AsyncClient:
 
 async def test_session_flow(client: AsyncClient) -> None:
     anonymous = await client.get("/api/v1/admin/session")
-    assert anonymous.json() == {"authenticated": False, "username": None, "enabled": True}
+    assert anonymous.json() == {
+        "authenticated": False,
+        "username": None,
+        "enabled": True,
+        "is_admin": False,
+        "is_auditor": False,
+    }
 
     login = await client.post("/api/v1/admin/session", json=CREDENTIALS)
-    assert login.json() == {"authenticated": True, "username": "admin", "enabled": True}
+    # Sin grupo de auditores, la administración también audita.
+    assert login.json() == {
+        "authenticated": True,
+        "username": "admin",
+        "enabled": True,
+        "is_admin": True,
+        "is_auditor": True,
+    }
     cookie = login.headers["set-cookie"].lower()
     assert "httponly" in cookie
     assert "samesite=strict" in cookie

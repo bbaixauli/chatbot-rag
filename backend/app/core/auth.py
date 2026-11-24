@@ -25,7 +25,7 @@ from fastapi import Depends, HTTPException, Request, status
 
 from app.api.deps import DbSession, RuntimeConfigDep
 from app.core.config import Settings
-from app.core.runtime_config import RuntimeConfig
+from app.core.runtime_config import RuntimeConfig, UsersConfig
 from app.db.models import AccessKind
 from app.services.access import AccessRepository
 
@@ -48,6 +48,8 @@ class CurrentUser:
     display_name: str
     is_admin: bool = False
     is_anonymous: bool = False
+    # Miembro del grupo de auditores del directorio (#50).
+    is_auditor: bool = False
 
 
 ANONYMOUS_USER = CurrentUser(id=ANONYMOUS_USER_ID, display_name=ANONYMOUS_DISPLAY_NAME)
@@ -64,9 +66,11 @@ def new_anonymous_user() -> CurrentUser:
 
 @dataclass(frozen=True, slots=True)
 class AdminUser:
-    """Administrador con sesión iniciada."""
+    """Persona con acceso a la administración: administrador, auditor o ambos."""
 
     username: str
+    is_admin: bool = True
+    is_auditor: bool = False
 
 
 def session_user(request: Request) -> CurrentUser | None:
@@ -83,6 +87,7 @@ def session_user(request: Request) -> CurrentUser | None:
         # Un acceso anónimo nunca administra.
         is_admin=data.get("admin") is True and not anonymous,
         is_anonymous=anonymous,
+        is_auditor=data.get("auditor") is True and not anonymous,
     )
 
 
@@ -100,6 +105,7 @@ def store_session_user(request: Request, user: CurrentUser, keep_admin: bool = F
         "id": user.id,
         "name": user.display_name,
         "admin": user.is_admin,
+        "auditor": user.is_auditor,
         "anonymous": user.is_anonymous,
     }
 
@@ -179,24 +185,47 @@ def verify_admin_credentials(settings: Settings, username: str, password: str) -
     return user_ok and password_ok
 
 
-def get_admin(request: Request) -> AdminUser | None:
-    """Administrador de la sesión actual: cuenta local o usuario del grupo de administración."""
+def get_staff(request: Request, users: UsersConfig) -> AdminUser | None:
+    """Quién tiene acceso a la administración y con qué roles.
+
+    Sin grupo de auditores, los administradores también auditan. Con él, solo audita quien
+    pertenece al grupo (la cuenta local de administración, no).
+    """
+    auditor_group = users.auth_mode == "ldap" and bool(users.ldap_auditor_group_dn)
     username = request.session.get(SESSION_ADMIN_KEY)
     if isinstance(username, str):
-        return AdminUser(username=username)
+        return AdminUser(username=username, is_admin=True, is_auditor=not auditor_group)
     user = session_user(request)
-    if user is not None and user.is_admin:
-        return AdminUser(username=user.id)
-    return None
+    if user is None or user.is_anonymous:
+        return None
+    is_auditor = user.is_auditor if auditor_group else user.is_admin
+    if not (user.is_admin or is_auditor):
+        return None
+    return AdminUser(username=user.id, is_admin=user.is_admin, is_auditor=is_auditor)
 
 
-def require_admin(request: Request) -> AdminUser:
+def get_admin(request: Request, users: UsersConfig) -> AdminUser | None:
+    """Administrador de la sesión actual: cuenta local o usuario del grupo de administración."""
+    staff = get_staff(request, users)
+    return staff if staff is not None and staff.is_admin else None
+
+
+def require_admin(request: Request, config: RuntimeConfigDep) -> AdminUser:
     """Exige una sesión de administración válida."""
-    admin = get_admin(request)
+    admin = get_admin(request, config.users)
     if admin is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Se requiere iniciar sesión")
     return admin
 
 
+def require_auditor(request: Request, config: RuntimeConfigDep) -> AdminUser:
+    """Exige acceso a la auditoría (grupo de auditores o, sin él, administración)."""
+    staff = get_staff(request, config.users)
+    if staff is None or not staff.is_auditor:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Se requiere acceso a la auditoría")
+    return staff
+
+
 CurrentUserDep = Annotated[CurrentUser, Depends(get_current_user)]
 AdminDep = Annotated[AdminUser, Depends(require_admin)]
+AuditorAccessDep = Annotated[AdminUser, Depends(require_auditor)]

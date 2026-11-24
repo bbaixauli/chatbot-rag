@@ -13,6 +13,8 @@ BASE = "dc=ejemplo,dc=org"
 PEOPLE = f"ou=people,{BASE}"
 SERVICE_DN = f"cn=chatbot,ou=services,{BASE}"
 ADMIN_GROUP = f"cn=chatbot-admins,ou=groups,{BASE}"
+# Grupo de auditores (#50): Luis, que no administra.
+AUDITOR_GROUP = f"cn=chatbot-auditores,ou=groups,{BASE}"
 ANA_DN = f"uid=Ana,{PEOPLE}"
 LUIS_DN = f"uid=luis,{PEOPLE}"
 PEPE_DN = f"uid=pepe,{PEOPLE}"
@@ -69,6 +71,10 @@ def build_directory() -> Server:
             "member": [ANA_DN],
             "memberUid": ["pepe"],
         },
+    )
+    add(
+        AUDITOR_GROUP,
+        {"objectClass": "groupOfNames", "cn": "chatbot-auditores", "member": [LUIS_DN]},
     )
     return server
 

@@ -127,7 +127,13 @@ async def test_directory_admins_can_administer(client: AsyncClient) -> None:
     response = await client.post(
         "/api/v1/admin/session", json={"username": "ana", "password": PASSWORDS["ana"]}
     )
-    assert response.json() == {"authenticated": True, "username": "ana", "enabled": True}
+    assert response.json() == {
+        "authenticated": True,
+        "username": "ana",
+        "enabled": True,
+        "is_admin": True,
+        "is_auditor": True,
+    }
 
     saved = await client.put("/api/v1/admin/prompt", json={"content": "Prompt de Ana"})
     assert saved.status_code == 200

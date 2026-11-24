@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, or_, select
 
 from app.api.deps import DbSession, SettingsDep
-from app.core.auth import AdminDep, AdminUser
+from app.core.auth import AdminUser, AuditorAccessDep
 from app.core.config import Settings
 from app.db.models import AuditAlert, AuditRun, AuditRunStatus, QuestionLog, utcnow
 from app.services import dashboard
@@ -44,7 +44,7 @@ def get_audit(request: Request) -> AuditDeps:
 AuditDepsDep = Annotated[AuditDeps, Depends(get_audit)]
 
 
-def audit_access(request: Request, auditor: AdminDep) -> AdminUser:
+def audit_access(request: Request, auditor: AuditorAccessDep) -> AdminUser:
     """Exige acceso a la auditoría y deja constancia en el log de quién consulta qué."""
     logger.info(
         "Acceso a la auditoría",
