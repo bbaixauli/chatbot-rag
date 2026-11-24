@@ -201,7 +201,7 @@ def send_email(config: AuditConfig, message: EmailMessage) -> None:
     kwargs: dict[str, Any] = {"timeout": 30}
     if config.smtp_security == "ssl":
         kwargs["context"] = context
-    with smtp_class(config.smtp_host, config.smtp_port, **kwargs) as smtp:
+    with smtp_class(config.smtp_host or "", config.smtp_port, **kwargs) as smtp:
         if config.smtp_security == "starttls":
             smtp.starttls(context=context)
         if config.smtp_username:
@@ -212,7 +212,7 @@ def send_email(config: AuditConfig, message: EmailMessage) -> None:
 def build_email(config: AuditConfig, subject: str, body: str) -> EmailMessage:
     message = EmailMessage()
     message["Subject"] = subject
-    message["From"] = config.smtp_from
+    message["From"] = config.smtp_from or ""
     message["To"] = ", ".join(config.recipients)
     message.set_content(body)
     return message

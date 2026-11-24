@@ -89,6 +89,8 @@ class Settings(BaseSettings):
     ldap_display_name_attribute: str = "cn"
     # Los miembros de este grupo son administradores (vacío = solo la cuenta local).
     ldap_admin_group_dn: str | None = None
+    # Los miembros de este grupo ven la auditoría (vacío: la ven los administradores).
+    ldap_auditor_group_dn: str | None = None
     # Solo Active Directory: tiene en cuenta grupos anidados.
     ldap_nested_groups: bool = False
 
@@ -116,7 +118,7 @@ class Settings(BaseSettings):
     audit_notify_to: str = ""
     audit_smtp_host: str = ""
     audit_smtp_port: int = Field(default=587, ge=1, le=65535)
-    audit_smtp_security: Literal["starttls", "ssl", "none"] = "starttls"
+    audit_smtp_security: Literal["starttls", "ssl", "plain"] = "starttls"
     audit_smtp_username: str | None = None
     audit_smtp_password: SecretStr | None = None
     audit_smtp_from: str = ""

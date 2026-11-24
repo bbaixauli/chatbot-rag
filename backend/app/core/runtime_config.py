@@ -174,6 +174,9 @@ class UsersConfig(ConfigGroup):
     ldap_display_name_attribute: str = Field(min_length=1)
     # Los miembros de este grupo son administradores (vacío = solo la cuenta local).
     ldap_admin_group_dn: str | None
+    # Los miembros de este grupo ven la auditoría (#50). Vacío: la ven los
+    # administradores. Si se indica, solo sus miembros.
+    ldap_auditor_group_dn: str | None = None
     # Solo Active Directory: tiene en cuenta grupos anidados.
     ldap_nested_groups: bool
 
@@ -203,24 +206,24 @@ class AuditConfig(ConfigGroup):
     retention_days: int = Field(ge=0)
     notify_enabled: bool
     notify_min_severity: Literal["low", "medium", "high"]
-    notify_to: str
-    smtp_host: str
+    notify_to: str | None
+    smtp_host: str | None
     smtp_port: int = Field(ge=1, le=65535)
-    smtp_security: Literal["starttls", "ssl", "none"]
+    smtp_security: Literal["starttls", "ssl", "plain"]
     smtp_username: str | None
     smtp_password: SecretStr | None
-    smtp_from: str
+    smtp_from: str | None
 
     @property
     def recipients(self) -> list[str]:
-        return [a.strip() for a in self.notify_to.split(",") if a.strip()]
+        return [a.strip() for a in (self.notify_to or "").split(",") if a.strip()]
 
     @model_validator(mode="after")
     def _check_notifications(self) -> "AuditConfig":
         if self.notify_enabled:
-            if not self.smtp_host.strip():
+            if not (self.smtp_host or "").strip():
                 raise ValueError("Para enviar avisos por correo hay que indicar el servidor SMTP")
-            if "@" not in self.smtp_from:
+            if "@" not in (self.smtp_from or ""):
                 raise ValueError("Para enviar avisos por correo hay que indicar el remitente")
             if not self.recipients or any("@" not in a for a in self.recipients):
                 raise ValueError("Indica uno o varios destinatarios válidos, separados por comas")

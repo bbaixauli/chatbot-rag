@@ -90,7 +90,10 @@ async def ldap_login(request: Request, username: str, password: str) -> CurrentU
             "No se puede validar el usuario en este momento. Inténtalo más tarde.",
         ) from exc
     user = CurrentUser(
-        id=ldap_user.id, display_name=ldap_user.display_name, is_admin=ldap_user.is_admin
+        id=ldap_user.id,
+        display_name=ldap_user.display_name,
+        is_admin=ldap_user.is_admin,
+        is_auditor=ldap_user.is_auditor,
     )
     store_session_user(request, user)
     logger.info("Inicio de sesión", extra={"user_id": user.id, "is_admin": user.is_admin})

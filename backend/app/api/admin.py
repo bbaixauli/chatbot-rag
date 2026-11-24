@@ -12,7 +12,13 @@ from pydantic import BaseModel, Field
 from app.api.auth import ldap_login
 from app.api.deps import DbSession, RuntimeConfigDep, SettingsDep
 from app.api.schemas import ChatConfigOut
-from app.core.auth import SESSION_ADMIN_KEY, AdminDep, get_admin, verify_admin_credentials
+from app.core.auth import (
+    SESSION_ADMIN_KEY,
+    AdminDep,
+    AdminUser,
+    get_staff,
+    verify_admin_credentials,
+)
 from app.core.config import Settings
 from app.core.rate_limit import LoginRateLimit
 from app.core.runtime_config import RuntimeConfig, UsersConfig
@@ -37,6 +43,9 @@ class SessionOut(BaseModel):
     authenticated: bool
     username: str | None = None
     enabled: bool
+    # Roles: un auditor sin administración solo ve la auditoría.
+    is_admin: bool = False
+    is_auditor: bool = False
 
 
 class PromptOut(BaseModel):
@@ -80,18 +89,26 @@ class PromptVersionOut(BaseModel):
 async def get_session(
     request: Request, settings: SettingsDep, config: RuntimeConfigDep
 ) -> SessionOut:
-    admin = get_admin(request)
+    staff = get_staff(request, config.users)
+    return _session_out(staff, admin_enabled(settings, config.users))
+
+
+def _session_out(staff: AdminUser | None, enabled: bool) -> SessionOut:
     return SessionOut(
-        authenticated=admin is not None,
-        username=admin.username if admin else None,
-        enabled=admin_enabled(settings, config.users),
+        authenticated=staff is not None,
+        username=staff.username if staff else None,
+        enabled=enabled,
+        is_admin=staff.is_admin if staff else False,
+        is_auditor=staff.is_auditor if staff else False,
     )
 
 
 def admin_enabled(settings: Settings, users: UsersConfig) -> bool:
-    """Hay cuenta local o administradores del directorio."""
-    ldap_admins = users.auth_mode == "ldap" and bool(users.ldap_admin_group_dn)
-    return settings.admin_password is not None or ldap_admins
+    """Hay cuenta local o administradores (o auditores) del directorio."""
+    ldap_groups = users.auth_mode == "ldap" and bool(
+        users.ldap_admin_group_dn or users.ldap_auditor_group_dn
+    )
+    return settings.admin_password is not None or ldap_groups
 
 
 @router.post("/session", response_model=SessionOut)
@@ -121,15 +138,16 @@ async def login(
             # Sin LDAP, la sesión privada del chat (si la hay) es independiente: se conserva.
             request.session.pop(SESSION_ADMIN_KEY, None)
         request.session[SESSION_ADMIN_KEY] = body.username
-        return SessionOut(authenticated=True, username=body.username, enabled=True)
+        return _session_out(get_staff(request, config.users), True)
 
-    user = await ldap_login(request, body.username, body.password)
-    if not user.is_admin:
+    await ldap_login(request, body.username, body.password)
+    staff = get_staff(request, config.users)
+    if staff is None:
         # La sesión del chat queda iniciada, pero sin acceso a la administración.
         raise HTTPException(
             status.HTTP_403_FORBIDDEN, "Tu usuario no tiene permisos de administración"
         )
-    return SessionOut(authenticated=True, username=user.id, enabled=True)
+    return _session_out(staff, True)
 
 
 @router.delete("/session", status_code=status.HTTP_204_NO_CONTENT)

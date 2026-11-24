@@ -91,7 +91,8 @@ sesiones privadas y temporales (*Mensaje inicial → Acceso al chat*) para que c
 vea sus conversaciones. Con acceso por LDAP (*Administración → Configuración → Usuarios*;
 valores iniciales en `CHATBOT_AUTH_MODE` y `CHATBOT_LDAP_*`) cada usuario inicia sesión con su
 cuenta del directorio (OpenLDAP o Active Directory) y solo ve sus conversaciones; los miembros
-del grupo de administración LDAP administran la aplicación. Con LDAP, la administración puede
+del grupo de administración LDAP administran la aplicación y los del grupo de auditores
+(opcional; sin él, los administradores) acceden a la auditoría. Con LDAP, la administración puede
 permitir además el acceso anónimo (*Mensaje inicial → Acceso al chat*): cada acceso anónimo
 solo ve sus conversaciones durante esa sesión, y se conservan para auditoría. Configuración y
 ejemplos en la [guía de despliegue](docs/despliegue.md#usuarios-con-ldap).
@@ -171,6 +172,17 @@ con su hora y tiempo, descargable en CSV y Excel. No muestra quién preguntó. L
 guardan en un registro propio que no se pierde al borrar conversaciones. Las frases que
 indican «sin información» se configuran en la misma página.
 
+### Auditoría
+
+*Administración → Auditoría* reúne los avisos del proceso de revisión (posible uso malicioso,
+respuestas inapropiadas e información sensible, detectados por reglas y por un modelo
+revisor), las últimas revisiones y el registro completo de preguntas y respuestas con su
+usuario, IP y detalles, filtrable y descargable en CSV y Excel. Cada aviso se marca como
+revisado o descartado con una nota. La revisión se programa en *Configuración → Auditoría*
+(cada hora o a diario), se lanza a mano desde la pantalla o con `python -m app.audit run`, y
+puede avisar por correo. Con LDAP, la auditoría puede reservarse a un grupo de auditores. Más
+detalles en la [guía de despliegue](docs/despliegue.md#auditoría).
+
 ### Estilos y accesibilidad
 
 La interfaz sigue el *Manual de estilos para aplicaciones internas* (WCAG 2.1 AA). Los colores
@@ -212,11 +224,18 @@ Documentación interactiva en http://localhost:8000/docs. Endpoints principales:
 | GET | `/api/v1/admin/dashboard/questions?from&to&page&size` | Preguntas y respuestas del rango, paginadas (admin) |
 | GET | `/api/v1/admin/dashboard/questions.csv`, `.xlsx` | Exportación de las preguntas del rango (admin) |
 | GET/PUT | `/api/v1/admin/dashboard/no-info-phrases` | Frases que indican «sin información»; al cambiarlas se reclasifica el registro (admin) |
+| GET | `/api/v1/admin/audit/summary` | Avisos nuevos, revisión en curso y última revisión (auditor) |
+| GET/POST | `/api/v1/admin/audit/runs` | Últimas revisiones / lanzar una revisión (409 si hay otra en curso) (auditor) |
+| GET | `/api/v1/admin/audit/alerts?status&category&severity&page&size` | Avisos de la auditoría (auditor) |
+| PATCH | `/api/v1/admin/audit/alerts/{id}` | Marcar un aviso como revisado, descartado o nuevo, con nota (auditor) |
+| GET | `/api/v1/admin/audit/log?from&to&user&ip&page&size` | Registro completo de preguntas y respuestas (auditor) |
+| GET | `/api/v1/admin/audit/log.csv`, `.xlsx` | Exportación del registro completo (auditor) |
+| POST | `/api/v1/admin/audit/test-email` | Envía un correo de prueba con la configuración SMTP (auditor) |
 | GET/PUT/DELETE | `/api/v1/admin/appearance` | Apariencia: consultar, guardar (con avisos de contraste) y restablecer (admin) |
 | PUT/DELETE | `/api/v1/admin/appearance/logo` | Subir o quitar el logo (admin) |
 | GET/PUT | `/api/v1/admin/access` | Acceso anónimo (con LDAP) o sesiones privadas (sin LDAP) (admin) |
 | GET | `/api/v1/admin/config` | Configuración de la aplicación por grupos, sin secretos (admin) |
-| PUT | `/api/v1/admin/config/{grupo}` | Cambia un grupo (`llm`, `embeddings`, `indexing`, `rag`, `chat`, `limits`); avisa si hay que reindexar (admin) |
+| PUT | `/api/v1/admin/config/{grupo}` | Cambia un grupo (`llm`, `embeddings`, `indexing`, `rag`, `chat`, `limits`, `users`, `audit`); avisa si hay que reindexar (admin) |
 | POST | `/api/v1/admin/config/{llm,embeddings}/test` | Prueba la conexión con los valores enviados, sin guardarlos (admin) |
 | GET/PUT | `/api/v1/admin/prompt` | Prompt de sistema vigente / guardar nueva versión (admin) |
 | GET | `/api/v1/admin/prompt/versions` | Historial de versiones (admin) |

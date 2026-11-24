@@ -47,6 +47,9 @@ interface GroupSpec {
 
 const remoteProvider = (state: FormState) => state.values.provider === 'openai'
 const ldapMode = (state: FormState) => state.values.auth_mode === 'ldap'
+const dailyAudit = (state: FormState) => state.values.schedule === 'daily'
+const auditWithModel = (state: FormState) => state.values.use_llm === true
+const auditEmail = (state: FormState) => state.values.notify_enabled === true
 
 // Rangos: los mismos que valida el servidor (backend/app/core/runtime_config.py).
 const GROUPS: GroupSpec[] = [
@@ -127,7 +130,40 @@ const GROUPS: GroupSpec[] = [
       { name: 'ldap_user_id_attribute', kind: 'text', visible: ldapMode },
       { name: 'ldap_display_name_attribute', kind: 'text', visible: ldapMode },
       { name: 'ldap_admin_group_dn', kind: 'text', optional: true, visible: ldapMode },
+      { name: 'ldap_auditor_group_dn', kind: 'text', optional: true, visible: ldapMode },
       { name: 'ldap_nested_groups', kind: 'boolean', visible: ldapMode },
+    ],
+  },
+  {
+    name: 'audit',
+    fields: [
+      { name: 'enabled', kind: 'boolean' },
+      { name: 'schedule', kind: 'select', options: ['hourly', 'daily'] },
+      { name: 'daily_time', kind: 'text', visible: dailyAudit },
+      { name: 'max_per_run', kind: 'number', min: 1, max: 10000, integer: true },
+      { name: 'use_llm', kind: 'boolean' },
+      { name: 'llm_model', kind: 'text', optional: true, visible: auditWithModel },
+      { name: 'llm_history_days', kind: 'number', min: 0, integer: true, visible: auditWithModel },
+      { name: 'retention_days', kind: 'number', min: 0, integer: true },
+      { name: 'notify_enabled', kind: 'boolean' },
+      {
+        name: 'notify_min_severity',
+        kind: 'select',
+        options: ['low', 'medium', 'high'],
+        visible: auditEmail,
+      },
+      { name: 'notify_to', kind: 'text', optional: true, visible: auditEmail },
+      { name: 'smtp_host', kind: 'text', optional: true, visible: auditEmail },
+      { name: 'smtp_port', kind: 'number', min: 1, max: 65535, integer: true, visible: auditEmail },
+      {
+        name: 'smtp_security',
+        kind: 'select',
+        options: ['starttls', 'ssl', 'plain'],
+        visible: auditEmail,
+      },
+      { name: 'smtp_username', kind: 'text', optional: true, visible: auditEmail },
+      { name: 'smtp_password', kind: 'secret', visible: auditEmail },
+      { name: 'smtp_from', kind: 'text', optional: true, visible: auditEmail },
     ],
   },
 ]

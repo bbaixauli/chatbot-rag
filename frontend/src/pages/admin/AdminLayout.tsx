@@ -1,8 +1,9 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Menu, X } from 'lucide-react'
 import { useState } from 'react'
 import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router'
 import { logout } from '../../api/admin'
+import { getAuditSummary } from '../../api/audit'
 import { AppFooter, Brand, MAIN_ID, SkipLink } from '../../components/PageChrome'
 import { t } from '../../i18n/es'
 import { ADMIN_SESSION_KEY, useAdminSession } from './session'
@@ -34,10 +35,38 @@ export function AdminLayout() {
     },
   })
 
+  // Sesiones sin roles (anteriores a la auditoría): administración completa.
+  const isAdmin = session.data?.is_admin ?? true
+  const isAuditor = session.data?.is_auditor ?? false
+  const auditSummary = useQuery({
+    queryKey: ['admin', 'audit', 'summary'],
+    queryFn: getAuditSummary,
+    enabled: Boolean(session.data?.authenticated && isAuditor),
+    refetchInterval: 60_000,
+  })
+
   if (session.isPending) return <p className="p-6 text-texto-secundario">{t.common.loading}</p>
   if (!session.data?.authenticated) {
     return <Navigate to="/admin/login" replace state={{ from: location.pathname }} />
   }
+  // Un auditor que no administra solo ve la auditoría.
+  if (!isAdmin && !location.pathname.startsWith('/admin/audit')) {
+    return <Navigate to="/admin/audit" replace />
+  }
+  const items = [
+    ...(isAdmin
+      ? [
+          { to: '/admin/dashboard', label: t.nav.dashboard },
+          { to: '/admin/prompt', label: t.nav.prompt },
+          { to: '/admin/documents', label: t.nav.documents },
+          { to: '/admin/chat', label: t.nav.chatStart },
+          { to: '/admin/appearance', label: t.nav.appearance },
+          { to: '/admin/config', label: t.nav.config },
+        ]
+      : []),
+    ...(isAuditor ? [{ to: '/admin/audit', label: t.nav.audit }] : []),
+  ]
+  const newAlerts = auditSummary.data?.new_alerts ?? 0
 
   return (
     <div className="flex h-full flex-col bg-fondo-alt text-texto">
@@ -71,16 +100,15 @@ export function AdminLayout() {
         aria-label={t.nav.admin}
         className={`${menuOpen ? 'flex' : 'hidden'} flex-col gap-1 border-b border-borde bg-fondo px-4 py-2 md:flex md:flex-row md:px-6`}
       >
-        {[
-          { to: '/admin/dashboard', label: t.nav.dashboard },
-          { to: '/admin/prompt', label: t.nav.prompt },
-          { to: '/admin/documents', label: t.nav.documents },
-          { to: '/admin/chat', label: t.nav.chatStart },
-          { to: '/admin/appearance', label: t.nav.appearance },
-          { to: '/admin/config', label: t.nav.config },
-        ].map((item) => (
-          <NavLink key={item.to} to={item.to} className="nav-item text-sm">
-            {item.label}
+        {items.map((item) => (
+          <NavLink key={item.to} to={item.to} className="nav-item gap-2 text-sm">
+            {item.label}{' '}
+            {item.to === '/admin/audit' && newAlerts > 0 && (
+              // Número de avisos nuevos (con texto para lectores de pantalla).
+              <span className="rounded border border-error bg-error-suave px-1.5 text-xs font-semibold text-error">
+                {newAlerts} <span className="sr-only">{t.audit.newAlertsBadge(newAlerts)}</span>
+              </span>
+            )}
           </NavLink>
         ))}
       </nav>

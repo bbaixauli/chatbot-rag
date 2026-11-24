@@ -4,6 +4,9 @@ export interface AdminSession {
   authenticated: boolean
   username: string | null
   enabled: boolean
+  /** Roles (ausentes en sesiones antiguas: se tratan como administrador). */
+  is_admin?: boolean
+  is_auditor?: boolean
 }
 
 export interface SystemPrompt {

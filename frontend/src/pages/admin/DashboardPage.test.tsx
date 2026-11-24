@@ -149,7 +149,7 @@ describe('DashboardPage', () => {
     renderApp('/admin')
 
     expect(await screen.findByRole('heading', { level: 1, name: 'Cuadro de mando' })).toBeVisible()
-    expect(document.title).toBe('Cuadro de mando – Chatbot RAG')
+    await waitFor(() => expect(document.title).toBe('Cuadro de mando – Chatbot RAG'))
     const figures = await screen.findByRole('region', { name: /Cifras del 10\/02\/2026/ })
     const value = (label: string) =>
       within(figures).getByText(label).parentElement!.querySelector('dd')!.textContent

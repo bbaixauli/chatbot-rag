@@ -224,6 +224,8 @@ CHATBOT_LDAP_USER_ID_ATTRIBUTE=uid
 CHATBOT_LDAP_DISPLAY_NAME_ATTRIBUTE=cn
 # groupOfNames, groupOfUniqueNames o posixGroup
 CHATBOT_LDAP_ADMIN_GROUP_DN=cn=chatbot-admins,ou=groups,dc=ejemplo,dc=org
+# Opcional: quién accede a la auditoría (sin él, los administradores)
+CHATBOT_LDAP_AUDITOR_GROUP_DN=cn=chatbot-auditores,ou=groups,dc=ejemplo,dc=org
 ```
 
 **Active Directory**
@@ -238,6 +240,7 @@ CHATBOT_LDAP_USER_FILTER=(&(objectClass=user)(sAMAccountName={username}))
 CHATBOT_LDAP_USER_ID_ATTRIBUTE=sAMAccountName
 CHATBOT_LDAP_DISPLAY_NAME_ATTRIBUTE=displayName
 CHATBOT_LDAP_ADMIN_GROUP_DN=CN=Chatbot-Admins,OU=Grupos,DC=empresa,DC=local
+CHATBOT_LDAP_AUDITOR_GROUP_DN=CN=Chatbot-Auditores,OU=Grupos,DC=empresa,DC=local
 CHATBOT_LDAP_NESTED_GROUPS=true
 ```
 
@@ -360,6 +363,13 @@ desde un cron externo:
 ```bash
 docker compose exec backend python -m app.audit run
 ```
+
+**Quién accede.** Sin grupo de auditores (`CHATBOT_LDAP_AUDITOR_GROUP_DN`, también en
+*Configuración → Usuarios*), los administradores son también auditores. Con él, solo sus
+miembros ven la auditoría: un auditor que no administra entra en la administración y solo ve
+esa pantalla, y un administrador que no es auditor no la ve. La cuenta local de administración
+(`CHATBOT_ADMIN_PASSWORD`) solo audita si no hay grupo de auditores. Cada consulta a la
+auditoría queda en el log («Acceso a la auditoría»).
 
 Nunca hay dos revisiones a la vez. Si se configuran los avisos por correo (SMTP), se envía un
 resumen de los avisos de la gravedad elegida, sin los textos de las preguntas. Pasado

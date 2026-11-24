@@ -36,6 +36,7 @@ class LdapUser:
     display_name: str
     dn: str
     is_admin: bool
+    is_auditor: bool = False
 
 
 class InvalidCredentialsError(Exception):
@@ -129,7 +130,12 @@ class LdapAuthenticator:
                     id=user_id.lower(),
                     display_name=_first(entry, config.ldap_display_name_attribute) or user_id,
                     dn=entry.entry_dn,
-                    is_admin=self._is_admin(service, entry.entry_dn, user_id),
+                    is_admin=self._in_group(
+                        service, config.ldap_admin_group_dn, entry.entry_dn, user_id
+                    ),
+                    is_auditor=self._in_group(
+                        service, config.ldap_auditor_group_dn, entry.entry_dn, user_id
+                    ),
                 )
             finally:
                 service.unbind()
@@ -186,8 +192,9 @@ class LdapAuthenticator:
             raise InvalidCredentialsError
         return connection.entries[0]
 
-    def _is_admin(self, connection: Connection, user_dn: str, user_id: str) -> bool:
-        group = self._config.ldap_admin_group_dn
+    def _in_group(
+        self, connection: Connection, group: str | None, user_dn: str, user_id: str
+    ) -> bool:
         if not group:
             return False
         dn = escape_filter_chars(user_dn)
