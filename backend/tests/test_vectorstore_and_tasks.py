@@ -136,3 +136,23 @@ async def test_chroma_document_chunks_returns_vectors_in_order() -> None:
     assert stored[0].vector == pytest.approx(vectors[1], abs=1e-6)
     assert await store.document_chunks("otro") == []
     store.drop()
+
+
+async def test_chroma_keeps_the_table_of_contents_mark() -> None:
+    store = ChromaVectorStore(None, "marca-indice")
+    chunks = [
+        Chunk(index=0, text="Índice", page=1, heading=None, toc=True),
+        Chunk(index=1, text="Contenido", page=2, heading=None),
+    ]
+    vectors = await FakeEmbeddings(dimensions=16).embed([c.text for c in chunks])
+    await store.add("d1", "d1.pdf", chunks, vectors)
+
+    hits = await store.search(vectors[0], 2)
+
+    assert {h.text: h.toc for h in hits} == {"Índice": True, "Contenido": False}
+    assert [c.toc for c in await store.document_chunks("d1")] == [True, False]
+
+    # Al reindexar, un fragmento que deja de parecer un índice pierde la marca.
+    await store.add("d1", "d1.pdf", [Chunk(0, "Ya no es índice", 1, None)], vectors[:1])
+    assert [c.toc for c in await store.document_chunks("d1")] == [False, False]
+    store.drop()

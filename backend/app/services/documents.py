@@ -16,8 +16,12 @@ from app.core.config import Settings
 from app.core.runtime_config import ConfigSource
 from app.db.models import Document, DocumentKind, DocumentStatus, utcnow
 from app.services.embeddings import EmbeddingError, Embeddings
-from app.services.ingestion.chunker import chunk_sections
 from app.services.ingestion.parsers import ParseError, kind_for_filename, parse_document
+from app.services.ingestion.preprocess import (
+    build_chunks,
+    embedding_texts,
+    preprocessing_signature,
+)
 from app.services.tasks import INDEX_DOCUMENT, TaskRunner
 from app.services.vectorstore import VectorStore, VectorStoreError
 
@@ -46,7 +50,8 @@ class IndexStats:
     documents: int
     chunks: int
     by_status: dict[str, int]
-    # Documentos indexados con otro modelo de embeddings u otro troceado que el vigente.
+    # Documentos indexados con otro modelo de embeddings, otro troceado u otro
+    # preprocesado que el vigente.
     outdated: int
 
 
@@ -186,10 +191,8 @@ class DocumentService:
         model_name = self._embeddings.model_name
         try:
             sections = await asyncio.to_thread(parse_document, path, kind)
-            chunks = chunk_sections(
-                sections, indexing.chunk_size_chars, indexing.chunk_overlap_chars
-            )
-            vectors = await self._embeddings.embed([chunk.text for chunk in chunks])
+            chunks = build_chunks(sections, indexing)
+            vectors = await self._embeddings.embed(embedding_texts(chunks, filename, indexing))
             # Se sustituyen los fragmentos sin dejar el documento fuera del índice en ningún
             # momento (importante al reindexar): primero se escriben y luego se borran los
             # que sobran de la versión anterior.
@@ -215,6 +218,7 @@ class DocumentService:
             document.embedding_model = None if error else model_name
             document.chunk_size_chars = None if error else indexing.chunk_size_chars
             document.chunk_overlap_chars = None if error else indexing.chunk_overlap_chars
+            document.preprocessing = None if error else preprocessing_signature(indexing)
             document.updated_at = utcnow()
             await session.commit()
 
@@ -308,7 +312,9 @@ class DocumentService:
                 by_status[status] = int(count)
                 if status == DocumentStatus.READY.value:
                     chunks += int(chunk_sum)
-            # Sin troceado guardado (indexados antes de guardarlo) solo se compara el modelo.
+            # Sin troceado guardado (indexados antes de guardarlo) no se compara el troceado;
+            # sin preprocesado guardado (indexados antes de #62), sí cuentan como
+            # desactualizados: no tienen marcados los fragmentos de índice.
             outdated = await session.scalar(
                 select(func.count()).where(
                     Document.status == DocumentStatus.READY.value,
@@ -316,6 +322,7 @@ class DocumentService:
                         Document.embedding_model.is_distinct_from(model_name),
                         Document.chunk_size_chars != indexing.chunk_size_chars,
                         Document.chunk_overlap_chars != indexing.chunk_overlap_chars,
+                        Document.preprocessing.is_distinct_from(preprocessing_signature(indexing)),
                     ),
                 )
             )

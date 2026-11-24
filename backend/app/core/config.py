@@ -142,6 +142,14 @@ class Settings(BaseSettings):
     upload_max_mb: int = Field(default=50, gt=0)
     chunk_size_chars: int = Field(default=3000, ge=200)
     chunk_overlap_chars: int = Field(default=400, ge=0)
+    # Preprocesado del texto antes de indexar (#62); cambiarlo obliga a reindexar.
+    # Quita de los PDF las líneas repetidas en al menos esa proporción de páginas.
+    indexing_strip_repeated_lines: bool = True
+    indexing_repeated_line_min_ratio: float = Field(default=0.5, gt=0, le=1)
+    # Sustituye los puntos de relleno de los índices por un espacio.
+    indexing_clean_toc_leaders: bool = True
+    # Antepone «Documento: <título>» y la sección al texto con el que se calcula el vector.
+    indexing_context_prefix: bool = True
 
     # Escalado (requiere `uv sync --extra escalado`). Por defecto, ChromaDB embebido y
     # tareas en el proceso de la API. Con `arq`, la indexación la hacen workers aparte
@@ -167,6 +175,9 @@ class Settings(BaseSettings):
     # extra al modelo cuando hay historial.
     rag_condense_question: bool = True
     rag_condense_history_messages: int = Field(default=6, ge=1)
+    # Multiplica la puntuación de los fragmentos que parecen un índice del documento para
+    # que no desplacen a los de contenido (1 = sin cambios; 0 = descartarlos).
+    rag_toc_score_factor: float = Field(default=0.8, ge=0, le=1)
 
     # --- Valores iniciales (#42): conversación
     chat_history_max_messages: int = Field(default=20, ge=0)

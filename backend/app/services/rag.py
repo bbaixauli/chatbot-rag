@@ -3,11 +3,11 @@
 import logging
 import re
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
-from app.core.runtime_config import ConfigSource
+from app.core.runtime_config import ConfigSource, RagConfig
 from app.services.embeddings import Embeddings
-from app.services.vectorstore import VectorStore
+from app.services.vectorstore import SearchHit, VectorStore
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +55,21 @@ class ContextSource:
         return text if len(text) <= SNIPPET_CHARS else text[: SNIPPET_CHARS - 1].rstrip() + "…"
 
 
+def candidates_limit(rag: RagConfig) -> int:
+    """Fragmentos que se piden al índice: si se resta peso a los de índice, más de top-k,
+    para que los que estaban justo detrás puedan ocupar su lugar."""
+    return rag.top_k if rag.toc_score_factor >= 1 else rag.top_k * 2
+
+
+def rank_hits(hits: Sequence[SearchHit], toc_score_factor: float) -> list[SearchHit]:
+    """Ordena por puntuación, multiplicando la de los fragmentos de índice por el factor."""
+    factor = toc_score_factor
+    adjusted = [
+        replace(hit, score=hit.score * factor) if hit.toc and factor < 1 else hit for hit in hits
+    ]
+    return sorted(adjusted, key=lambda h: h.score, reverse=True)
+
+
 class Retriever:
     """Busca los fragmentos más parecidos a una consulta."""
 
@@ -82,14 +97,14 @@ class Retriever:
             return []
         try:
             [vector] = await self._embeddings.embed([query])
-            hits = await self._store.search(vector, rag.top_k)
+            hits = await self._store.search(vector, candidates_limit(rag))
         except Exception:
             logger.warning("No se pudo recuperar contexto; se responde sin RAG", exc_info=True)
             return []
 
         sources: list[ContextSource] = []
         used = 0
-        for hit in sorted(hits, key=lambda h: h.score, reverse=True):
+        for hit in rank_hits(hits, rag.toc_score_factor)[: rag.top_k]:
             if hit.score < rag.min_score:
                 break
             if used + len(hit.text) > rag.max_context_chars and sources:

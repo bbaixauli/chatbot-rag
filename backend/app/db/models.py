@@ -92,6 +92,8 @@ class Document(Base):
     # Troceado con el que se indexó (para avisar si cambia la configuración).
     chunk_size_chars: Mapped[int | None] = mapped_column(Integer)
     chunk_overlap_chars: Mapped[int | None] = mapped_column(Integer)
+    # Preprocesado con el que se indexó (`preprocessing_signature`, #62).
+    preprocessing: Mapped[str | None] = mapped_column(String(64))
     uploaded_by: Mapped[str] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

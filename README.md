@@ -145,6 +145,12 @@ como «Fuentes consultadas».
 Las preguntas de seguimiento («¿y con cuánta antelación?») se reformulan con el historial antes
 de buscar (se puede desactivar en la configuración de recuperación); la respuesta se genera con la pregunta original.
 
+Antes de indexar se limpia el texto: se quitan de los PDF los encabezados y pies que se repiten
+en todas las páginas (sellos de firma electrónica, «Página 3 de 27»…), se quitan los puntos de
+relleno de los índices y cada fragmento se busca con el título del documento y su sección
+delante. Los fragmentos que parecen el índice del documento pesan menos en la búsqueda. Ver
+[limpieza del texto](docs/despliegue.md#limpieza-del-texto-antes-de-indexar).
+
 ### Calibrar la búsqueda con un conjunto de evaluación
 
 El umbral de similitud, el top-k y el tamaño de fragmento adecuados dependen del modelo de
@@ -168,6 +174,10 @@ prueban la reformulación con `--condensar`. Ver [`backend/eval/ejemplo`](backen
 El informe muestra, por configuración, el acierto@k, MRR, recall, precisión y falsos positivos,
 y recomienda el tamaño de fragmento, el solapamiento, el top-k y la puntuación mínima.
 Tras cambiar el troceado hay que reindexar los documentos.
+
+La evaluación aplica la misma limpieza del texto y el mismo peso de los fragmentos de índice que
+la configuración; con `--sin-preprocesado` se evalúa sin ellos, para comparar el antes y el
+después.
 
 Mientras trabaja muestra el avance documento a documento (con una estimación del tiempo que
 queda) en la salida de errores, así que `> informe.md` guarda solo el informe; `--sin-progreso`

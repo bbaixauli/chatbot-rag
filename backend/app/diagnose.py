@@ -21,7 +21,6 @@ Código de salida: 0 sin anomalías, 1 por error y 2 si se detecta alguna anomal
 import argparse
 import asyncio
 import math
-import re
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -38,8 +37,14 @@ from app.db.session import build_engine, build_sessionmaker
 from app.services.backends import build_vector_store, close_vector_store
 from app.services.documents import document_file_path
 from app.services.embeddings import EmbeddingError, Embeddings, build_embeddings
-from app.services.ingestion.chunker import chunk_sections
 from app.services.ingestion.parsers import ParseError, parse_document
+from app.services.ingestion.preprocess import (
+    build_chunks,
+    embedding_text,
+    looks_like_toc,
+    preprocessing_signature,
+)
+from app.services.rag import candidates_limit, rank_hits
 from app.services.runtime_config import load_runtime_config
 from app.services.vectorstore import SearchHit, StoredChunk, VectorStore, VectorStoreError
 
@@ -48,14 +53,6 @@ DEFAULT_MIN_SIMILARITY = 0.99
 # Dos fragmentos distintos con vectores prácticamente idénticos indican un vector erróneo.
 DUPLICATE_SIMILARITY = 0.9999
 SNIPPET_CHARS = 120
-
-# Líneas de un índice. Al extraer el texto de un PDF, el número de página puede quedar en la
-# misma línea que el título o en una línea aparte (y los puntos de relleno, en cualquiera).
-_TOC_LINE = re.compile(r"(?:\.{3,}|…+|\s)\s*\d{1,4}\s*$")  # «Vacaciones ..... 5»
-_PAGE_NUMBER_LINE = re.compile(r"^[.…·\s]*\d{1,4}$")  # «5» o «..... 5»
-_LEADER_LINE = re.compile(r"(?:\.{3,}|…+)\s*$")  # «Vacaciones .....»
-TOC_MIN_LINES = 5
-TOC_MIN_RATIO = 0.4
 
 # Comprobación de recorte: texto sin relación que se añade al final de un fragmento. Si el
 # vector no cambia, el servidor no lo ha leído: recorta los textos antes de ese punto.
@@ -83,19 +80,6 @@ def cosine(a: Sequence[float], b: Sequence[float]) -> float:
     if not norm or math.isnan(norm):
         return 0.0
     return sum(x * y for x, y in zip(a, b, strict=True)) / norm
-
-
-def looks_like_toc(text: str) -> bool:
-    """True si el texto parece un índice (muchas líneas con número de página o relleno)."""
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    if len(lines) < TOC_MIN_LINES:
-        return False
-    matches = sum(
-        1
-        for line in lines
-        if _TOC_LINE.search(line) or _PAGE_NUMBER_LINE.match(line) or _LEADER_LINE.search(line)
-    )
-    return matches / len(lines) >= TOC_MIN_RATIO
 
 
 def _snippet(text: str) -> str:
@@ -256,6 +240,12 @@ async def diagnose_document(
             f"Indexado con «{document.embedding_model}» pero el modelo configurado es "
             f"«{embeddings.model_name}»: hay que reindexarlo"
         )
+    signature = preprocessing_signature(config.indexing)
+    if document.status == DocumentStatus.READY.value and document.preprocessing != signature:
+        report.problems.append(
+            f"Indexado con otro preprocesado del texto ({document.preprocessing or 'anterior'}; "
+            f"vigente: {signature}): hay que reindexarlo"
+        )
 
     stored = await store.document_chunks(document.id)
     report.stored_chunks = len(stored)
@@ -279,18 +269,17 @@ async def diagnose_document(
         except ParseError as exc:
             report.problems.append(f"No se puede leer el original: {exc}")
         else:
-            expected = chunk_sections(
-                sections, config.indexing.chunk_size_chars, config.indexing.chunk_overlap_chars
-            )
+            expected = build_chunks(sections, config.indexing)
             report.expected_chunks = len(expected)
             stored_texts = [chunk.text for chunk in stored]
             if stored_texts != [chunk.text for chunk in expected]:
                 report.problems.append(
                     f"El texto indexado no coincide con el del original ({len(expected)} "
-                    f"fragmentos esperados): el índice está desactualizado o cambió el troceado"
+                    f"fragmentos esperados): el índice está desactualizado o cambió el troceado "
+                    f"o el preprocesado"
                 )
 
-    toc = [chunk.chunk_index for chunk in stored if looks_like_toc(chunk.text)]
+    toc = [chunk.chunk_index for chunk in stored if chunk.toc or looks_like_toc(chunk.text)]
     if toc:
         report.notes.append(f"Fragmentos con aspecto de índice: {toc}")
 
@@ -301,21 +290,21 @@ async def diagnose_document(
     sample = stored if max_chunks is None else stored[:max_chunks]
     if len(sample) < len(stored):
         report.notes.append(f"Solo se comprueban los {len(sample)} primeros fragmentos")
+    # Texto con el que se calculó el vector (con el título y la sección, si procede).
+    texts = [
+        embedding_text(chunk.text, document.filename, chunk.heading, config.indexing)
+        for chunk in sample
+    ]
     try:
         # Uno a uno: el resultado no depende de cómo agrupe el servidor las peticiones.
-        fresh = [await _embed_one(embeddings, chunk.text) for chunk in sample]
+        fresh = [await _embed_one(embeddings, text) for text in texts]
         batched = (
-            await _batch_vectors(
-                embeddings, [chunk.text for chunk in sample], config.embeddings.batch_size
-            )
+            await _batch_vectors(embeddings, texts, config.embeddings.batch_size)
             if batch_check
             else None
         )
         probed = (
-            [
-                await _embed_one(embeddings, f"{chunk.text}\n\n{TRUNCATION_PROBE}")
-                for chunk in sample
-            ]
+            [await _embed_one(embeddings, f"{text}\n\n{TRUNCATION_PROBE}") for text in texts]
             if truncation_check
             else None
         )
@@ -360,12 +349,13 @@ async def diagnose_document(
     if truncated:
         # Se estima el límite con el fragmento recortado más largo.
         longest = max(
-            (chunk for chunk in sample if chunk.chunk_index in truncated),
-            key=lambda chunk: len(chunk.text),
+            (i for i, chunk in enumerate(sample) if chunk.chunk_index in truncated),
+            key=lambda i: len(texts[i]),
         )
         try:
-            full = fresh[sample.index(longest)]
-            report.truncation_chars = await estimate_truncation(embeddings, longest.text, full)
+            report.truncation_chars = await estimate_truncation(
+                embeddings, texts[longest], fresh[longest]
+            )
             limit = f"unos {report.truncation_chars} caracteres"
         except EmbeddingError:
             limit = "una longitud que no se ha podido estimar"
@@ -405,10 +395,11 @@ async def diagnose_query(
     """
     rag = config.rag
     [vector] = await embeddings.embed([query])
-    limit = await store.count() if full_ranking else max(top, rag.top_k)
+    limit = await store.count() if full_ranking else max(top, candidates_limit(rag))
     if limit == 0:
         return []
-    hits = sorted(await store.search(vector, limit), key=lambda h: h.score, reverse=True)
+    # Con la misma ordenación que el chat (resta peso a los fragmentos de índice).
+    hits = rank_hits(await store.search(vector, limit), rag.toc_score_factor)
     result = []
     used_chars = 0
     used_count = 0
@@ -428,7 +419,7 @@ async def diagnose_query(
             used_count += 1
         else:
             reason = stopped or ""
-        result.append(QueryHit(rank, hit, used, reason, looks_like_toc(hit.text)))
+        result.append(QueryHit(rank, hit, used, reason, hit.toc or looks_like_toc(hit.text)))
     return result
 
 

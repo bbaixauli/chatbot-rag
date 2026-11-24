@@ -44,8 +44,25 @@ function appConfig(): AppConfig {
         { reindex_fields: ['provider', 'model', 'base_url'] },
       ),
       indexing: group(
-        { upload_max_mb: 50, chunk_size_chars: 3000, chunk_overlap_chars: 400 },
-        { reindex_fields: ['chunk_size_chars', 'chunk_overlap_chars'] },
+        {
+          upload_max_mb: 50,
+          chunk_size_chars: 3000,
+          chunk_overlap_chars: 400,
+          strip_repeated_lines: true,
+          repeated_line_min_ratio: 0.5,
+          clean_toc_leaders: true,
+          context_prefix: true,
+        },
+        {
+          reindex_fields: [
+            'chunk_size_chars',
+            'chunk_overlap_chars',
+            'strip_repeated_lines',
+            'repeated_line_min_ratio',
+            'clean_toc_leaders',
+            'context_prefix',
+          ],
+        },
       ),
       rag: group(
         {
@@ -55,6 +72,7 @@ function appConfig(): AppConfig {
           max_context_chars: 12000,
           condense_question: true,
           condense_history_messages: 6,
+          toc_score_factor: 0.8,
         },
         { updated_by: 'ana', updated_at: '2026-11-20T12:30:00Z' },
       ),
@@ -161,8 +179,21 @@ describe('ConfigPage', () => {
     const rag = await section('Recuperación')
     expect(rag.getByLabelText('Usar los documentos para responder')).toBeChecked()
     expect(rag.getByText(/Guardado por ana/)).toBeInTheDocument()
-    expect((await section('Indexación')).getAllByText(/tendrás que reindexar/).length).toBe(2)
+    expect((await section('Indexación')).getAllByText(/tendrás que reindexar/).length).toBe(6)
     expect(document.title).toMatch(/^Configuración/)
+  })
+
+  it('muestra el umbral de líneas repetidas solo si se quitan', async () => {
+    configApi()
+    renderApp('/admin/config')
+
+    const indexing = await section('Indexación')
+    const ratio = 'Proporción de páginas en que se repiten (0-1)'
+    expect(indexing.getByLabelText(ratio)).toHaveValue(0.5)
+    await userEvent.click(
+      indexing.getByLabelText('Quitar encabezados y pies repetidos en las páginas de los PDF'),
+    )
+    expect(indexing.queryByLabelText(ratio)).not.toBeInTheDocument()
   })
 
   it('guarda solo el grupo editado', async () => {
@@ -188,6 +219,7 @@ describe('ConfigPage', () => {
           max_context_chars: 12000,
           condense_question: false,
           condense_history_messages: 6,
+          toc_score_factor: 0.8,
         },
       },
     ])

@@ -218,3 +218,17 @@ async def test_document_chunks_returns_vectors_in_order(store: QdrantVectorStore
     assert (chunks[0].page, chunks[1].heading) == (1, "Vacaciones")
     [expected] = await embeddings.embed([CHUNKS[2].text])
     assert chunks[2].vector == pytest.approx(expected, abs=1e-6)
+
+
+async def test_keeps_the_table_of_contents_mark(store: QdrantVectorStore) -> None:
+    chunks = [
+        Chunk(index=0, text="Índice", page=1, heading=None, toc=True),
+        Chunk(index=1, text="Contenido", page=2, heading=None),
+    ]
+    embeddings = await _add(store, "d1", chunks)
+    [vector] = await embeddings.embed(["Índice"])
+
+    hits = await store.search(vector, 2)
+
+    assert {h.text: h.toc for h in hits} == {"Índice": True, "Contenido": False}
+    assert [c.toc for c in await store.document_chunks("d1")] == [True, False]

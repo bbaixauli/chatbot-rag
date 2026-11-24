@@ -217,14 +217,25 @@ export const t = {
       },
       indexing: {
         title: 'Indexación',
-        description: 'Subida de documentos y tamaño de los fragmentos en que se dividen.',
+        description:
+          'Subida de documentos, tamaño de los fragmentos en que se dividen y limpieza del texto antes de indexarlo.',
         fields: {
           upload_max_mb: 'Tamaño máximo de un fichero (MB)',
           chunk_size_chars: 'Tamaño de fragmento (caracteres)',
           chunk_overlap_chars: 'Solapamiento entre fragmentos (caracteres)',
+          strip_repeated_lines: 'Quitar encabezados y pies repetidos en las páginas de los PDF',
+          repeated_line_min_ratio: 'Proporción de páginas en que se repiten (0-1)',
+          clean_toc_leaders: 'Quitar los puntos de relleno de los índices',
+          context_prefix: 'Añadir el título del documento y la sección a cada fragmento',
         },
         hints: {
           upload_max_mb: 'El proxy (CHATBOT_MAX_BODY_SIZE) debe admitir peticiones mayores.',
+          strip_repeated_lines:
+            'Sellos de firma electrónica, cabeceras, «Página 3 de 27»… Restan precisión a la búsqueda.',
+          repeated_line_min_ratio:
+            'Se quitan las líneas que aparecen en al menos esa parte de las páginas (mínimo 3).',
+          context_prefix:
+            'Solo para buscar: ayuda con preguntas que nombran el documento. El texto mostrado no cambia.',
         },
       },
       rag: {
@@ -237,11 +248,14 @@ export const t = {
           max_context_chars: 'Máximo de contexto (caracteres)',
           condense_question: 'Reformular las preguntas de seguimiento antes de buscar',
           condense_history_messages: 'Mensajes previos para reformular',
+          toc_score_factor: 'Peso de los fragmentos de índice (0-1)',
         },
         hints: {
           min_score: 'Similitud mínima para usar un fragmento; depende del modelo de embeddings.',
           max_context_chars: 'Protege la ventana de contexto del modelo.',
           condense_question: 'Cuesta una llamada extra al modelo cuando hay historial.',
+          toc_score_factor:
+            'Multiplica su puntuación para que no desplacen al contenido; 1 = sin cambios.',
         },
       },
       chat: {

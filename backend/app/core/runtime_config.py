@@ -91,11 +91,33 @@ class EmbeddingConfig(ConfigGroup):
 class IndexingConfig(ConfigGroup):
     """Subida y troceado de documentos."""
 
-    REINDEX_FIELDS = ("chunk_size_chars", "chunk_overlap_chars")
+    SETTINGS_NAMES: ClassVar[dict[str, str]] = {
+        "strip_repeated_lines": "indexing_strip_repeated_lines",
+        "repeated_line_min_ratio": "indexing_repeated_line_min_ratio",
+        "clean_toc_leaders": "indexing_clean_toc_leaders",
+        "context_prefix": "indexing_context_prefix",
+    }
+    REINDEX_FIELDS = (
+        "chunk_size_chars",
+        "chunk_overlap_chars",
+        "strip_repeated_lines",
+        "repeated_line_min_ratio",
+        "clean_toc_leaders",
+        "context_prefix",
+    )
 
     upload_max_mb: int = Field(gt=0)
     chunk_size_chars: int = Field(ge=200)
     chunk_overlap_chars: int = Field(ge=0)
+    # Preprocesado (#62): ver `services/ingestion/preprocess.py`.
+    # Quita de los PDF las líneas que se repiten en muchas páginas (sellos, cabeceras, pies).
+    strip_repeated_lines: bool
+    # Proporción de páginas (0-1) en las que debe aparecer una línea para quitarla.
+    repeated_line_min_ratio: float = Field(gt=0, le=1)
+    # Sustituye los puntos de relleno de los índices («Objetivo ...... 5») por un espacio.
+    clean_toc_leaders: bool
+    # Antepone el título del documento y la sección al calcular el vector de cada fragmento.
+    context_prefix: bool
 
 
 class RagConfig(ConfigGroup):
@@ -112,6 +134,8 @@ class RagConfig(ConfigGroup):
     # Reescribe las preguntas de seguimiento antes de buscar (una llamada extra al modelo).
     condense_question: bool
     condense_history_messages: int = Field(ge=1)
+    # Multiplica la puntuación de los fragmentos de índice (tabla de contenidos); 1 = igual.
+    toc_score_factor: float = Field(ge=0, le=1)
 
 
 class ChatLimits(ConfigGroup):

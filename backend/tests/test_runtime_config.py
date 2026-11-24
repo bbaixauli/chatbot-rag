@@ -17,7 +17,7 @@ from app.core.config import Settings
 from app.core.runtime_config import GROUPS, LlmConfig, RuntimeConfig, StaticConfig
 from app.core.secrets import SecretCipher, SecretUnreadableError
 from app.db.base import Base
-from app.db.models import AppSetting, SystemPromptVersion
+from app.db.models import AppSetting, Document, SystemPromptVersion
 from app.db.session import build_engine, build_sessionmaker
 from app.main import create_app
 from app.services.embeddings import ConfigurableEmbeddings, LocalEmbeddings
@@ -420,6 +420,30 @@ async def test_reindex_warning_and_blocking(app: FastAPI, admin: AsyncClient) ->
     await admin.post("/api/v1/admin/documents/reindex")
     await app.state.tasks.drain()
     assert (await admin.get("/api/v1/admin/documents/stats")).json()["outdated"] == 0
+
+
+async def test_preprocessing_changes_require_reindexing(app: FastAPI, admin: AsyncClient) -> None:
+    upload = await app.state.documents.upload("guia.md", Reader(MARKDOWN.encode()), "admin")
+    await app.state.tasks.drain()
+    document = await app.state.documents.get(upload.document.id)
+    assert document.preprocessing == "v1;lineas=0.5;relleno;contexto"
+
+    response = await admin.put(f"{URL}/indexing", json={"context_prefix": False})
+    assert response.json()["requires_reindex"] is True
+    assert (await admin.get("/api/v1/admin/documents/stats")).json()["outdated"] == 1
+
+    await admin.post("/api/v1/admin/documents/reindex")
+    await app.state.tasks.drain()
+    assert (await admin.get("/api/v1/admin/documents/stats")).json()["outdated"] == 0
+    document = await app.state.documents.get(upload.document.id)
+    assert document.preprocessing == "v1;lineas=0.5;relleno"
+
+    # Los indexados antes de guardar el preprocesado también cuentan como desactualizados.
+    async with app.state.sessionmaker() as session:
+        stored = await session.get(Document, upload.document.id)
+        stored.preprocessing = None
+        await session.commit()
+    assert (await admin.get("/api/v1/admin/documents/stats")).json()["outdated"] == 1
 
 
 async def test_connection_checks(admin: AsyncClient) -> None:

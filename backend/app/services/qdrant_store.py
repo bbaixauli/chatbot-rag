@@ -128,6 +128,7 @@ class QdrantVectorStore:
                     "text": chunk.text,
                     "page": chunk.page,
                     "heading": chunk.heading or None,
+                    "toc": chunk.toc,
                 },
             )
             for chunk, vector in zip(chunks, embeddings, strict=True)
@@ -197,6 +198,7 @@ class QdrantVectorStore:
                         page=int(page) if page is not None else None,
                         heading=str(heading) if heading else None,
                         vector=[float(v) for v in vector],  # type: ignore[arg-type]
+                        toc=bool(payload.get("toc")),
                     )
                 )
             if offset is None:
@@ -225,4 +227,5 @@ def _hit(payload: dict[str, Any], score: float) -> SearchHit:
         page=int(page) if page is not None else None,
         heading=str(heading) if heading else None,
         score=float(score),
+        toc=bool(payload.get("toc")),
     )
