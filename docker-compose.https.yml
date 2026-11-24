@@ -1,0 +1,54 @@
+# Despliegue con HTTPS: Caddy delante de la aplicación, con certificado autofirmado (CA
+# interna de Caddy) o con el certificado de la organización.
+# Uso: docker compose -f docker-compose.yml -f docker-compose.https.yml up -d --build
+# (se puede combinar también con docker-compose.escalado.yml).
+# Ver docs/despliegue.md, sección «HTTPS».
+
+services:
+  caddy:
+    image: caddy:2.11-alpine
+    environment:
+      CHATBOT_DOMAIN: ${CHATBOT_DOMAIN:?Define CHATBOT_DOMAIN (nombre o IP del servidor) en .env}
+      CHATBOT_TLS: ${CHATBOT_TLS:-interno}
+      CHATBOT_HTTPS_PORT: ${CHATBOT_HTTPS_PORT:-443}
+      CHATBOT_HTTP_REDIRECT_PORT: ${CHATBOT_HTTP_REDIRECT_PORT:-80}
+      CHATBOT_HSTS_MAX_AGE: ${CHATBOT_HSTS_MAX_AGE:-31536000}
+    ports:
+      # Mismo puerto dentro y fuera: las redirecciones de HTTP a HTTPS lo incluyen.
+      - "${CHATBOT_HTTP_BIND:-0.0.0.0}:${CHATBOT_HTTPS_PORT:-443}:${CHATBOT_HTTPS_PORT:-443}"
+      - "${CHATBOT_HTTP_BIND:-0.0.0.0}:${CHATBOT_HTTPS_PORT:-443}:${CHATBOT_HTTPS_PORT:-443}/udp"
+      - "${CHATBOT_HTTP_BIND:-0.0.0.0}:${CHATBOT_HTTP_REDIRECT_PORT:-80}:${CHATBOT_HTTP_REDIRECT_PORT:-80}"
+    volumes:
+      - ./deploy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificado de la organización (CHATBOT_TLS=certificado): cert.pem y key.pem.
+      - ${CHATBOT_CERTS_DIR:-./certs}:/certs:ro
+      # CA interna y certificados emitidos: deben conservarse (copias de seguridad).
+      - caddy-data:/data
+      - caddy-config:/config
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+    depends_on:
+      frontend:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    # Solo Caddy accede a nginx: no se publica su puerto.
+    ports: !reset []
+    environment:
+      # Caddy sustituye el X-Forwarded-For que envíe el cliente por su IP real; nginx se fía
+      # de él. Basta con los rangos privados: el puerto de nginx no se publica, así que solo
+      # los contenedores del despliegue llegan a él.
+      CHATBOT_TRUSTED_PROXIES: ${CHATBOT_TRUSTED_PROXIES:-10.0.0.0/8 172.16.0.0/12 192.168.0.0/16}
+
+  backend:
+    environment:
+      # La cookie de sesión solo viaja por HTTPS.
+      CHATBOT_SESSION_COOKIE_SECURE: "true"
+
+volumes:
+  caddy-data:
+  caddy-config:

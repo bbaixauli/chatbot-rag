@@ -13,3 +13,6 @@ __pycache__/
 .ruff_cache/
 .coverage
 htmlcov/
+
+# Certificados HTTPS (docker-compose.https.yml)
+certs/

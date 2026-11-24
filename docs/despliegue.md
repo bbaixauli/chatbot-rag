@@ -115,6 +115,7 @@ Se definen como variables de entorno al ejecutar `docker compose` o en el propio
 | `CHATBOT_MAX_BODY_SIZE` | `60m` | Tamaño máximo de una petición en nginx (debe superar el tamaño máximo de subida de la configuración) |
 | `CHATBOT_UV_EXTRAS` | — | `local-embeddings` para incluir sentence-transformers en la imagen |
 | `CHATBOT_IMAGE_TAG` | `latest` | Etiqueta de las imágenes construidas |
+| `CHATBOT_TRUSTED_PROXIES` | — | IP o rangos del proxy HTTPS propio, para conocer la IP real de los clientes (ver [HTTPS](#https)) |
 
 Con el proveedor de embeddings `local`, el modelo se descarga la primera vez en
 `/data/modelos` y se conserva entre reinicios.
@@ -284,25 +285,158 @@ aplicaciones internas, están en [estilos-valladolid.md](estilos-valladolid.md).
 
 ## HTTPS
 
-El contenedor sirve HTTP. Para HTTPS, coloca delante el proxy inverso de la organización
-(nginx, Traefik, Caddy…) apuntando a `http://127.0.0.1:8080`, con `CHATBOT_HTTP_BIND=127.0.0.1`
-y `CHATBOT_SESSION_COOKIE_SECURE=true`.
+El contenedor `frontend` sirve HTTP. Para servir la aplicación por HTTPS hay dos opciones:
+
+- **`docker-compose.https.yml`** (recomendada si no hay otro proxy): añade
+  [Caddy](https://caddyserver.com) delante de la aplicación, con un certificado autofirmado o
+  con el de la organización. Sirve igual en una DMZ que en la red interna, y no necesita salida
+  a Internet: los certificados nunca se piden a Let's Encrypt ni a otra CA pública.
+- **El proxy inverso de la organización** (nginx, Traefik, un balanceador…), ver
+  [Con un proxy HTTPS propio](#con-un-proxy-https-propio).
+
+### Con docker-compose.https.yml
+
+```
+navegador ──► caddy (:443, :80 redirige) ──► frontend (nginx) ──► backend
+               └ volumen caddy-data: CA interna y certificados
+```
+
+En `.env`:
+
+```bash
+# Nombre (o IP) con el que acceden los usuarios; varios separados por comas
+CHATBOT_DOMAIN=chatbot.ejemplo.es
+# interno (autofirmado) | certificado (el de la organización)
+CHATBOT_TLS=certificado
+# Para no repetir -f en cada comando de docker compose (logs, copias…)
+COMPOSE_FILE=docker-compose.yml:docker-compose.https.yml
+```
+
+Y arranca como siempre:
+
+```bash
+docker compose up -d --build
+docker compose ps        # caddy, frontend y backend deben aparecer como "healthy"
+```
+
+Con el escalado, añade el fichero:
+`COMPOSE_FILE=docker-compose.yml:docker-compose.escalado.yml:docker-compose.https.yml`.
+
+Este compose:
+
+- Publica el puerto 443 (TCP, y UDP para HTTP/3) y el 80, que solo redirige a HTTPS. El
+  frontend deja de publicar el 8080.
+- Activa la cookie de sesión segura (`CHATBOT_SESSION_COOKIE_SECURE=true`) y la cabecera HSTS.
+- Mantiene el streaming del chat sin búfer, sin límite propio de tamaño de subida (el de nginx,
+  `CHATBOT_MAX_BODY_SIZE`, sigue aplicándose).
+- Conserva la IP real de los clientes para el límite de peticiones y la auditoría: Caddy
+  sustituye el `X-Forwarded-For` que envíe el cliente por su IP, y nginx se fía solo de Caddy
+  (ver `CHATBOT_TRUSTED_PROXIES` abajo).
+
+| Variable | Por defecto | Uso |
+|---|---|---|
+| `CHATBOT_DOMAIN` | — (obligatoria) | Nombres o IP del servidor. Deben coincidir con los del certificado |
+| `CHATBOT_TLS` | `interno` | `interno` (autofirmado) o `certificado` (el de la organización) |
+| `CHATBOT_CERTS_DIR` | `./certs` | Directorio con `cert.pem` y `key.pem` (modo `certificado`) |
+| `CHATBOT_HTTPS_PORT` | `443` | Puerto HTTPS |
+| `CHATBOT_HTTP_REDIRECT_PORT` | `80` | Puerto HTTP (solo redirige a HTTPS) |
+| `CHATBOT_HTTP_BIND` | `0.0.0.0` | Interfaz en la que se publican los puertos |
+| `CHATBOT_HSTS_MAX_AGE` | `31536000` | Segundos durante los que el navegador solo usará HTTPS |
+
+**Red interna o DMZ.** Caddy no necesita salida a Internet (el backend sí necesita llegar al
+servidor de IA, como siempre). En el cortafuegos basta con abrir el puerto 443 hacia el
+servidor; el 80 es opcional (sin él, quien escriba `http://` no será redirigido).
+
+- **En una DMZ** o con usuarios en equipos no gestionados, usa un certificado real (modo
+  `certificado`) emitido por una CA en la que confíen los navegadores: comercial, o la
+  corporativa si solo acceden equipos de la organización.
+- **En la red interna**, lo mejor también es el certificado de la CA corporativa. El modo
+  `interno` sirve para pruebas o si no se dispone de él, instalando su CA en los equipos.
+
+#### Certificado autofirmado (`CHATBOT_TLS=interno`)
+
+Caddy crea su propia CA y emite y renueva solo el certificado del servidor (también para una
+IP). Los navegadores mostrarán un aviso hasta que se instale en los equipos el certificado
+raíz de esa CA:
+
+```bash
+docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt ./chatbot-ca.crt
+```
+
+- **Windows**: instálalo en *Entidades de certificación raíz de confianza* del equipo, o
+  distribúyelo por directiva de grupo (GPO). Chrome y Edge usan ese almacén; Firefox también,
+  si está activada `security.enterprise_roots.enabled` (por defecto en Windows).
+- **Linux**: cópialo a `/usr/local/share/ca-certificates/` y ejecuta `update-ca-certificates`.
+
+Mientras los equipos no confíen en la CA, define `CHATBOT_HSTS_MAX_AGE=0`: con HSTS, el
+navegador no permite continuar tras el aviso del certificado.
+
+La CA se guarda en el volumen `caddy-data` (es válida unos 10 años). Si se pierde el volumen se
+crea otra y hay que volver a instalarla en los equipos: incluye el volumen en las copias (ver
+[Copias de seguridad](#copias-de-seguridad)).
+
+#### Certificado de la organización (`CHATBOT_TLS=certificado`)
+
+Copia en `certs/` (o en `CHATBOT_CERTS_DIR`), en formato PEM:
+
+- `cert.pem`: el certificado del servidor seguido de los intermedios (cadena completa; el del
+  servidor, primero). Debe incluir en *Nombres alternativos del sujeto* (SAN) los de
+  `CHATBOT_DOMAIN`.
+- `key.pem`: su clave privada, **sin contraseña**.
+
+Si la CA lo entrega en formato `.pfx` o `.p12` (habitual en una CA de Windows):
+
+```bash
+openssl pkcs12 -in certificado.pfx -clcerts -nokeys -out servidor.pem
+openssl pkcs12 -in certificado.pfx -cacerts -nokeys -out intermedios.pem
+openssl pkcs12 -in certificado.pfx -nocerts -nodes -out certs/key.pem
+cat servidor.pem intermedios.pem > certs/cert.pem
+chmod 600 certs/key.pem
+```
+
+(Quita de `intermedios.pem` el certificado raíz, si viene: no hace falta enviarlo.) El
+directorio `certs/` está en `.gitignore`.
+
+Comprueba el certificado que se sirve:
+
+```bash
+openssl s_client -connect chatbot.ejemplo.es:443 -servername chatbot.ejemplo.es </dev/null   | openssl x509 -noout -subject -issuer -dates
+```
+
+**Renovación.** Caddy no vigila los ficheros: tras sustituirlos, recárgalo (sin cortar las
+conexiones):
+
+```bash
+docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile --force
+```
+
+Programa un aviso antes de la fecha de caducidad (`notAfter` en la salida anterior).
+
+### Con un proxy HTTPS propio
+
+Coloca el proxy delante del frontend, apuntando a `http://127.0.0.1:8080`, con
+`CHATBOT_HTTP_BIND=127.0.0.1` y `CHATBOT_SESSION_COOKIE_SECURE=true`.
 
 El proxy debe:
 
 - No almacenar en búfer las respuestas de `/api/v1/chat` (streaming SSE). En nginx:
   `proxy_buffering off;` y `proxy_read_timeout 300s;`.
 - Permitir subidas del tamaño configurado (`client_max_body_size` en nginx).
+- Enviar `X-Forwarded-For` con la IP del cliente (sustituyendo, no añadiendo, la que envíe el
+  propio cliente si este no es de confianza) y `X-Forwarded-Proto`.
 
-**IP real de los clientes.** El límite de peticiones se aplica por IP. Por seguridad, el nginx
-del contenedor ignora la cabecera `X-Forwarded-For` que reciba y usa la IP de quien le conecta:
-detrás de otro proxy, todas las peticiones parecerían venir de él. Para conservar la IP real,
-añade en `frontend/docker/default.conf.template`, dentro de `server`, el módulo `real_ip` con la
-IP de tu proxy y reconstruye la imagen:
+**IP real de los clientes.** El límite de peticiones y la auditoría usan la IP del cliente.
+Por seguridad, el nginx del contenedor ignora las cabeceras `X-Forwarded-*` que reciba: detrás
+de otro proxy, todas las peticiones parecerían venir de él. Indica en `.env` la IP (o rangos
+CIDR, separados por espacios o comas) del proxy y vuelve a crear el contenedor:
 
-```nginx
-set_real_ip_from 10.0.0.5;      # IP del proxy inverso
-real_ip_header X-Forwarded-For;
+```bash
+CHATBOT_TRUSTED_PROXIES=10.0.0.5
+```
+
+```bash
+docker compose up -d frontend
+docker compose logs frontend | grep proxies     # «IP real tomada de X-Forwarded-For de: …»
 ```
 
 ## Actualización
@@ -408,6 +542,17 @@ docker compose cp backend:/data/backups ./backups
 Guarda las copias también en otro equipo o almacenamiento: el volumen de Docker no protege ante
 un fallo del disco.
 
+**Con `docker-compose.https.yml` y certificado autofirmado**, guarda también el volumen
+`caddy-data`, que contiene la CA interna instalada en los equipos (y su clave privada: protege
+la copia):
+
+```bash
+docker run --rm -v chatbot-rag_caddy-data:/data:ro -v "$PWD/backups:/copia" alpine   tar czf /copia/caddy-data.tar.gz -C /data .
+```
+
+Para restaurarlo, con Caddy parado (`docker compose stop caddy`), extrae la copia en el volumen
+(`tar xzf /copia/caddy-data.tar.gz -C /data` en el mismo contenedor, sin `:ro`).
+
 ### Restaurar una copia
 
 Con la aplicación parada, usando un contenedor temporal sobre el mismo volumen:
@@ -448,6 +593,12 @@ cuando el directorio no responde. También se ejecuta en el CI.
 `scripts/escalado-smoke.sh` comprueba el despliegue escalado con dos workers: indexación desde
 la cola de Redis, búsqueda en Qdrant, eliminación de documentos y copia y restauración (con la
 colección de Qdrant vaciada y reindexada por los workers). También se ejecuta en el CI.
+
+`scripts/https-smoke.sh` comprueba el despliegue con `docker-compose.https.yml` (puertos 18443
+y 18081) en sus dos modos: certificado autofirmado (extrayendo la CA interna) y certificado
+propio (con una CA de prueba, incluida su renovación), la redirección a HTTPS, HSTS, la cookie
+segura, el streaming del chat sin búfer, una subida grande y la IP real del cliente (sin
+aceptar una falsificada). También se ejecuta en el CI.
 
 ## Solución de problemas
 

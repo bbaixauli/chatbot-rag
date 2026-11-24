@@ -85,3 +85,4 @@ jobs:
       - run: scripts/docker-smoke.sh
       - run: scripts/ldap-smoke.sh
       - run: scripts/escalado-smoke.sh
+      - run: scripts/https-smoke.sh
