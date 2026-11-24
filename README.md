@@ -24,7 +24,8 @@ frontend/
 docs/                Guía de despliegue
 scripts/             Pruebas de humo del despliegue con Docker
 docker-compose.yml   Despliegue con Docker (y docker-compose.escalado.yml: Qdrant, Redis y workers;
-                     docker-compose.https.yml: HTTPS con Caddy)
+                     docker-compose.https.yml: HTTPS con Caddy;
+                     docker-compose.postgres.yml: base de datos PostgreSQL)
 deploy/caddy/        Configuración de Caddy (proxy HTTPS)
 data/                Datos locales: BD, índice y ficheros subidos (no versionado)
 ```
@@ -42,8 +43,11 @@ docker compose up -d --build
 ```
 
 La aplicación queda en http://localhost:8080. Para servirla por HTTPS (certificado autofirmado o
-de la organización), añade `docker-compose.https.yml`, que incluye Caddy como proxy. La
-[guía de despliegue](docs/despliegue.md) explica la configuración, HTTPS, actualizaciones, logs
+de la organización), añade `docker-compose.https.yml`, que incluye Caddy como proxy. La base de
+datos es SQLite por defecto; para usar PostgreSQL, en un contenedor (`docker-compose.postgres.yml`)
+o en un servidor de la organización, se configuran `CHATBOT_DATABASE_URL` y
+`CHATBOT_DATABASE_PASSWORD`. La
+[guía de despliegue](docs/despliegue.md) explica la configuración, HTTPS, PostgreSQL, actualizaciones, logs
 y copias de seguridad (`docker compose exec backend python -m app.backup create`).
 
 ## Puesta en marcha en local
@@ -266,7 +270,7 @@ Documentación interactiva en http://localhost:8000/docs. Endpoints principales:
 | Tests unitarios | `uv run pytest` (cobertura ≥ 85 %) | `npm test` (cobertura ≥ 80 %) |
 | Tests de interfaz | — | `npm run test:e2e` (Playwright) |
 | Tests con PostgreSQL | `CHATBOT_TEST_DATABASE_URL=… uv run pytest --no-cov` (ver abajo) | |
-| Despliegue | `scripts/docker-smoke.sh`, `ldap-smoke.sh`, `escalado-smoke.sh` y `https-smoke.sh` (desde la raíz; requieren Docker) | |
+| Despliegue | `scripts/docker-smoke.sh`, `ldap-smoke.sh`, `escalado-smoke.sh`, `https-smoke.sh` y `postgres-smoke.sh` (desde la raíz; requieren Docker) | |
 
 Los tests E2E levantan automáticamente backend (puerto 8001, con modelo simulado) y frontend
 (puerto 5174) con una carpeta de datos temporal. La primera vez instala el navegador con

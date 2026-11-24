@@ -62,14 +62,106 @@ Notas:
   *Administración → Documentos* para llevar el índice a Qdrant.
 - Cada worker indexa hasta `CHATBOT_INDEXING_CONCURRENCY` documentos a la vez (2 por defecto).
   Si un worker se detiene a mitad de un documento, el trabajo se reintenta (hasta 3 veces).
-- La API y los workers comparten la base de datos SQLite del volumen (en modo WAL). Para
-  Qdrant o Redis externos, cambia `CHATBOT_QDRANT_URL` (y `CHATBOT_QDRANT_API_KEY`, solo con
-  `https://`) y `CHATBOT_REDIS_URL`.
+- La API y los workers comparten la base de datos. Con SQLite (en modo WAL) solo uno escribe a
+  la vez: con varios workers, usa [PostgreSQL](#base-de-datos-postgresql). Para Qdrant o Redis
+  externos, cambia `CHATBOT_QDRANT_URL` (y `CHATBOT_QDRANT_API_KEY`, solo con `https://`) y
+  `CHATBOT_REDIS_URL`.
 - Las copias de seguridad funcionan igual. Al restaurar se vacía también la colección de Qdrant,
   y los workers reindexan los documentos.
 - `scripts/escalado-smoke.sh` comprueba este despliegue con dos workers.
 
-## Requisitos
+## Base de datos PostgreSQL
+
+Por defecto, la base de datos es un fichero SQLite en el volumen de datos, suficiente para una
+instalación con pocos usuarios. PostgreSQL es preferible con el despliegue escalado (la API y
+varios workers escriben a la vez) o si la organización prefiere una base de datos gestionada.
+Los documentos subidos y el índice siguen en el volumen de datos (o en Qdrant).
+
+La aplicación crea y actualiza las tablas al arrancar (migraciones), igual que con SQLite. Solo
+admite instalaciones nuevas: no hay migración de los datos de una instalación SQLite.
+
+La contraseña va en `CHATBOT_DATABASE_PASSWORD`, no en la URL: así no hay que codificar sus
+caracteres especiales y no aparece cuando se muestra la URL (logs, diagnóstico).
+
+### En un contenedor: docker-compose.postgres.yml
+
+En `.env`:
+
+```dotenv
+CHATBOT_DATABASE_URL=postgresql+asyncpg://chatbot@postgres:5432/chatbot
+# Genera una con: python -c "import secrets; print(secrets.token_urlsafe(24))"
+CHATBOT_DATABASE_PASSWORD=<contraseña>
+COMPOSE_FILE=docker-compose.yml:docker-compose.postgres.yml
+```
+
+Con el escalado y HTTPS:
+`COMPOSE_FILE=docker-compose.yml:docker-compose.escalado.yml:docker-compose.postgres.yml:docker-compose.https.yml`
+(en Windows, separados por `;`).
+
+```bash
+docker compose up -d --build
+docker compose ps        # postgres debe aparecer como "healthy"
+```
+
+- Añade el servicio `postgres` (PostgreSQL 18), sin puertos publicados, con los datos en el
+  volumen `postgres-data`. La API espera a que esté listo para arrancar.
+- **La contraseña se fija al crear el volumen.** Cambiarla después en `.env` no cambia la de
+  PostgreSQL: cámbiala también en la base de datos y recrea la API y los workers:
+
+  ```bash
+  docker compose exec postgres psql -U chatbot -c "ALTER ROLE chatbot PASSWORD 'nueva'"
+  # Actualiza CHATBOT_DATABASE_PASSWORD en .env y:
+  docker compose up -d
+  ```
+
+- Consola SQL: `docker compose exec postgres psql -U chatbot chatbot`.
+- **Versión mayor.** La imagen está fijada en PostgreSQL 18. Las actualizaciones menores (18.x)
+  llegan con `docker compose pull postgres && docker compose up -d`. Para pasar a otra versión
+  mayor hay que volcar y restaurar los datos:
+
+  ```bash
+  docker compose stop backend worker frontend
+  docker compose exec -T postgres pg_dump -U chatbot -Fc chatbot > chatbot.dump
+  docker compose down                                  # conserva los volúmenes
+  docker volume rm chatbot-rag_postgres-data           # ¡solo tras comprobar el volcado!
+  # Cambia la versión de la imagen en docker-compose.postgres.yml y:
+  docker compose up -d postgres --wait
+  docker compose exec -T postgres pg_restore -U chatbot -d chatbot --no-owner < chatbot.dump
+  docker compose up -d
+  ```
+
+### En un servidor PostgreSQL de la organización
+
+No uses `docker-compose.postgres.yml`. El administrador de la base de datos crea el usuario y la
+base de datos (probado con PostgreSQL 18):
+
+```sql
+CREATE ROLE chatbot LOGIN PASSWORD '…';
+CREATE DATABASE chatbot OWNER chatbot ENCODING 'UTF8' TEMPLATE template0;
+```
+
+El usuario debe poder crear y modificar tablas en la base de datos (las migraciones se aplican
+al arrancar): basta con que sea su propietario. En `.env`:
+
+```dotenv
+CHATBOT_DATABASE_URL=postgresql+asyncpg://chatbot@pg.ejemplo.es:5432/chatbot?ssl=verify-full
+CHATBOT_DATABASE_PASSWORD=<contraseña>
+# CA que firma el certificado del servidor, en el volumen de datos
+PGSSLROOTCERT=/data/postgres-ca.pem
+```
+
+```bash
+docker compose cp ca.pem backend:/data/postgres-ca.pem
+docker compose up -d
+```
+
+- **TLS.** Con `?ssl=verify-full` la conexión va cifrada y se comprueba el certificado del
+  servidor (CA y nombre) con la CA de `PGSSLROOTCERT`. `?ssl=require` cifra sin comprobarlo
+  (no recomendable). La CA no puede indicarse en la propia URL.
+- **Conexiones.** La API y cada worker abren hasta 15 conexiones; comprueba que caben en
+  `max_connections` del servidor.
+- El servidor debe ser accesible desde el contenedor `backend` (y los workers).
+
 
 - Docker Engine 24 o superior con el plugin `docker compose` (v2.24+).
 - Acceso desde el servidor al servidor de IA.
@@ -542,6 +634,14 @@ docker compose cp backend:/data/backups ./backups
 Guarda las copias también en otro equipo o almacenamiento: el volumen de Docker no protege ante
 un fallo del disco.
 
+**Con PostgreSQL**, `app.backup` todavía no copia la base de datos (llegará con un formato de
+copia propio). Mientras tanto, copia la base de datos con `pg_dump` y los documentos subidos:
+
+```bash
+docker compose exec -T postgres pg_dump -U chatbot -Fc chatbot > chatbot.dump
+docker compose cp backend:/data/uploads ./uploads
+```
+
 **Con `docker-compose.https.yml` y certificado autofirmado**, guarda también el volumen
 `caddy-data`, que contiene la CA interna instalada en los equipos (y su clave privada: protege
 la copia):
@@ -593,6 +693,12 @@ cuando el directorio no responde. También se ejecuta en el CI.
 `scripts/escalado-smoke.sh` comprueba el despliegue escalado con dos workers: indexación desde
 la cola de Redis, búsqueda en Qdrant, eliminación de documentos y copia y restauración (con la
 colección de Qdrant vaciada y reindexada por los workers). También se ejecuta en el CI.
+
+`scripts/postgres-smoke.sh` comprueba el despliegue con PostgreSQL y el escalado (dos workers
+indexando a la vez): migraciones en PostgreSQL (sin SQLite), conversaciones y documentos
+guardados en él, estado «degraded» con PostgreSQL parado, recuperación tras reiniciarlo sin
+reiniciar la API, persistencia de los datos y que la contraseña (con caracteres especiales) no
+aparece en los logs. También se ejecuta en el CI.
 
 `scripts/https-smoke.sh` comprueba el despliegue con `docker-compose.https.yml` (puertos 18443
 y 18081) en sus dos modos: certificado autofirmado (extrayendo la CA interna) y certificado

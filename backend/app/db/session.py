@@ -12,9 +12,10 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-# Errores de una BD inaccesible o sin migrar: SQLite da `OperationalError` («no such table»)
-# y PostgreSQL `ProgrammingError` (tabla inexistente) u `OperationalError` (sin conexión).
-DATABASE_NOT_READY = (OperationalError, ProgrammingError)
+# Errores de una BD inaccesible o sin migrar. SQLite da `OperationalError` («no such table»).
+# PostgreSQL da `ProgrammingError` (tabla inexistente) y, si el servidor no responde, asyncpg
+# deja pasar el `OSError` de la conexión (rechazada, nombre desconocido, tiempo agotado).
+DATABASE_NOT_READY = (OperationalError, ProgrammingError, OSError)
 
 
 def _configure_sqlite(dbapi_connection: Any, _record: Any) -> None:
