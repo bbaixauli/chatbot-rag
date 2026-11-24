@@ -7,12 +7,12 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from pydantic import SecretStr
 
-from app.backup import BackupError, create_backup, main, restore_backup, sqlite_path
+from app.backup import BackupError, create_backup, main, restore_backup
 from app.core.config import Settings
 from app.main import create_app
 from tests.factories import MARKDOWN
 
-# Las copias con PostgreSQL llegan con el formato portable (#60, parte C).
+# Copias con SQLite; las de PostgreSQL (formato portable), en test_backup_portable.py.
 pytestmark = pytest.mark.sqlite_only
 
 CREDENTIALS = {"username": "admin", "password": "secreto"}
@@ -138,13 +138,19 @@ def test_restore_rejects_unsafe_or_incomplete_archives(
         restore_backup(_restored_settings(tmp_path), _archive(tmp_path, entries))
 
 
-def test_only_sqlite_is_supported(tmp_path: Path) -> None:
+def test_only_sqlite_and_postgres_are_supported(tmp_path: Path) -> None:
     settings = _restored_settings(tmp_path)
-    settings.database_url = "postgresql+asyncpg://u:p@db/chatbot"
-    with pytest.raises(BackupError, match="SQLite"):
-        sqlite_path(settings)
+    settings.database_url = "mysql+aiomysql://u:p@db/chatbot"
+    with pytest.raises(BackupError, match="SQLite y PostgreSQL"):
+        create_backup(settings, tmp_path / "copias")
     with pytest.raises(BackupError, match="No existe"):
         create_backup(_restored_settings(tmp_path), tmp_path / "copias")
+
+
+def test_postgres_backup_is_not_restored_into_sqlite(tmp_path: Path) -> None:
+    archive = _archive(tmp_path, {"portable/manifest.json": b"{}", "uploads/a.md": b"x"})
+    with pytest.raises(BackupError, match="instalación con PostgreSQL"):
+        restore_backup(_restored_settings(tmp_path), archive)
 
 
 async def test_cli(
