@@ -1,6 +1,7 @@
 from collections.abc import AsyncIterator
 from unittest.mock import AsyncMock
 
+import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient
 from sqlalchemy.exc import OperationalError
@@ -18,9 +19,19 @@ async def test_health_ok(client: AsyncClient) -> None:
     assert body["app"] == "Chatbot RAG"
 
 
-async def test_health_degraded_when_database_fails(app: FastAPI, client: AsyncClient) -> None:
+@pytest.mark.parametrize(
+    "error",
+    [
+        OperationalError("SELECT 1", {}, Exception("down")),
+        # PostgreSQL parado: asyncpg no envuelve el error de la conexión.
+        ConnectionRefusedError("conexión rechazada"),
+    ],
+)
+async def test_health_degraded_when_database_fails(
+    app: FastAPI, client: AsyncClient, error: Exception
+) -> None:
     broken_session = AsyncMock()
-    broken_session.execute.side_effect = OperationalError("SELECT 1", {}, Exception("down"))
+    broken_session.execute.side_effect = error
 
     async def broken_db() -> AsyncIterator[AsyncMock]:
         yield broken_session

@@ -1,0 +1,37 @@
+# Base de datos PostgreSQL en un contenedor, en lugar del SQLite del volumen de datos.
+# Uso: docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d --build
+# (se puede combinar también con docker-compose.escalado.yml y docker-compose.https.yml).
+#
+# En .env (lo leen la API y los workers):
+#   CHATBOT_DATABASE_URL=postgresql+asyncpg://chatbot@postgres:5432/chatbot
+#   CHATBOT_DATABASE_PASSWORD=<contraseña>
+# Ver docs/despliegue.md, sección «PostgreSQL».
+
+services:
+  postgres:
+    # Versión mayor fijada: cambiarla exige volcar y restaurar los datos.
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: chatbot
+      POSTGRES_USER: chatbot
+      POSTGRES_PASSWORD: ${CHATBOT_DATABASE_PASSWORD:?Define CHATBOT_DATABASE_PASSWORD en .env}
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "chatbot", "-d", "chatbot"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+    # No se publica ningún puerto: solo la API y los workers acceden a la base de datos.
+
+  backend:
+    environment:
+      # Se comprueba aquí para que, si falta, el error sea claro (si no, se usaría SQLite).
+      CHATBOT_DATABASE_URL: ${CHATBOT_DATABASE_URL:?Define en .env CHATBOT_DATABASE_URL=postgresql+asyncpg://chatbot@postgres:5432/chatbot}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres-data:

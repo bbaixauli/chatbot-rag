@@ -9,6 +9,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.deps import DbSession, SettingsDep
 from app.core.config import APP_TITLE
+from app.db.session import DATABASE_NOT_READY
 
 router = APIRouter(tags=["health"])
 
@@ -29,7 +30,7 @@ async def health(db: DbSession, settings: SettingsDep) -> HealthResponse:
     try:
         await db.execute(text("SELECT 1"))
         database = "ok"
-    except SQLAlchemyError:
+    except (SQLAlchemyError, *DATABASE_NOT_READY):
         database = "error"
     return HealthResponse(
         status="ok" if database == "ok" else "degraded",
