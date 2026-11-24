@@ -187,7 +187,47 @@ class UsersConfig(ConfigGroup):
         return self
 
 
-GroupName = Literal["llm", "embeddings", "indexing", "rag", "chat", "limits", "users"]
+class AuditConfig(ConfigGroup):
+    """Auditoría (#50): revisión periódica de preguntas y respuestas y avisos por correo."""
+
+    SETTINGS_PREFIX = "audit_"
+    SECRET_FIELDS = ("smtp_password",)
+
+    enabled: bool
+    schedule: Literal["hourly", "daily"]
+    daily_time: str = Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    use_llm: bool
+    llm_model: str | None
+    max_per_run: int = Field(ge=1, le=10_000)
+    llm_history_days: int = Field(ge=0)
+    retention_days: int = Field(ge=0)
+    notify_enabled: bool
+    notify_min_severity: Literal["low", "medium", "high"]
+    notify_to: str
+    smtp_host: str
+    smtp_port: int = Field(ge=1, le=65535)
+    smtp_security: Literal["starttls", "ssl", "none"]
+    smtp_username: str | None
+    smtp_password: SecretStr | None
+    smtp_from: str
+
+    @property
+    def recipients(self) -> list[str]:
+        return [a.strip() for a in self.notify_to.split(",") if a.strip()]
+
+    @model_validator(mode="after")
+    def _check_notifications(self) -> "AuditConfig":
+        if self.notify_enabled:
+            if not self.smtp_host.strip():
+                raise ValueError("Para enviar avisos por correo hay que indicar el servidor SMTP")
+            if "@" not in self.smtp_from:
+                raise ValueError("Para enviar avisos por correo hay que indicar el remitente")
+            if not self.recipients or any("@" not in a for a in self.recipients):
+                raise ValueError("Indica uno o varios destinatarios válidos, separados por comas")
+        return self
+
+
+GroupName = Literal["llm", "embeddings", "indexing", "rag", "chat", "limits", "users", "audit"]
 
 GROUPS: dict[str, type[ConfigGroup]] = {
     "llm": LlmConfig,
@@ -197,6 +237,7 @@ GROUPS: dict[str, type[ConfigGroup]] = {
     "chat": ChatLimits,
     "limits": RateLimits,
     "users": UsersConfig,
+    "audit": AuditConfig,
 }
 
 
@@ -212,6 +253,7 @@ class RuntimeConfig(BaseModel):
     chat: ChatLimits
     limits: RateLimits
     users: UsersConfig
+    audit: AuditConfig
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "RuntimeConfig":

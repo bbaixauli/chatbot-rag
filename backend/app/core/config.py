@@ -97,6 +97,30 @@ class Settings(BaseSettings):
     rate_limit_chat_per_minute: int = Field(default=20, ge=0)
     rate_limit_login_per_minute: int = Field(default=5, ge=0)
 
+    # Auditoría (#50): revisión periódica de preguntas y respuestas y avisos por correo.
+    # Valores iniciales: después se configuran en la administración.
+    audit_enabled: bool = True
+    audit_schedule: Literal["hourly", "daily"] = "daily"
+    audit_daily_time: str = Field(default="02:00", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    audit_use_llm: bool = True
+    # Modelo para revisar (vacío: el del chat). Con LiteLLM puede ser uno de seguridad.
+    audit_llm_model: str | None = None
+    audit_max_per_run: int = Field(default=500, ge=1, le=10_000)
+    # Antigüedad máxima (días) de lo que revisa el modelo; lo anterior, solo las reglas.
+    audit_llm_history_days: int = Field(default=7, ge=0)
+    # Pasados estos días se anonimizan usuario, IP y navegador (0 = nunca).
+    audit_retention_days: int = Field(default=365, ge=0)
+    audit_notify_enabled: bool = False
+    audit_notify_min_severity: Literal["low", "medium", "high"] = "medium"
+    # Destinatarios separados por comas.
+    audit_notify_to: str = ""
+    audit_smtp_host: str = ""
+    audit_smtp_port: int = Field(default=587, ge=1, le=65535)
+    audit_smtp_security: Literal["starttls", "ssl", "none"] = "starttls"
+    audit_smtp_username: str | None = None
+    audit_smtp_password: SecretStr | None = None
+    audit_smtp_from: str = ""
+
     # --- Valores iniciales (#42): embeddings. `openai`: endpoint /v1/embeddings (p. ej.
     # LiteLLM); `local`: sentence-transformers (requiere `uv sync --extra local-embeddings`);
     # `fake`: tests.

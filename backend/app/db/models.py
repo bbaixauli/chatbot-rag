@@ -5,7 +5,18 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -214,3 +225,70 @@ class QuestionLog(Base):
     # [{"document_id", "filename", "page", "cited"}] de las fuentes mostradas.
     cited_documents: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON)
     error_detail: Mapped[str | None] = mapped_column(Text)
+
+
+class AuditRunStatus(StrEnum):
+    RUNNING = "running"
+    OK = "ok"
+    PARTIAL = "partial"  # terminó, pero el modelo no pudo revisar alguna pregunta
+    FAILED = "failed"
+
+
+class AuditRun(Base):
+    """Ejecución del proceso de revisión de la auditoría (#50)."""
+
+    __tablename__ = "audit_runs"
+    # Como mucho una ejecución en curso (también entre procesos).
+    __table_args__ = (
+        Index(
+            "uq_audit_runs_running",
+            "status",
+            unique=True,
+            sqlite_where=text("status = 'running'"),
+            postgresql_where=text("status = 'running'"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # scheduled (programada), manual (administración) o cli (línea de comandos).
+    trigger: Mapped[str] = mapped_column(String(16))
+    triggered_by: Mapped[str | None] = mapped_column(String(255))
+    status: Mapped[str] = mapped_column(String(16), default=AuditRunStatus.RUNNING.value)
+    # Preguntas revisadas: ids de `question_log` en (from_id, to_id].
+    from_id: Mapped[int] = mapped_column(Integer, default=0)
+    to_id: Mapped[int | None] = mapped_column(Integer)
+    reviewed: Mapped[int] = mapped_column(Integer, default=0)
+    reviewed_by_model: Mapped[int] = mapped_column(Integer, default=0)
+    model_errors: Mapped[int] = mapped_column(Integer, default=0)
+    alerts: Mapped[int] = mapped_column(Integer, default=0)
+    anonymized: Mapped[int] = mapped_column(Integer, default=0)
+    used_model: Mapped[str | None] = mapped_column(String(255))
+    error: Mapped[str | None] = mapped_column(Text)
+    notification_error: Mapped[str | None] = mapped_column(Text)
+
+
+class AuditAlert(Base):
+    """Posible problema detectado en una pregunta o respuesta."""
+
+    __tablename__ = "audit_alerts"
+    __table_args__ = (Index("ix_audit_alerts_status_id", "status", "id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[int] = mapped_column(ForeignKey("audit_runs.id", ondelete="CASCADE"), index=True)
+    question_log_id: Mapped[int] = mapped_column(
+        ForeignKey("question_log.id", ondelete="CASCADE"), index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    # malicious_user, inappropriate_response o sensitive_information.
+    category: Mapped[str] = mapped_column(String(32))
+    severity: Mapped[str] = mapped_column(String(8))  # low, medium, high
+    source: Mapped[str] = mapped_column(String(8))  # rule o model
+    reason: Mapped[str] = mapped_column(Text)
+    # Fragmento que lo motiva (los datos sensibles, enmascarados).
+    excerpt: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(16), default="new")  # new, reviewed, dismissed
+    reviewed_by: Mapped[str | None] = mapped_column(String(255))
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    note: Mapped[str | None] = mapped_column(Text)
