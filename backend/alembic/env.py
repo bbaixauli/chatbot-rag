@@ -32,6 +32,10 @@ def database_url() -> str | URL:
     La de la aplicación no se guarda en `config`: su contraseña podría contener `%`, que
     configparser interpretaría.
     """
+    # Desde el código (restauración de copias): la URL ya resuelta, con su contraseña.
+    given: str | URL | None = config.attributes.get("database_url")
+    if given is not None:
+        return given
     configured = config.get_main_option("sqlalchemy.url")
     if configured:
         return configured

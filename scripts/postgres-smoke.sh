@@ -120,8 +120,41 @@ compose up -d --force-recreate --wait --wait-timeout 180 postgres backend >/dev/
 curl -fsS "$BASE/api/v1/conversations" | grep -q 'Hola desde PostgreSQL' || fail "se perdieron los datos"
 admin "$BASE/api/v1/admin/documents/stats" | grep -q '"ready":6' || fail "se perdieron los documentos"
 
+step "Copia de seguridad en formato portable, con la aplicación en marcha"
+# Las salidas se guardan antes de comprobarlas (ver docker-smoke.sh: SIGPIPE con pipefail).
+created=$(compose exec -T backend python -m app.backup create --keep 3)
+echo "$created" | grep -q 'Copia creada' || fail "no se creó la copia: $created"
+mkdir -p "$WORK/backups"
+compose cp backend:/data/backups/. "$WORK/backups" >/dev/null
+archive=$(cd "$WORK/backups" && ls chatbot-backup-*.tar.gz | head -1)
+contents=$(tar tzf "$WORK/backups/$archive")
+echo "$contents" | grep -qx 'portable/manifest.json' || fail "la copia no es portable: $contents"
+
+step "Restauración (procedimiento de docs/despliegue.md)"
+chat "Posterior a la copia"
+compose stop backend worker >/dev/null
+restored=$(MSYS_NO_PATHCONV=1 compose run --rm -T -v "$WORK_HOST/backups:/restaurar:ro" \
+  --entrypoint python backend -m app.backup restore "/restaurar/$archive" --force)
+echo "$restored" | grep -q 'Copia restaurada. 6 documentos' || fail "no se restauró: $restored"
+compose start backend worker >/dev/null
+wait_health ok
+curl -fsS "$BASE/api/v1/conversations" > "$WORK/conversations.json"
+grep -q 'Hola desde PostgreSQL' "$WORK/conversations.json" || fail "faltan datos restaurados"
+grep -q 'Posterior a la copia' "$WORK/conversations.json" && fail "no se restauró el estado de la copia"
+# Los ids continúan tras los restaurados y los workers reindexan los documentos en Qdrant.
+chat "Tras restaurar"
+curl -fsS -c "$COOKIES" -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"postgres-secreto"}' "$BASE/api/v1/admin/session" >/dev/null
+for _ in $(seq 1 60); do
+  admin "$BASE/api/v1/admin/documents/stats" | grep -q '"ready":6' && break
+  sleep 1
+done
+admin "$BASE/api/v1/admin/documents/stats" | grep -q '"ready":6' \
+  || fail "no se reindexaron los documentos: $(admin "$BASE/api/v1/admin/documents/stats")"
+
 step "La contraseña no aparece en los logs"
 compose logs --no-color backend worker > "$WORK/logs.txt"
+echo "$created $restored" >> "$WORK/logs.txt"
 grep -qF "$PASSWORD" "$WORK/logs.txt" && fail "la contraseña aparece en los logs"
 
 echo "Prueba de PostgreSQL superada."

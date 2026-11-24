@@ -66,7 +66,10 @@ ignore_missing_imports = true
 testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
-markers = ["sqlite_only: depende de SQLite; se omite con CHATBOT_TEST_DATABASE_URL"]
+markers = [
+    "sqlite_only: depende de SQLite; se omite con CHATBOT_TEST_DATABASE_URL",
+    "postgres_only: necesita PostgreSQL (CHATBOT_TEST_DATABASE_URL); si no, se omite",
+]
 addopts = "--cov=app --cov-report=term-missing"
 # Avisos internos de ldap3 con versiones recientes de pyasn1.
 filterwarnings = [

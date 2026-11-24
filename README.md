@@ -283,8 +283,10 @@ en su lugar esa base de datos PostgreSQL, que **vacían antes de cada test** (us
 para los tests) y omiten los que dependen de SQLite:
 
 ```bash
-docker run -d --name chatbot-pg-test -p 127.0.0.1:55432:5432 -e POSTGRES_USER=chatbot   -e POSTGRES_PASSWORD=chatbot -e POSTGRES_DB=chatbot_test postgres:18-alpine
-CHATBOT_TEST_DATABASE_URL=postgresql+asyncpg://chatbot:chatbot@127.0.0.1:55432/chatbot_test   uv run pytest --no-cov
+docker run -d --name chatbot-pg-test -p 127.0.0.1:55432:5432 -e POSTGRES_USER=chatbot \
+  -e POSTGRES_PASSWORD=chatbot -e POSTGRES_DB=chatbot_test postgres:18-alpine
+CHATBOT_TEST_DATABASE_URL=postgresql+asyncpg://chatbot:chatbot@127.0.0.1:55432/chatbot_test \
+  uv run pytest --no-cov
 ```
 
 El CI de GitHub Actions ejecuta todo lo anterior en cada pull request.

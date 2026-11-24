@@ -2,7 +2,8 @@
 
 Con `CHATBOT_TEST_DATABASE_URL` (p. ej. `postgresql+asyncpg://chatbot:chatbot@localhost:55432/
 chatbot_test`) la suite usa esa base de datos en lugar de un SQLite por test: se vacía antes de
-cada test y los tests propios de SQLite (`@pytest.mark.sqlite_only`) se omiten.
+cada test y los tests propios de SQLite (`@pytest.mark.sqlite_only`) se omiten. Los que
+necesitan PostgreSQL (`@pytest.mark.postgres_only`) solo se ejecutan en ese caso.
 """
 
 import asyncio
@@ -37,11 +38,14 @@ from app.services.llm import ChatMessage, LLMError  # noqa: E402
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    if not TEST_DATABASE_URL:
-        return
-    skip = pytest.mark.skip(reason="solo con SQLite")
+    marker, reason = (
+        ("sqlite_only", "solo con SQLite")
+        if TEST_DATABASE_URL
+        else ("postgres_only", "necesita CHATBOT_TEST_DATABASE_URL (PostgreSQL)")
+    )
+    skip = pytest.mark.skip(reason=reason)
     for item in items:
-        if "sqlite_only" in item.keywords:
+        if marker in item.keywords:
             item.add_marker(skip)
 
 

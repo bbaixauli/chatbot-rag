@@ -492,7 +492,8 @@ directorio `certs/` está en `.gitignore`.
 Comprueba el certificado que se sirve:
 
 ```bash
-openssl s_client -connect chatbot.ejemplo.es:443 -servername chatbot.ejemplo.es </dev/null   | openssl x509 -noout -subject -issuer -dates
+openssl s_client -connect chatbot.ejemplo.es:443 -servername chatbot.ejemplo.es </dev/null \
+  | openssl x509 -noout -subject -issuer -dates
 ```
 
 **Renovación.** Caddy no vigila los ficheros: tras sustituirlos, recárgalo (sin cortar las
@@ -607,12 +608,22 @@ se conservan.
 
 Una copia incluye la base de datos (conversaciones, prompts, configuración y documentos) y los
 ficheros originales subidos. Las claves de API van cifradas con `CHATBOT_SESSION_SECRET`: para
-restaurarlas en otro servidor, usa la misma clave o vuelve a introducirlas. El índice vectorial no se incluye: se reconstruye a partir de los
-documentos al restaurar.
+restaurarlas en otro servidor, usa la misma clave o vuelve a introducirlas. El índice vectorial
+no se incluye: se reconstruye a partir de los documentos al restaurar.
+
+Los comandos son los mismos con SQLite y con [PostgreSQL](#base-de-datos-postgresql):
+
+- **SQLite**: la copia contiene el fichero de la base de datos.
+- **PostgreSQL**: la copia contiene un volcado portable de las tablas (JSON), hecho en una
+  única transacción, y la versión del esquema. Se restaura en una instalación con PostgreSQL de
+  la misma versión de la aplicación o de una posterior (al restaurar se aplican las migraciones
+  que falten).
+
+Una copia de SQLite no se restaura en PostgreSQL ni al revés.
 
 ### Crear una copia
 
-Se puede hacer con la aplicación en marcha (usa la API de backup de SQLite):
+Se puede hacer con la aplicación en marcha:
 
 ```bash
 docker compose exec backend python -m app.backup create --keep 7
@@ -634,20 +645,16 @@ docker compose cp backend:/data/backups ./backups
 Guarda las copias también en otro equipo o almacenamiento: el volumen de Docker no protege ante
 un fallo del disco.
 
-**Con PostgreSQL**, `app.backup` todavía no copia la base de datos (llegará con un formato de
-copia propio). Mientras tanto, copia la base de datos con `pg_dump` y los documentos subidos:
-
-```bash
-docker compose exec -T postgres pg_dump -U chatbot -Fc chatbot > chatbot.dump
-docker compose cp backend:/data/uploads ./uploads
-```
+Con un servidor PostgreSQL de la organización, su administrador puede hacer además sus propias
+copias con `pg_dump`; la de la aplicación sigue haciendo falta por los documentos subidos.
 
 **Con `docker-compose.https.yml` y certificado autofirmado**, guarda también el volumen
 `caddy-data`, que contiene la CA interna instalada en los equipos (y su clave privada: protege
 la copia):
 
 ```bash
-docker run --rm -v chatbot-rag_caddy-data:/data:ro -v "$PWD/backups:/copia" alpine   tar czf /copia/caddy-data.tar.gz -C /data .
+docker run --rm -v chatbot-rag_caddy-data:/data:ro -v "$PWD/backups:/copia" alpine \
+  tar czf /copia/caddy-data.tar.gz -C /data .
 ```
 
 Para restaurarlo, con Caddy parado (`docker compose stop caddy`), extrae la copia en el volumen
@@ -668,6 +675,12 @@ docker compose start backend
 todos los documentos (en *Administración → Documentos* se ve el progreso). Mientras tanto, el
 chat responde sin documentación.
 
+Con el despliegue escalado, para también los workers (`docker compose stop backend worker`) y
+arráncalos después. Con PostgreSQL, la base de datos debe estar en marcha (el comando la
+arranca si es el contenedor de `docker-compose.postgres.yml`). La restauración vacía las tablas
+de la aplicación (no toca otras del mismo esquema), carga las de la copia y aplica las
+migraciones; si se interrumpe, vuelve a ejecutarla con `--force`.
+
 ### Instalación nueva a partir de una copia
 
 ```bash
@@ -676,6 +689,9 @@ docker compose run --rm -v "$PWD/backups:/restaurar:ro" --entrypoint python back
   -m app.backup restore /restaurar/chatbot-backup-20261118-030000.tar.gz
 docker compose up -d
 ```
+
+Con PostgreSQL, la base de datos debe estar vacía (sin las tablas de la aplicación); si no, usa
+`--force`.
 
 ## Comprobación del despliegue
 
@@ -698,7 +714,8 @@ colección de Qdrant vaciada y reindexada por los workers). También se ejecuta 
 indexando a la vez): migraciones en PostgreSQL (sin SQLite), conversaciones y documentos
 guardados en él, estado «degraded» con PostgreSQL parado, recuperación tras reiniciarlo sin
 reiniciar la API, persistencia de los datos y que la contraseña (con caracteres especiales) no
-aparece en los logs. También se ejecuta en el CI.
+aparece en los logs, y la copia de seguridad en formato portable y su restauración (con la
+reindexación en Qdrant por los workers). También se ejecuta en el CI.
 
 `scripts/https-smoke.sh` comprueba el despliegue con `docker-compose.https.yml` (puertos 18443
 y 18081) en sus dos modos: certificado autofirmado (extrayendo la CA interna) y certificado
