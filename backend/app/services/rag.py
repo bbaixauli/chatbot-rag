@@ -8,7 +8,7 @@ from dataclasses import dataclass, replace
 from app.core.runtime_config import ConfigSource, RagConfig
 from app.services.embeddings import Embeddings
 from app.services.passages import contiguous_runs, join_chunks
-from app.services.vectorstore import SearchHit, VectorStore
+from app.services.vectorstore import SearchHit, StoredChunk, VectorStore
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +27,12 @@ ellos con su número entre corchetes, por ejemplo: «Hay 23 días de vacaciones 
 
 {context}"""
 
+FULL_DOCUMENT_NOTE = """\
+Se ha pedido consultar un documento concreto: a continuación está completo, dividido en \
+partes numeradas (por página o apartado). Cita las partes en las que te apoyes.
+
+"""
+
 
 @dataclass(frozen=True, slots=True)
 class ContextSource:
@@ -44,6 +50,8 @@ class ContextSource:
     # se muestra como extracto de la fuente).
     page_end: int | None = None
     match_text: str | None = None
+    # Parte del documento completo (no un fragmento recuperado por similitud).
+    full_document: bool = False
 
     @property
     def label(self) -> str:
@@ -106,6 +114,16 @@ class Retriever:
         rag = self._config.current.rag
         if not rag.enabled or not query.strip():
             return []
+        if document_ids is not None and len(document_ids) == 1 and rag.full_document_max_chars:
+            try:
+                full = await full_document_sources(
+                    self._store, document_ids[0], rag.full_document_max_chars
+                )
+            except Exception:
+                logger.warning("No se pudo leer el documento completo", exc_info=True)
+                full = None
+            if full:
+                return full
         min_score = rag.min_score if document_ids is None else rag.scoped_min_score
         try:
             [vector] = await self._embeddings.embed([query])
@@ -181,6 +199,43 @@ class Retriever:
         ]
 
 
+async def full_document_sources(
+    store: VectorStore, document_id: str, max_chars: int
+) -> list[ContextSource] | None:
+    """El documento completo, reconstruido a partir de sus fragmentos, en partes citables:
+    una por página (PDF) o por apartado (Markdown y HTML).
+
+    Devuelve `None` si el documento no está en el índice o su texto supera `max_chars`.
+    """
+    chunks = await store.document_chunks(document_id, with_vectors=False)
+    if not chunks:
+        return None
+    groups: list[list[StoredChunk]] = []
+    for chunk in chunks:
+        previous = groups[-1][-1] if groups else None
+        if previous and (previous.page, previous.heading) == (chunk.page, chunk.heading):
+            groups[-1].append(chunk)
+        else:
+            groups.append([chunk])
+    parts = [(group[0], join_chunks([c.text for c in group])) for group in groups]
+    if sum(len(text) for _, text in parts) > max_chars:
+        return None
+    return [
+        ContextSource(
+            number=number,
+            document_id=document_id,
+            filename=first.filename,
+            page=first.page,
+            heading=first.heading,
+            chunk_index=first.chunk_index,
+            score=1.0,
+            text=text,
+            full_document=True,
+        )
+        for number, (first, text) in enumerate(parts, start=1)
+    ]
+
+
 def _source(number: int, chunks: Sequence[SearchHit], top: SearchHit) -> ContextSource:
     """Fuente numerada a partir de fragmentos consecutivos de un documento (o de uno solo)."""
     pages = [chunk.page for chunk in chunks if chunk.page is not None]
@@ -204,6 +259,8 @@ def build_system_prompt(base_prompt: str, sources: Sequence[ContextSource]) -> s
     if not sources:
         return base_prompt
     context = "\n\n".join(f"[{s.number}] Fuente: {s.label}\n{s.text}" for s in sources)
+    if all(s.full_document for s in sources):
+        context = FULL_DOCUMENT_NOTE + context
     return f"{base_prompt}\n\n{RAG_INSTRUCTIONS.format(context=context)}"
 
 

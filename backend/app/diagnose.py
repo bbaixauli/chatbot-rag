@@ -45,7 +45,7 @@ from app.services.ingestion.preprocess import (
     looks_like_toc,
     preprocessing_signature,
 )
-from app.services.rag import candidates_limit, rank_hits
+from app.services.rag import candidates_limit, full_document_sources, rank_hits
 from app.services.runtime_config import load_runtime_config
 from app.services.scope import indexed_documents
 from app.services.vectorstore import SearchHit, StoredChunk, VectorStore, VectorStoreError
@@ -560,6 +560,22 @@ async def run(args: argparse.Namespace, settings: Settings, out: TextIO) -> int:
                     names = ", ".join(document.filename for document in detected)
                     print(f"Documentos nombrados en la pregunta: {names}\n", file=out)
                     scope_ids = [document.id for document in detected]
+            limit = config.rag.full_document_max_chars
+            if scope_ids and len(scope_ids) == 1 and limit:
+                parts = await full_document_sources(store, scope_ids[0], limit)
+                if parts:
+                    chars = sum(len(part.text) for part in parts)
+                    print(
+                        f"El chat enviaría el documento completo: {len(parts)} partes, "
+                        f"{chars} caracteres (límite {limit}).\n",
+                        file=out,
+                    )
+                else:
+                    print(
+                        f"El documento supera el límite de {limit} caracteres: el chat usaría "
+                        f"fragmentos.\n",
+                        file=out,
+                    )
             hits = await diagnose_query(
                 args.question,
                 config,
