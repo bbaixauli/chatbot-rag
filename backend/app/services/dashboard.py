@@ -172,6 +172,15 @@ class QuestionRecord:
     response_ms: int | None = None
     sources_retrieved: int = 0
     sources_cited: int = 0
+    # Auditoría (#50).
+    client_ip: str | None = None
+    user_agent: str | None = None
+    user_display_name: str | None = None
+    model: str | None = None
+    prompt_version_id: int | None = None
+    search_query: str | None = None
+    cited_documents: list[dict[str, Any]] | None = None
+    error_detail: str | None = None
 
 
 async def record_question(
@@ -200,6 +209,14 @@ async def record_question(
                     response_ms=record.response_ms,
                     sources_retrieved=record.sources_retrieved,
                     sources_cited=record.sources_cited,
+                    client_ip=record.client_ip,
+                    user_agent=record.user_agent,
+                    user_display_name=record.user_display_name,
+                    model=record.model,
+                    prompt_version_id=record.prompt_version_id,
+                    search_query=record.search_query,
+                    cited_documents=record.cited_documents,
+                    error_detail=record.error_detail,
                 )
             )
             await session.commit()

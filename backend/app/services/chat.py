@@ -81,6 +81,15 @@ def source_payload(source: ContextSource, cited: bool) -> dict[str, Any]:
 
 
 @dataclass(slots=True)
+class Requester:
+    """Quién pregunta y desde dónde (para la auditoría, #50)."""
+
+    ip: str | None = None
+    user_agent: str | None = None
+    display_name: str | None = None
+
+
+@dataclass(slots=True)
 class PreparedChat:
     """Estado de la petición tras guardar el mensaje del usuario."""
 
@@ -96,6 +105,9 @@ class PreparedChat:
     started: float = field(default_factory=time.perf_counter)
     session_id: str | None = None
     access_kind: AccessKind = AccessKind.SHARED
+    # Auditoría (#50).
+    requester: Requester = field(default_factory=Requester)
+    prompt_version_id: int | None = None
 
 
 class ChatService:
@@ -125,6 +137,7 @@ class ChatService:
         *,
         session_id: str | None = None,
         access_kind: AccessKind = AccessKind.SHARED,
+        requester: Requester | None = None,
     ) -> PreparedChat:
         """Guarda el mensaje del usuario y prepara el prompt.
 
@@ -160,6 +173,8 @@ class ChatService:
                 started=started,
                 session_id=session_id,
                 access_kind=access_kind,
+                requester=requester or Requester(),
+                prompt_version_id=system_prompt.version.id if system_prompt.version else None,
             )
 
     async def stream(self, prepared: PreparedChat) -> AsyncIterator[str]:
@@ -175,6 +190,11 @@ class ChatService:
             access_kind=prepared.access_kind.value,
             conversation_id=prepared.conversation_id,
             question=prepared.question,
+            client_ip=prepared.requester.ip,
+            user_agent=prepared.requester.user_agent,
+            user_display_name=prepared.requester.display_name,
+            model=self._config.llm.model,
+            prompt_version_id=prepared.prompt_version_id,
         )
         try:
             async for event in self._stream(prepared, record):
@@ -193,11 +213,11 @@ class ChatService:
                 "user_message_id": prepared.user_message_id,
             },
         )
-        sources = (
-            await self._retriever.retrieve(await self._search_query(prepared))
-            if self._retriever
-            else []
-        )
+        sources: list[ContextSource] = []
+        if self._retriever:
+            query = await self._search_query(prepared)
+            record.search_query = query
+            sources = await self._retriever.retrieve(query)
         prompt = [
             ChatMessage(
                 role="system", content=build_system_prompt(prepared.system_prompt, sources)
@@ -215,6 +235,7 @@ class ChatService:
         except LLMError as exc:
             record.status = QuestionStatus.ERROR
             record.answer = "".join(parts).strip() or None
+            record.error_detail = str(exc)
             logger.error(
                 "Fallo del modelo en la conversación %s: %s",
                 prepared.conversation_id,
@@ -227,6 +248,7 @@ class ChatService:
         answer = "".join(parts).strip()
         if not answer:
             record.status = QuestionStatus.ERROR
+            record.error_detail = "El modelo devolvió una respuesta vacía"
             # Respuesta vacía (p. ej. el modelo agotó los tokens o filtró la salida).
             logger.warning(
                 "El modelo devolvió una respuesta vacía en la conversación %s",
@@ -241,12 +263,22 @@ class ChatService:
         record.answer = answer
         shown = select_sources(sources, answer)
         record.sources_cited = sum(1 for _, cited in shown if cited)
+        record.cited_documents = [
+            {
+                "document_id": source.document_id,
+                "filename": source.filename,
+                "page": source.page,
+                "cited": cited,
+            }
+            for source, cited in shown
+        ]
         if shown:
             yield sse_event("sources", {"sources": [source_payload(s, c) for s, c in shown]})
         async with self._sessionmaker() as session:
             repo = ConversationRepository(session)
             conversation = await repo.get_for_user(prepared.conversation_id, prepared.user_id)
             if conversation is None:  # borrada mientras se generaba la respuesta
+                record.error_detail = "La conversación se borró mientras se respondía"
                 yield sse_event("error", {"detail": "La conversación ya no existe."})
                 return
             message = await repo.add_message(conversation, MessageRole.ASSISTANT, answer)
