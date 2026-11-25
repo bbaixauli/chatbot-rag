@@ -57,8 +57,9 @@ async def test_records_who_asked_from_where_and_with_what(
     assert row.cited_documents
     first = row.cited_documents[0]
     assert first["filename"] == "vacaciones.md"
+    assert first["title"] == "Guía de vacaciones"  # primer encabezado del Markdown
     assert first["cited"] is True
-    assert set(first) == {"document_id", "filename", "page", "cited"}
+    assert set(first) == {"document_id", "filename", "title", "page", "cited"}
 
 
 async def test_records_the_prompt_version_in_use(app: FastAPI, client: AsyncClient) -> None:

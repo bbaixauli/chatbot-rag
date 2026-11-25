@@ -72,13 +72,13 @@ async def test_scope_limits_the_search_and_is_kept_in_the_conversation(
     events = await _ask(client, message=question, document_ids=[dietas])
 
     assert _event(events, "scope") == {
-        "documents": [{"id": dietas, "filename": "dietas.md"}],
+        "documents": [{"id": dietas, "filename": "dietas.md", "title": "Gastos de viaje"}],
         "source": "selector",
     }
     assert _source_documents(events) == {dietas}
     system = llm.calls[-1][0].content
-    assert "dietas.md" in system
-    assert "guia.md" not in system
+    assert "Fuente: Gastos de viaje" in system  # el título de dietas.md
+    assert "Guía de vacaciones" not in system  # el de guia.md
     conversation_id = _event(events, "conversation")["id"]  # type: ignore[index]
     listed = (await client.get("/api/v1/conversations")).json()
     assert next(c for c in listed if c["id"] == conversation_id)["document_ids"] == [dietas]
@@ -139,7 +139,7 @@ async def test_deleted_documents_leave_the_scope(app: FastAPI, client: AsyncClie
     await app.state.documents.delete(dietas)
     follow_up = await _ask(client, message="vacaciones", conversation_id=conversation_id)
     assert _event(follow_up, "scope")["documents"] == [  # type: ignore[index]
-        {"id": guia, "filename": "guia.md"}
+        {"id": guia, "filename": "guia.md", "title": "Guía de vacaciones"}
     ]
 
     await app.state.documents.delete(guia)
@@ -198,8 +198,12 @@ async def test_public_list_of_indexed_documents(app: FastAPI, client: AsyncClien
 
     assert response.status_code == 200
     listed = response.json()
-    assert [d["filename"] for d in listed] == ["dietas.md", "Normativa.md"]
-    assert set(listed[0]) == {"id", "filename", "kind"}
+    # Por título (el primer encabezado de cada Markdown).
+    assert [(d["filename"], d["title"]) for d in listed] == [
+        ("dietas.md", "Gastos de viaje"),
+        ("Normativa.md", "Guía de vacaciones"),
+    ]
+    assert set(listed[0]) == {"id", "filename", "title", "kind", "category"}
     assert broken.document.id not in {d["id"] for d in listed}
 
 
@@ -217,7 +221,10 @@ async def test_answers_keep_where_they_searched(app: FastAPI, client: AsyncClien
         ("user", None),
         (
             "assistant",
-            {"documents": [{"id": dietas, "filename": "dietas.md"}], "source": "selector"},
+            {
+                "documents": [{"id": dietas, "filename": "dietas.md", "title": "Gastos de viaje"}],
+                "source": "selector",
+            },
         ),
         ("user", None),
         ("assistant", None),

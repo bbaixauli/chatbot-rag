@@ -5,9 +5,12 @@ from pathlib import Path
 import pymupdf
 
 
-def make_pdf(path: Path, pages: list[str]) -> Path:
-    """Crea un PDF con una página por texto (una página vacía si el texto es "")."""
+def make_pdf(path: Path, pages: list[str], title: str | None = None) -> Path:
+    """Crea un PDF con una página por texto (una página vacía si el texto es "") y, si se
+    indica, el título en sus metadatos."""
     pdf = pymupdf.open()  # type: ignore[no-untyped-call]
+    if title is not None:
+        pdf.set_metadata({"title": title})
     for text in pages:
         page = pdf.new_page()
         if text:
@@ -17,8 +20,8 @@ def make_pdf(path: Path, pages: list[str]) -> Path:
     return path
 
 
-def pdf_bytes(tmp_path: Path, pages: list[str]) -> bytes:
-    return make_pdf(tmp_path / "tmp.pdf", pages).read_bytes()
+def pdf_bytes(tmp_path: Path, pages: list[str], title: str | None = None) -> bytes:
+    return make_pdf(tmp_path / "tmp.pdf", pages, title).read_bytes()
 
 
 MARKDOWN = """Introducción sin encabezado.

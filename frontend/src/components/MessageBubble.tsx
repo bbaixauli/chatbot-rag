@@ -59,7 +59,7 @@ export function MessageBubble({
 }
 
 function ScopeNote({ scope }: { scope: Scope }) {
-  const names = scope.documents.map((d) => d.filename).join(', ')
+  const names = scope.documents.map((d) => d.title || d.filename).join(', ')
   return (
     <p className="mt-2 text-xs text-texto-secundario">
       <Files aria-hidden size={14} className="inline align-[-2px]" /> {t.chat.scope.searchedIn}:{' '}

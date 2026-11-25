@@ -123,7 +123,9 @@ async def test_chat_limits_the_search_to_the_named_document(
     events = await _ask(client, message="¿Qué dice el NOR-013 sobre las vacaciones?")
 
     assert _scope(events) == {
-        "documents": [{"id": norma, "filename": "NOR-013 Control de acceso.md"}],
+        "documents": [
+            {"id": norma, "filename": "NOR-013 Control de acceso.md", "title": "Control de acceso"}
+        ],
         "source": "detected",
     }
     sources = next(data["sources"] for kind, data in events if kind == "sources")
@@ -145,7 +147,7 @@ async def test_selected_documents_take_priority(app: FastAPI, client: AsyncClien
     events = await _ask(client, message="¿Qué dice el NOR-013?", document_ids=[guia])
 
     assert _scope(events) == {
-        "documents": [{"id": guia, "filename": "guia.md"}],
+        "documents": [{"id": guia, "filename": "guia.md", "title": "Guía de vacaciones"}],
         "source": "selector",
     }
 
@@ -170,6 +172,8 @@ async def test_follow_up_questions_use_the_rewritten_question(
     follow_up = await _ask(client, message="¿Y las altas?", conversation_id=first[0][1]["id"])
 
     assert _scope(follow_up) == {
-        "documents": [{"id": norma, "filename": "NOR-013 Control de acceso.md"}],
+        "documents": [
+            {"id": norma, "filename": "NOR-013 Control de acceso.md", "title": "Control de acceso"}
+        ],
         "source": "detected",
     }

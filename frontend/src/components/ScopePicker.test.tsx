@@ -7,10 +7,19 @@ import { createQueryClient } from '../queryClient'
 import { jsonResponse, mockApi } from '../test/utils'
 import { ScopePicker } from './ScopePicker'
 
+const indexed = (id: string, filename: string, patch: object = {}) => ({
+  id,
+  filename,
+  title: filename,
+  kind: filename.endsWith('.md') ? 'markdown' : 'pdf',
+  category: null,
+  ...patch,
+})
+
 const DOCUMENTS = [
-  { id: 'd2', filename: 'NOR-013 Control de acceso.pdf', kind: 'pdf' },
-  { id: 'd1', filename: 'Guía de vacaciones.md', kind: 'markdown' },
-  ...[3, 4, 5, 6, 7].map((n) => ({ id: `d${n}`, filename: `Anexo ${n}.pdf`, kind: 'pdf' })),
+  indexed('d2', 'NOR-013 Control de acceso.pdf'),
+  indexed('d1', 'Guía de vacaciones.md'),
+  ...[3, 4, 5, 6, 7].map((n) => indexed(`d${n}`, `Anexo ${n}.pdf`)),
 ]
 
 function Harness({ initial = [] as string[] }) {
@@ -23,8 +32,8 @@ function Harness({ initial = [] as string[] }) {
   )
 }
 
-function renderPicker(initial: string[] = []) {
-  mockApi({ 'GET /documents': () => jsonResponse(DOCUMENTS) })
+function renderPicker(initial: string[] = [], documents: object[] = DOCUMENTS) {
+  mockApi({ 'GET /documents': () => jsonResponse(documents) })
   const queryClient = createQueryClient({ defaultOptions: { queries: { retry: false } } })
   render(
     <QueryClientProvider client={queryClient}>
@@ -69,6 +78,37 @@ describe('ScopePicker', () => {
     )
     expect(screen.getByLabelText('elegidos')).toHaveTextContent('')
     expect(screen.queryByRole('list', { name: 'Se busca solo en' })).not.toBeInTheDocument()
+  })
+
+  it('muestra el título con la categoría y el fichero, y busca en los tres', async () => {
+    renderPicker(
+      [],
+      [
+        indexed('d1', 'nor13.pdf', { title: 'Normativa de acceso', category: 'Seguridad' }),
+        indexed('d2', 'dietas.md', { title: 'Gastos de viaje' }),
+        indexed('d3', 'Guía.md', { category: 'Recursos humanos' }),
+      ],
+    )
+    await userEvent.click(button())
+
+    const boxes = await screen.findAllByRole('checkbox')
+    // Por título.
+    expect(boxes.map((b) => b.closest('label')!.textContent)).toEqual([
+      'Gastos de viajedietas.md',
+      'Guía.mdRecursos humanos',
+      'Normativa de accesoSeguridad · nor13.pdf',
+    ])
+    const filter = screen.getByLabelText('Filtrar documentos')
+    for (const text of ['segur', 'NOR13', 'normativa']) {
+      await userEvent.clear(filter)
+      await userEvent.type(filter, text)
+      expect(screen.getAllByRole('checkbox')).toHaveLength(1)
+    }
+    await userEvent.click(screen.getByRole('checkbox'))
+    await userEvent.keyboard('{Escape}')
+    expect(screen.getByRole('list', { name: 'Se busca solo en' })).toHaveTextContent(
+      'Normativa de acceso',
+    )
   })
 
   it('limita la selección a 5 documentos y permite volver a buscar en todos', async () => {

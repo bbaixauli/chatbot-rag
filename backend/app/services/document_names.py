@@ -2,17 +2,17 @@
 
 «¿Qué dice el NOR-013?» o «resúmeme la normativa de control de acceso lógico en DTIC» se
 refieren a un documento concreto, pero la búsqueda por similitud no lo sabe: el código o el
-título del documento solo están en el nombre del fichero. Si la pregunta nombra un documento,
-la búsqueda se limita a él.
+título del documento están en su nombre de fichero o en su título (#75). Si la pregunta
+nombra un documento, la búsqueda se limita a él.
 
 La coincidencia es estricta para no limitar la búsqueda por error:
 
-- **Códigos**: letras mayúsculas y números del nombre del fichero («NOR-013», «PRO_02»,
-  «IT0045»). En la pregunta se aceptan con o sin guion, en minúsculas y sin ceros a la
-  izquierda («nor 13»).
-- **Títulos**: el nombre del fichero completo, sin la versión («v3.2…») o sin el código, con
-  al menos `MIN_TITLE_WORDS` palabras y `MIN_TITLE_CHARS` caracteres, sin tener en cuenta
-  mayúsculas ni acentos.
+- **Códigos**: letras mayúsculas y números del nombre del fichero o del título («NOR-013»,
+  «PRO_02», «IT0045»). En la pregunta se aceptan con o sin guion, en minúsculas y sin ceros
+  a la izquierda («nor 13»).
+- **Títulos**: el nombre del fichero o el título completos, sin la versión («v3.2…») o sin
+  el código, con al menos `MIN_TITLE_WORDS` palabras y `MIN_TITLE_CHARS` caracteres, sin
+  tener en cuenta mayúsculas ni acentos.
 
 Si coinciden más de `MAX_SCOPE_DOCUMENTS` documentos, la pregunta es ambigua y no se limita.
 """
@@ -42,10 +42,13 @@ def normalize(text: str) -> str:
     return " ".join(re.sub(r"[^a-z0-9]+", " ", plain).split())
 
 
+def _codes(name: str) -> set[tuple[str, int]]:
+    return {(letters.lower(), int(digits)) for letters, digits in _FILENAME_CODE.findall(name)}
+
+
 def document_codes(filename: str) -> set[tuple[str, int]]:
     """Códigos del nombre del fichero, como (letras, número): «NOR-013» → ("nor", 13)."""
-    stem = document_title(filename)
-    return {(letters.lower(), int(digits)) for letters, digits in _FILENAME_CODE.findall(stem)}
+    return _codes(document_title(filename))
 
 
 def text_codes(text: str) -> set[tuple[str, int]]:
@@ -53,9 +56,8 @@ def text_codes(text: str) -> set[tuple[str, int]]:
     return {(letters, int(digits)) for letters, digits in _TEXT_CODE.findall(normalize(text))}
 
 
-def title_variants(filename: str) -> set[str]:
-    """Formas del título con las que se reconoce el documento en una pregunta."""
-    full = normalize(document_title(filename))
+def _variants(name: str) -> set[str]:
+    full = normalize(name)
     variants = {full}
     version = _VERSION.search(full)
     if version:
@@ -66,11 +68,23 @@ def title_variants(filename: str) -> set[str]:
     return {v for v in variants if len(v) >= MIN_TITLE_CHARS and len(v.split()) >= MIN_TITLE_WORDS}
 
 
+def title_variants(filename: str) -> set[str]:
+    """Formas del nombre del fichero con las que se reconoce el documento en una pregunta."""
+    return _variants(document_title(filename))
+
+
 def _names(document: ScopeDocument, text: str, codes: set[tuple[str, int]]) -> bool:
-    if document_codes(document.filename) & codes:
-        return True
+    """Si el texto nombra el documento, por su nombre de fichero o por su título."""
+    names = [document_title(document.filename)]
+    if document.title and document.title != document.filename:
+        names.append(document.title)
     padded = f" {text} "
-    return any(f" {variant} " in padded for variant in title_variants(document.filename))
+    for name in names:
+        if _codes(name) & codes:
+            return True
+        if any(f" {variant} " in padded for variant in _variants(name)):
+            return True
+    return False
 
 
 def detect_documents(
@@ -90,4 +104,4 @@ def detect_documents(
                 found.append(document)
     if len(found) > MAX_SCOPE_DOCUMENTS:
         return []
-    return sorted(found, key=lambda d: d.filename.casefold())
+    return sorted(found, key=lambda d: (d.title or d.filename).casefold())

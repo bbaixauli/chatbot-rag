@@ -39,6 +39,7 @@ from app.services.embeddings import Embeddings, build_embeddings
 from app.services.ingestion.parsers import ParseError, kind_for_filename, parse_document
 from app.services.ingestion.preprocess import (
     build_chunks,
+    document_title,
     embedding_texts,
     preprocessing_signature,
 )
@@ -286,7 +287,9 @@ async def _build_index(
             progress(f"{label} documento {number}/{len(documents)}: omitido {document.filename}")
             continue
         chunks = build_chunks(sections, indexing)
-        vectors = await embeddings.embed(embedding_texts(chunks, document.filename, indexing))
+        vectors = await embeddings.embed(
+            embedding_texts(chunks, document_title(document.filename), indexing)
+        )
         await store.add(document.filename, document.filename, chunks, vectors)
         total += len(chunks)
         elapsed = time.monotonic() - started

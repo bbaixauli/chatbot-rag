@@ -43,6 +43,8 @@ class SourceOut(BaseModel):
     number: int
     document_id: str | None
     filename: str
+    # Título actual del documento (#75); si se borró, el nombre del fichero.
+    title: str = ""
     page: int | None
     heading: str | None
     snippet: str
@@ -52,6 +54,8 @@ class SourceOut(BaseModel):
 class ScopeDocumentOut(BaseModel):
     id: str
     filename: str
+    # Título actual del documento (#75); si se borró, el nombre del fichero.
+    title: str = ""
 
 
 class ScopeOut(BaseModel):
@@ -96,4 +100,6 @@ class PublicDocumentOut(BaseModel):
 
     id: str
     filename: str
+    title: str
     kind: Literal["pdf", "markdown", "html"]
+    category: str | None = None

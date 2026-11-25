@@ -653,7 +653,7 @@ function LogView() {
 }
 
 function LogRow({ entry }: { entry: AuditEntry }) {
-  const documents = (entry.cited_documents ?? []).map((d) => d.filename).join(', ')
+  const documents = (entry.cited_documents ?? []).map((d) => d.title || d.filename).join(', ')
   return (
     <tr className="border-t border-borde align-top">
       <td className="px-3 py-2 whitespace-nowrap tabular-nums">

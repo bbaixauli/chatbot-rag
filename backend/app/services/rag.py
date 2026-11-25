@@ -52,17 +52,27 @@ class ContextSource:
     match_text: str | None = None
     # Parte del documento completo (no un fragmento recuperado por similitud).
     full_document: bool = False
+    # Título del documento (#75); lo pone el chat a partir de la BD (el índice solo tiene
+    # el nombre del fichero).
+    title: str = ""
+
+    @property
+    def name(self) -> str:
+        """Cómo se nombra el documento: su título o, si no se conoce, el fichero."""
+        return self.title or self.filename
 
     @property
     def label(self) -> str:
-        """Descripción legible del origen: fichero y página o sección."""
+        """Descripción legible del origen: documento y página o sección."""
         if self.page is not None:
             if self.page_end is not None and self.page_end != self.page:
-                return f"{self.filename}, págs. {self.page}-{self.page_end}"
-            return f"{self.filename}, pág. {self.page}"
-        if self.heading:
-            return f"{self.filename} — {self.heading}"
-        return self.filename
+                return f"{self.name}, págs. {self.page}-{self.page_end}"
+            return f"{self.name}, pág. {self.page}"
+        # La sección no se repite si es el propio título (el primer encabezado de un
+        # Markdown suele serlo).
+        if self.heading and self.heading != self.name:
+            return f"{self.name} — {self.heading}"
+        return self.name
 
     @property
     def snippet(self) -> str:

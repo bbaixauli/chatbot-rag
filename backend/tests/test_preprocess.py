@@ -10,6 +10,7 @@ from app.services.ingestion.parsers import Section, parse_document
 from app.services.ingestion.preprocess import (
     build_chunks,
     clean_toc_leaders,
+    document_label,
     document_title,
     embedding_text,
     embedding_texts,
@@ -126,14 +127,30 @@ def test_build_chunks_without_preprocessing_keeps_the_text() -> None:
 
 def test_embedding_text_adds_the_document_and_section() -> None:
     indexing = _indexing()
-    assert embedding_text("Texto", "NOR-013 Acceso.pdf", "Altas > Usuarios", indexing) == (
+    assert embedding_text("Texto", "NOR-013 Acceso", "Altas > Usuarios", indexing) == (
         "Documento: NOR-013 Acceso\nSección: Altas > Usuarios\n\nTexto"
     )
-    assert embedding_text("Texto", "guia.pdf", None, indexing) == "Documento: guia\n\nTexto"
+    assert embedding_text("Texto", "guia", None, indexing) == "Documento: guia\n\nTexto"
     disabled = _indexing(indexing_context_prefix=False)
-    assert embedding_text("Texto", "guia.pdf", "Algo", disabled) == "Texto"
+    assert embedding_text("Texto", "guia", "Algo", disabled, "RR. HH.") == "Texto"
     chunks = build_chunks([Section(text="Hola", heading="Saludo")], indexing)
-    assert embedding_texts(chunks, "a.md", indexing) == ["Documento: a\nSección: Saludo\n\nHola"]
+    assert embedding_texts(chunks, "a", indexing) == ["Documento: a\nSección: Saludo\n\nHola"]
+
+
+def test_embedding_text_adds_the_category() -> None:
+    indexing = _indexing()
+    assert embedding_text("Texto", "Guía", "Altas", indexing, "Recursos humanos") == (
+        "Documento: Guía\nCategoría: Recursos humanos\nSección: Altas\n\nTexto"
+    )
+
+
+def test_document_label_keeps_the_previous_name_when_the_title_is_the_filename() -> None:
+    # Documentos anteriores a #75: el título es el nombre del fichero y el texto de los
+    # vectores no cambia (no quedan desactualizados).
+    assert document_label("NOR-013 CONTROL_DE_ACCESO.pdf", "NOR-013 CONTROL_DE_ACCESO.pdf") == (
+        "NOR-013 CONTROL DE ACCESO"
+    )
+    assert document_label("Normativa de acceso v1.2", "nor13.pdf") == "Normativa de acceso v1.2"
 
 
 @pytest.mark.parametrize(

@@ -226,7 +226,8 @@ export const t = {
           strip_repeated_lines: 'Quitar encabezados y pies repetidos en las páginas de los PDF',
           repeated_line_min_ratio: 'Proporción de páginas en que se repiten (0-1)',
           clean_toc_leaders: 'Quitar los puntos de relleno de los índices',
-          context_prefix: 'Añadir el título del documento y la sección a cada fragmento',
+          context_prefix:
+            'Añadir el título, el fichero, la categoría y la sección del documento a cada fragmento',
         },
         hints: {
           upload_max_mb: 'El proxy (CHATBOT_MAX_BODY_SIZE) debe admitir peticiones mayores.',
@@ -377,8 +378,10 @@ export const t = {
     model: (name: string) => `Modelo de embeddings: ${name}`,
     outdated: (n: number) =>
       n === 1
-        ? '1 documento se indexó con otro modelo de embeddings u otro troceado: pulsa «Reindexar todo».'
-        : `${n} documentos se indexaron con otro modelo de embeddings u otro troceado: pulsa «Reindexar todo».`,
+        ? '1 documento está desactualizado (se indexó con otro modelo de embeddings, otro troceado u otro título o categoría): pulsa «Reindexar desactualizados».'
+        : `${n} documentos están desactualizados (se indexaron con otro modelo de embeddings, otro troceado u otro título o categoría): pulsa «Reindexar desactualizados».`,
+    outdatedBadge: 'Desactualizado: hay que reindexarlo',
+    reindexOutdated: 'Reindexar desactualizados',
     reindexAll: 'Reindexar todo',
     confirmReindexAll:
       '¿Reindexar todos los documentos? Es necesario si ha cambiado el modelo de embeddings. ' +
@@ -392,11 +395,21 @@ export const t = {
     duplicate: 'Ya existía',
     uploadFailed: 'No se pudo subir',
     unsupported: 'Tipo de fichero no admitido',
+    uploadOptions: 'Opciones de la subida',
+    uploadCategory: 'Categoría de los documentos que subas',
+    useFilename: 'Usar el nombre del fichero como título',
+    titleHint:
+      'Si no, el título se toma de los metadatos del fichero (o del título de la página o el primer encabezado); si no tiene uno válido, se usa el nombre del fichero.',
+    noCategory: 'Sin categoría',
+    filter: 'Categoría',
+    allCategories: 'Todas',
     empty: 'Todavía no hay documentos.',
+    emptyFilter: 'No hay documentos en esta categoría.',
     tableCaption: 'Documentos subidos',
     loadError: 'No se pudieron cargar los documentos.',
     columns: {
-      name: 'Nombre',
+      name: 'Título',
+      category: 'Categoría',
       kind: 'Tipo',
       size: 'Tamaño',
       status: 'Estado',
@@ -412,11 +425,39 @@ export const t = {
       error: 'Error',
     },
     download: (name: string) => `Descargar ${name}`,
+    edit: 'Editar',
+    editing: (name: string) => `Editar «${name}»`,
+    titleLabel: 'Título',
+    fileLabel: (name: string) => `Fichero: ${name}`,
+    titleFromFilename: 'Usar el nombre del fichero',
+    categoryLabel: 'Categoría',
+    save: 'Guardar',
+    cancel: 'Cancelar',
+    editHint:
+      'El título se muestra en las referencias del chat. El título y la categoría ayudan a encontrar el documento: al cambiarlos, hay que reindexarlo.',
     reindex: 'Reindexar',
     delete: 'Eliminar',
     confirmDelete: (name: string) =>
       `¿Eliminar «${name}»? El asistente dejará de usarlo en sus respuestas.`,
     actionError: 'No se pudo completar la acción.',
+  },
+  categories: {
+    title: 'Categorías',
+    description:
+      'Agrupan los documentos. Al renombrar o eliminar una categoría, sus documentos quedan desactualizados hasta que se reindexen.',
+    newName: 'Nueva categoría',
+    add: 'Añadir',
+    empty: 'Todavía no hay categorías.',
+    documents: (n: number) => (n === 1 ? '1 documento' : `${n} documentos`),
+    rename: (name: string) => `Renombrar la categoría «${name}»`,
+    renameShort: 'Renombrar',
+    delete: (name: string) => `Eliminar la categoría «${name}»`,
+    deleteShort: 'Eliminar',
+    confirmDelete: (name: string) =>
+      `¿Eliminar la categoría «${name}»? Sus documentos se conservan, sin categoría.`,
+    save: 'Guardar',
+    cancel: 'Cancelar',
+    error: 'No se pudo guardar la categoría.',
   },
   audit: {
     title: 'Auditoría',

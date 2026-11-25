@@ -124,18 +124,51 @@ def build_chunks(sections: Sequence[Section], indexing: IndexingConfig) -> list[
     return chunks
 
 
-def embedding_text(text: str, filename: str, heading: str | None, indexing: IndexingConfig) -> str:
-    """Texto con el que se calcula el vector de un fragmento (con su contexto, si procede)."""
+def document_label(title: str, filename: str) -> str:
+    """Nombre del documento en el texto de los vectores: su título (#75).
+
+    Si el título es el nombre del fichero (documentos anteriores a #75, o elegido así al
+    subirlo), sin extensión ni guiones bajos, como se hacía antes: así esos documentos no
+    quedan desactualizados.
+    """
+    return document_title(filename) if title == filename else title
+
+
+def embedding_text(
+    text: str,
+    document: str,
+    heading: str | None,
+    indexing: IndexingConfig,
+    category: str | None = None,
+    file: str | None = None,
+) -> str:
+    """Texto con el que se calcula el vector de un fragmento (con su contexto, si procede).
+
+    `document` es el nombre del documento (`document_label`) y `file`, el del fichero
+    (`document_title`): si es distinto, también se incluye, porque suele llevar el código
+    con el que se nombra el documento en las preguntas («el NOR-013», #62) y el título de
+    los metadatos no siempre lo tiene.
+    """
     if not indexing.context_prefix:
         return text
-    header = [f"Documento: {document_title(filename)}"]
+    header = [f"Documento: {document}"]
+    if file and file != document:
+        header.append(f"Fichero: {file}")
+    if category:
+        header.append(f"Categoría: {category}")
     if heading:
         header.append(f"Sección: {heading}")
     return "\n".join(header) + "\n\n" + text
 
 
-def embedding_texts(chunks: Sequence[Chunk], filename: str, indexing: IndexingConfig) -> list[str]:
-    return [embedding_text(c.text, filename, c.heading, indexing) for c in chunks]
+def embedding_texts(
+    chunks: Sequence[Chunk],
+    document: str,
+    indexing: IndexingConfig,
+    category: str | None = None,
+    file: str | None = None,
+) -> list[str]:
+    return [embedding_text(c.text, document, c.heading, indexing, category, file) for c in chunks]
 
 
 def preprocessing_signature(indexing: IndexingConfig) -> str:

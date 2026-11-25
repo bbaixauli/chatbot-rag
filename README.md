@@ -115,6 +115,28 @@ En *Administración → Mensaje inicial* se puede definir:
   conversación. Al pulsar una, su texto sustituye al que hubiera en el campo y se puede editar
   antes de enviarlo.
 
+### Título y categorías de los documentos
+
+Cada documento tiene un **título**, que es lo que muestran las referencias del chat y el
+selector de documentos. Al subirlo se toma de sus metadatos (el título del PDF, el de la página
+HTML o el primer encabezado o el `title` del front matter del Markdown), descartando los que no
+son un título real («Documento1», «Microsoft Word - informe.docx»…); si no tiene uno válido, o
+se marca **Usar el nombre del fichero como título**, es el nombre del fichero. Los documentos
+anteriores a esta versión tienen como título su nombre de fichero. El título se puede cambiar en
+*Administración → Documentos → Editar*, y las referencias, también las de respuestas ya dadas,
+muestran siempre el vigente.
+
+Las **categorías** (un solo nivel y opcionales) agrupan los documentos: se crean en la misma
+página, se eligen al subir (todos los ficheros de la subida van a ella) o al editar el documento,
+y la lista se puede filtrar por categoría.
+
+El título, el nombre del fichero (si es distinto) y la categoría se añaden al texto con el que se
+calcula el vector de cada fragmento (si está activado *Añadir el título, el fichero, la categoría y la
+sección del documento a cada fragmento* en la
+configuración de indexación). Por eso, al cambiar el título o la categoría de un documento, o
+renombrar o eliminar su categoría, queda **desactualizado**: se marca en la lista y se reindexa
+con **Reindexar desactualizados**.
+
 ### Embeddings
 
 Los documentos se trocean y se indexan en ChromaDB (`data/chroma`) con el modelo de embeddings
@@ -285,13 +307,16 @@ Documentación interactiva en http://localhost:8000/docs. Endpoints principales:
 | GET/PUT | `/api/v1/admin/prompt` | Prompt de sistema vigente / guardar nueva versión (admin) |
 | GET | `/api/v1/admin/prompt/versions` | Historial de versiones (admin) |
 | POST | `/api/v1/admin/prompt/versions/{id}/restore` | Restaurar una versión (admin) |
-| GET/POST | `/api/v1/admin/documents` | Listar / subir documentos (multipart, varios ficheros) (admin) |
-| GET | `/api/v1/admin/documents/stats` | Nº de documentos, fragmentos y modelo de embeddings (admin) |
+| GET/POST | `/api/v1/admin/documents` | Listar / subir documentos (multipart, varios ficheros; `category_id` y `use_filename` opcionales) (admin) |
+| GET | `/api/v1/admin/documents/stats` | Nº de documentos, fragmentos, desactualizados y modelo de embeddings (admin) |
 | POST | `/api/v1/admin/documents/reindex` | Reindexar todos (admin) |
-| GET/DELETE | `/api/v1/admin/documents/{id}` | Detalle / eliminar (admin) |
+| POST | `/api/v1/admin/documents/reindex-outdated` | Reindexar los desactualizados (admin) |
+| GET/PATCH/DELETE | `/api/v1/admin/documents/{id}` | Detalle / cambiar título o categoría / eliminar (admin) |
 | POST | `/api/v1/admin/documents/{id}/reindex` | Reindexar uno (admin) |
 | GET | `/api/v1/admin/documents/{id}/file` | Descargar el original (admin) |
-| GET | `/api/v1/documents` | Documentos indexados (id, nombre y tipo), para limitar la búsqueda del chat |
+| GET/POST | `/api/v1/admin/categories` | Categorías con su nº de documentos / crear una (admin) |
+| PATCH/DELETE | `/api/v1/admin/categories/{id}` | Renombrar / eliminar (sus documentos quedan sin categoría) (admin) |
+| GET | `/api/v1/documents` | Documentos indexados (id, título, fichero, tipo y categoría), para limitar la búsqueda del chat |
 | GET | `/api/v1/documents/{id}/file` | Ver el original desde una referencia del chat (PDF en línea, Markdown como texto, HTML en sandbox) |
 
 ## Calidad y tests

@@ -348,7 +348,10 @@ describe('ChatPage', () => {
             ? [{ id: 'n1', title: 'Horario', created_at: '', updated_at: '', document_ids: ['d1'] }]
             : [],
         ),
-      'GET /documents': () => jsonResponse([{ id: 'd1', filename: 'manual.pdf', kind: 'pdf' }]),
+      'GET /documents': () =>
+        jsonResponse([
+          { id: 'd1', filename: 'manual.pdf', title: 'manual.pdf', kind: 'pdf', category: null },
+        ]),
       'POST /chat': (init) => {
         expect(JSON.parse(init!.body as string)).toEqual({
           message: 'Horario',
@@ -391,7 +394,10 @@ describe('ChatPage', () => {
           { id: 'c1', title: 'Normas', created_at: '', updated_at: '', document_ids: ['d1'] },
         ]),
       'GET /conversations/c1/messages': () => jsonResponse([]),
-      'GET /documents': () => jsonResponse([{ id: 'd1', filename: 'manual.pdf', kind: 'pdf' }]),
+      'GET /documents': () =>
+        jsonResponse([
+          { id: 'd1', filename: 'manual.pdf', title: 'manual.pdf', kind: 'pdf', category: null },
+        ]),
       'PATCH /conversations/c1': (init) => {
         sent.push(JSON.parse(init!.body as string))
         return jsonResponse({
@@ -418,7 +424,10 @@ describe('ChatPage', () => {
   })
 
   it('indica cuando la pregunta nombra un documento', async () => {
-    const scope = { documents: [{ id: 'd1', filename: 'NOR-013.pdf' }], source: 'detected' }
+    const scope = {
+      documents: [{ id: 'd1', filename: 'NOR-013.pdf', title: 'Control de acceso' }],
+      source: 'detected',
+    }
     mockApi({
       'GET /health': health,
       'GET /conversations': () => jsonResponse([]),
@@ -441,7 +450,9 @@ describe('ChatPage', () => {
 
     const list = await screen.findByRole('list', { name: 'Mensajes' })
     expect(
-      await within(list).findByText(/Buscado solo en: NOR-013\.pdf \(nombrado en la pregunta\)/),
+      await within(list).findByText(
+        /Buscado solo en: Control de acceso \(nombrado en la pregunta\)/,
+      ),
     ).toBeInTheDocument()
   })
 })

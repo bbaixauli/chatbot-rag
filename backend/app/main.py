@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from starlette.middleware.sessions import SessionMiddleware
 
-from app.api import admin, appearance, auth, chat, conversations, documents, health
+from app.api import admin, appearance, auth, categories, chat, conversations, documents, health
 from app.api import audit as audit_api
 from app.api import config as config_api
 from app.api import dashboard as dashboard_api
@@ -112,6 +112,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         admin.router,
         config_api.router,
         documents.router,
+        categories.router,
         documents.public_router,
         appearance.router,
         appearance.public_router,

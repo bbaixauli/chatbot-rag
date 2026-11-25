@@ -48,9 +48,9 @@ def parse_document(path: Path, kind: DocumentKind) -> list[Section]:
         if kind is DocumentKind.PDF:
             sections = parse_pdf(path)
         elif kind is DocumentKind.MARKDOWN:
-            sections = parse_markdown(_read_text(path))
+            sections = parse_markdown(read_text(path))
         else:
-            sections = parse_html(_read_text(path))
+            sections = parse_html(read_text(path))
     except ParseError:
         raise
     except Exception as exc:
@@ -63,7 +63,8 @@ def parse_document(path: Path, kind: DocumentKind) -> list[Section]:
     return sections
 
 
-def _read_text(path: Path) -> str:
+def read_text(path: Path) -> str:
+    """Texto de un fichero (UTF-8 o, si no lo es, Windows-1252 o Latin-1)."""
     raw = path.read_bytes()
     for encoding in ("utf-8-sig", "cp1252"):
         try:

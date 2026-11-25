@@ -66,7 +66,8 @@ async def test_cited_sources_are_streamed_saved_and_listed(
 
     system = llm.calls[0][0].content
     assert "## Documentación de referencia" in system
-    assert "[1] Fuente: guia.md — Guía de vacaciones" in system
+    # El título es el primer encabezado; la sección no se repite.
+    assert "[1] Fuente: Guía de vacaciones\n" in system
     kinds = [kind for kind, _ in events]
     assert kinds[-2:] == ["sources", "done"]
     [source] = sources_of(events)
@@ -74,6 +75,7 @@ async def test_cited_sources_are_streamed_saved_and_listed(
         "number": 1,
         "document_id": document_id,
         "filename": "guia.md",
+        "title": "Guía de vacaciones",
         "page": None,
         "heading": "Guía de vacaciones",
         "snippet": source["snippet"],

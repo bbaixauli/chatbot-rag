@@ -182,6 +182,7 @@ async def test_reindex_requested_while_a_job_is_running_is_not_lost(
     async with app.state.sessionmaker() as session:
         document = Document(
             filename="guia.md",
+            title="guia.md",
             kind="markdown",
             size_bytes=len(MARKDOWN),
             sha256="1" * 64,
@@ -212,6 +213,7 @@ async def test_worker_indexes_documents_into_qdrant(
     async with app.state.sessionmaker() as session:
         document = Document(
             filename="guia.md",
+            title="guia.md",
             kind="markdown",
             size_bytes=len(MARKDOWN),
             sha256="0" * 64,
@@ -314,6 +316,7 @@ async def test_dimension_mismatch_is_reported_to_the_admin(
     async with app.state.sessionmaker() as session:
         document = Document(
             filename="guia.md",
+            title="guia.md",
             kind="markdown",
             size_bytes=len(MARKDOWN),
             sha256="1" * 64,
