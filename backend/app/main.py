@@ -17,7 +17,7 @@ from app.core.ldap_auth import ConfigurableLdap
 from app.core.logging import RequestContextMiddleware, configure_logging
 from app.core.rate_limit import RateLimiter
 from app.db.session import DATABASE_NOT_READY, build_engine, build_sessionmaker
-from app.services import audit, dashboard
+from app.services import audit, dashboard, web_refresh
 from app.services.audit import AuditDeps
 from app.services.backends import build_task_runner, build_vector_store, close_vector_store
 from app.services.documents import DocumentService
@@ -76,14 +76,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except DATABASE_NOT_READY:
             logger.warning("No se pudo consultar la BD al arrancar: ¿falta `alembic upgrade head`?")
         app.state.audit = AuditDeps(app.state.sessionmaker, config, settings)
-        # La revisión programada la hace la API (no en los tests: sería imprevisible).
-        scheduler = (
-            asyncio.create_task(audit.scheduler_loop(app.state.audit), name="auditoria")
+        # La revisión programada y la actualización de los documentos web las programa la API
+        # (no en los tests: sería imprevisible).
+        schedulers = (
+            [
+                asyncio.create_task(audit.scheduler_loop(app.state.audit), name="auditoria"),
+                asyncio.create_task(
+                    web_refresh.scheduler_loop(app.state.sessionmaker, config, tasks),
+                    name="documentos-web",
+                ),
+            ]
             if settings.environment != "test"
-            else None
+            else []
         )
         yield
-        if scheduler is not None:
+        for scheduler in schedulers:
             scheduler.cancel()
         for task in list(app.state.audit.tasks):
             task.cancel()

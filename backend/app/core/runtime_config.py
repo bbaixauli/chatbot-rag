@@ -274,6 +274,11 @@ class WebConfig(ConfigGroup):
     timeout_seconds: int = Field(ge=1, le=300)
     # Dominios permitidos separados por comas (cada uno con sus subdominios); vacío: todos.
     allowed_domains: str | None
+    # Actualización periódica (#79).
+    refresh_enabled: bool
+    refresh_interval_hours: int = Field(ge=1, le=720)
+    # Comprobaciones seguidas con «no encontrado» (404 o 410) tras las que se borra.
+    not_found_limit: int = Field(ge=1, le=100)
 
     @property
     def domains(self) -> list[str]:

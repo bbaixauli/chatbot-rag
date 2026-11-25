@@ -51,6 +51,7 @@ const dailyAudit = (state: FormState) => state.values.schedule === 'daily'
 const auditWithModel = (state: FormState) => state.values.use_llm === true
 const auditEmail = (state: FormState) => state.values.notify_enabled === true
 const stripRepeatedLines = (state: FormState) => state.values.strip_repeated_lines === true
+const webRefresh = (state: FormState) => state.values.refresh_enabled === true
 
 // Rangos: los mismos que valida el servidor (backend/app/core/runtime_config.py).
 const GROUPS: GroupSpec[] = [
@@ -188,6 +189,23 @@ const GROUPS: GroupSpec[] = [
     fields: [
       { name: 'timeout_seconds', kind: 'number', min: 1, max: 300, integer: true },
       { name: 'allowed_domains', kind: 'text', optional: true },
+      { name: 'refresh_enabled', kind: 'boolean' },
+      {
+        name: 'refresh_interval_hours',
+        kind: 'number',
+        min: 1,
+        max: 720,
+        integer: true,
+        visible: webRefresh,
+      },
+      {
+        name: 'not_found_limit',
+        kind: 'number',
+        min: 1,
+        max: 100,
+        integer: true,
+        visible: webRefresh,
+      },
     ],
   },
 ]

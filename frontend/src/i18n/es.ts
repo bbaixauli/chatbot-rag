@@ -367,12 +367,20 @@ export const t = {
       },
       web: {
         title: 'Documentos web',
-        description: 'Descarga de los documentos que se añaden por su dirección web.',
+        description:
+          'Descarga de los documentos que se añaden por su dirección web y su actualización periódica.',
         fields: {
           timeout_seconds: 'Tiempo máximo de cada descarga (segundos)',
           allowed_domains: 'Dominios permitidos',
+          refresh_enabled: 'Comprobar periódicamente si han cambiado',
+          refresh_interval_hours: 'Cada cuántas horas',
+          not_found_limit: 'Borrar tras no encontrarse (comprobaciones seguidas)',
         },
         hints: {
+          refresh_enabled:
+            'Si la página o el documento han cambiado, se actualiza y se reindexa. Solo se vuelve a indexar si cambia el contenido principal.',
+          not_found_limit:
+            'Solo cuentan las respuestas «no encontrado» (404 o 410): un fallo de red o del servidor no borra nada.',
           allowed_domains:
             'Separados por comas; cada uno admite también sus subdominios (empresa.es incluye intranet.empresa.es). Vacío: cualquiera.',
         },
@@ -454,6 +462,13 @@ export const t = {
     },
     download: (name: string) => `Descargar ${name}`,
     openUrl: (url: string) => `Abrir ${url} (en otra pestaña)`,
+    refresh: 'Comprobar ahora',
+    checked: (at: string) => `Comprobado: ${at}`,
+    changed: (at: string) => `Cambiado: ${at}`,
+    notFound: (n: number) =>
+      n === 1
+        ? 'No encontrado en la última comprobación'
+        : `No encontrado en las ${n} últimas comprobaciones`,
     urls: {
       label: 'Direcciones web (una por línea)',
       hint: 'De las páginas web se guarda su contenido principal (sin menús ni pies); los PDF y documentos de Office, tal cual. Las referencias del chat enlazan a la dirección original.',

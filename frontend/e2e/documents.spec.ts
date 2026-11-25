@@ -279,7 +279,13 @@ test('añade una página web por su dirección y la cita con un enlace a ella', 
     <p>El seguro de viaje internacional contratado por la empresa cubre la asistencia médica
     urgente, la repatriación y la pérdida de equipaje durante los viajes de trabajo.</p></main>
     <footer>Aviso legal · Cookies</footer></body></html>`
+  let gone = false
   const server = http.createServer((_, response) => {
+    if (gone) {
+      response.writeHead(404)
+      response.end()
+      return
+    }
     response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
     response.end(html)
   })
@@ -299,6 +305,12 @@ test('añade una página web por su dirección y la cita con un enlace a ella', 
       'href',
       url,
     )
+    await expect(row).toContainText('Comprobado:')
+
+    // La página desaparece: «Comprobar ahora» lo anota (se borra tras varias veces).
+    gone = true
+    await row.getByRole('button', { name: 'Comprobar ahora: Seguro de viaje' }).click()
+    await expect(row).toContainText('No encontrado en la última comprobación')
   } finally {
     server.close()
   }

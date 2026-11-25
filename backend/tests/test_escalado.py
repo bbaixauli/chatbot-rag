@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 from fastapi import FastAPI
 from pydantic import ValidationError
@@ -18,10 +19,17 @@ from app.services import backends
 from app.services import documents as documents_service
 from app.services.documents import DocumentService
 from app.services.qdrant_store import QdrantVectorStore
-from app.services.tasks import INDEX_DOCUMENT, ArqTaskRunner, InProcessTaskRunner
+from app.services.tasks import (
+    INDEX_DOCUMENT,
+    REFRESH_DOCUMENT,
+    ArqTaskRunner,
+    InProcessTaskRunner,
+)
 from app.services.vectorstore import ChromaVectorStore
+from app.services.web import WebFetcher
 from tests.conftest import set_config
 from tests.factories import MARKDOWN
+from tests.web_server import Server
 
 
 class FakePool:
@@ -245,8 +253,55 @@ async def test_worker_indexes_documents_into_qdrant(
     assert indexed.chunk_size_chars == 250
 
 
+async def test_worker_refreshes_web_documents_and_queues_their_indexing(
+    app: FastAPI, settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Documento web ya indexado; la página ha cambiado.
+    settings.uploads_dir.mkdir(parents=True, exist_ok=True)
+    url = "https://intranet/gastos"
+    async with app.state.sessionmaker() as session:
+        document = Document(
+            filename="gastos.html",
+            title="Gastos",
+            kind="web",
+            size_bytes=4,
+            sha256="0" * 64,
+            status=DocumentStatus.READY.value,
+            uploaded_by="admin",
+            source_url=url,
+        )
+        session.add(document)
+        await session.commit()
+        document_id = document.id
+    (settings.uploads_dir / f"{document_id}.md").write_text("# Antes", encoding="utf-8")
+    server = Server()
+    server.page(
+        url,
+        "<html><body><main><h1>Gastos</h1><p>Nueva dieta.</p></main></body></html>",
+        "text/html",
+    )
+
+    qdrant = QdrantVectorStore(AsyncQdrantClient(location=":memory:"), "worker")
+    monkeypatch.setattr(worker, "build_vector_store", lambda _: qdrant)
+    scaled = settings.model_copy(update={"vector_store": "qdrant", "task_runner": "arq"})
+    pool = FakePool()
+    ctx: dict[str, Any] = {"settings": scaled, "redis": pool}
+    await worker.startup(ctx)
+    ctx["documents"].fetcher = WebFetcher(httpx.MockTransport(server.handle))
+
+    await worker.refresh_document(ctx, document_id)
+    await worker.shutdown(ctx)
+
+    async with app.state.sessionmaker() as session:
+        refreshed = await session.get(Document, document_id)
+    assert refreshed is not None
+    assert refreshed.status == DocumentStatus.PENDING.value
+    # La indexación vuelve a la cola de Redis, para cualquier worker.
+    assert [(job, args) for job, args, _ in pool.jobs] == [(INDEX_DOCUMENT, (document_id,))]
+
+
 def test_worker_settings() -> None:
-    assert [f.name for f in worker.WorkerSettings.functions] == [INDEX_DOCUMENT]
+    assert [f.name for f in worker.WorkerSettings.functions] == [INDEX_DOCUMENT, REFRESH_DOCUMENT]
     assert worker.WorkerSettings.keep_result == 0
     assert worker.WorkerSettings.max_tries == 3
 

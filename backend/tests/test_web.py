@@ -1,7 +1,7 @@
 """Documentos añadidos por su dirección web (#78)."""
 
 import asyncio
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +18,7 @@ from app.services.web import WebError, WebFetcher, check_url
 from tests.conftest import ScriptedLLM, parse_sse, set_config
 from tests.factories import pdf_bytes
 from tests.office_factories import make_docx
+from tests.web_server import Handler, Server
 
 URLS = "/api/v1/admin/documents/urls"
 
@@ -34,33 +35,6 @@ PAGE = """<html><head><title>Política de gastos | Intranet</title></head><body>
 </article></main>
 <footer>© 2026 Empresa · Aviso legal · Mapa del sitio</footer>
 </body></html>"""
-
-Handler = Callable[[httpx.Request], Any]
-
-
-class Server:
-    """Servidor web simulado: respuestas por dirección y registro de peticiones."""
-
-    def __init__(self) -> None:
-        self.routes: dict[str, Handler] = {}
-        self.requests: list[httpx.Request] = []
-
-    def page(self, url: str, body: bytes | str, content_type: str, **headers: str) -> None:
-        data = body.encode() if isinstance(body, str) else body
-        self.routes[url] = lambda _: httpx.Response(
-            200, content=data, headers={"content-type": content_type, **headers}
-        )
-
-    async def handle(self, request: httpx.Request) -> httpx.Response:
-        self.requests.append(request)
-        handler = self.routes.get(str(request.url))
-        if handler is None:
-            return httpx.Response(404)
-        response = handler(request)
-        if asyncio.iscoroutine(response):
-            response = await response
-        assert isinstance(response, httpx.Response)
-        return response
 
 
 @pytest.fixture
@@ -101,7 +75,13 @@ def errors(results: list[dict[str, Any]]) -> list[str | None]:
 
 
 def _web(domains: str | None = None) -> WebConfig:
-    return WebConfig(timeout_seconds=5, allowed_domains=domains)
+    return WebConfig(
+        timeout_seconds=5,
+        allowed_domains=domains,
+        refresh_enabled=True,
+        refresh_interval_hours=24,
+        not_found_limit=3,
+    )
 
 
 @pytest.mark.parametrize(

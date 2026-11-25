@@ -21,7 +21,7 @@ from app.services.backends import build_vector_store, close_vector_store
 from app.services.documents import DocumentService
 from app.services.embeddings import ConfigurableEmbeddings
 from app.services.runtime_config import ConfigStore
-from app.services.tasks import INDEX_DOCUMENT, ArqTaskRunner
+from app.services.tasks import INDEX_DOCUMENT, REFRESH_DOCUMENT, ArqTaskRunner
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +38,8 @@ async def startup(ctx: dict[str, Any]) -> None:
     ctx["engine"] = engine
     ctx["vector_store"] = store
     ctx["config"] = config
-    # Reindexar desde el worker (no ocurre hoy) volvería a encolar en Redis.
+    # Lo que encola el worker (la indexación de un documento web que ha cambiado, #79)
+    # vuelve a la cola de Redis.
     ctx["documents"] = DocumentService(
         sessionmaker,
         settings,
@@ -64,12 +65,23 @@ async def index_document(ctx: dict[str, Any], document_id: str) -> None:
     await documents.process(document_id)
 
 
+async def refresh_document(ctx: dict[str, Any], document_id: str) -> None:
+    """Comprueba si ha cambiado un documento web (#79); si cambia, encola su indexación."""
+    config: ConfigStore = ctx["config"]
+    await config.reload()
+    documents: DocumentService = ctx["documents"]
+    await documents.refresh(document_id)
+
+
 class WorkerSettings:
     """Configuración del worker (la lee el comando `arq`)."""
 
     _settings = get_settings()
 
-    functions = [func(index_document, name=INDEX_DOCUMENT)]  # noqa: RUF012
+    functions = [  # noqa: RUF012
+        func(index_document, name=INDEX_DOCUMENT),
+        func(refresh_document, name=REFRESH_DOCUMENT),
+    ]
     on_startup = startup
     on_shutdown = shutdown
     redis_settings = RedisSettings.from_dsn(_settings.redis_url)

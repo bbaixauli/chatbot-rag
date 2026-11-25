@@ -23,6 +23,8 @@ JobHandler = Callable[[str], Awaitable[None]]
 
 # Trabajos que conoce el worker de arq (ver app/worker.py).
 INDEX_DOCUMENT = "index_document"
+# Comprueba si ha cambiado un documento añadido por su dirección web (#79).
+REFRESH_DOCUMENT = "refresh_document"
 
 
 class TaskRunner(Protocol):
