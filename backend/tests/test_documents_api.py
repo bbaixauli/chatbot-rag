@@ -102,7 +102,7 @@ async def test_duplicates_and_rejections(app: FastAPI, admin: AsyncClient) -> No
     results = await upload(
         admin,
         ("copia.md", b"# Hola"),
-        ("hoja.xlsx", b"x"),
+        ("hoja.xls", b"x"),
         ("vacio.md", b""),
         ("grande.md", b"a" * (1024 * 1024 + 1)),
     )

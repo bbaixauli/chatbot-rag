@@ -1,10 +1,10 @@
 """Título de un documento a partir de sus metadatos (#75).
 
 El título es lo que se muestra en las referencias y se pasa al indexar. Se toma de los
-metadatos del fichero (PDF), del título de la página (HTML) o del primer encabezado o el
-front matter (Markdown). Los metadatos suelen traer basura («Microsoft Word - borrador3.docx»,
-«Documento1», el nombre del fichero…): esos títulos se descartan y se usa el nombre del
-fichero.
+metadatos del fichero (PDF, Office, OpenDocument), del título de la página (HTML) o del
+primer encabezado o el front matter (Markdown). Los metadatos suelen traer basura
+(«Microsoft Word - borrador3.docx», «Documento1», el nombre del fichero…): esos títulos se
+descartan y se usa el nombre del fichero.
 """
 
 import re
@@ -103,8 +103,12 @@ def extract_title(path: Path, kind: DocumentKind) -> str | None:
             raw = _pdf_title(path)
         elif kind is DocumentKind.MARKDOWN:
             raw = _markdown_title(read_text(path))
-        else:
+        elif kind is DocumentKind.HTML:
             raw = _html_title(read_text(path))
+        else:
+            from app.services.ingestion.office import office_title
+
+            raw = office_title(path, kind)
     except Exception:
         return None
     return clean_title(raw)

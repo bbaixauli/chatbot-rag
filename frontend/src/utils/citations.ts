@@ -1,10 +1,13 @@
-import { sourceUrl, type Source } from '../api/client'
+import { isSlides, sourceUrl, type Source } from '../api/client'
 import { t } from '../i18n/es'
 
-/** «documento · pág. N» o «documento — sección», con el título del documento. */
+/** «documento · pág. N» (o «diap. N»), o «documento — sección», con el título del documento. */
 export function sourceLabel(source: Source): string {
   const name = source.title || source.filename
-  if (source.page) return `${name} · ${t.chat.page(source.page)}`
+  if (source.page) {
+    const location = isSlides(source.filename) ? t.chat.slide : t.chat.page
+    return `${name} · ${location(source.page)}`
+  }
   // La sección no se repite si es el propio título.
   if (source.heading && source.heading !== name) return `${name} — ${source.heading}`
   return name

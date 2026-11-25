@@ -214,3 +214,27 @@ test('cambia el título y la categoría y las referencias usan el título nuevo'
       .getByRole('link', { name: 'Abrir fuente: [1] Manual del empleado · pág. 2' }),
   ).toBeVisible()
 })
+
+test('indexa Word y Excel y cita el apartado del documento de Word', async ({ page }) => {
+  await openDocuments(page)
+
+  await page
+    .getByTestId('file-input')
+    .setInputFiles([fixture('normas-teletrabajo.docx'), fixture('dietas.xlsx')])
+
+  const word = row(page, 'normas-teletrabajo.docx')
+  await expect(word.getByText('Indexado')).toBeVisible()
+  await expect(word).toContainText('Normas de teletrabajo') // título de las propiedades
+  await expect(word).toContainText('Word')
+  const excel = row(page, 'dietas.xlsx')
+  await expect(excel.getByText('Indexado')).toBeVisible()
+  await expect(excel).toContainText('Excel')
+
+  await page.goto('/')
+  await ask(page, '¿Cuántos días se puede teletrabajar a la semana?')
+  await expect(
+    answers(page)
+      .last()
+      .getByRole('link', { name: 'Abrir fuente: [1] Normas de teletrabajo — Teletrabajo' }),
+  ).toBeVisible()
+})

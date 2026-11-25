@@ -13,6 +13,8 @@ from app.services.vectorstore import SearchHit, StoredChunk, VectorStore
 logger = logging.getLogger(__name__)
 
 SNIPPET_CHARS = 300
+# Presentaciones: sus «páginas» son diapositivas (#76).
+SLIDE_EXTENSIONS = (".pptx", ".odp")
 
 RAG_INSTRUCTIONS = """\
 ## Documentación de referencia
@@ -65,9 +67,12 @@ class ContextSource:
     def label(self) -> str:
         """Descripción legible del origen: documento y página o sección."""
         if self.page is not None:
+            # En las presentaciones, la «página» es el número de diapositiva.
+            slides = self.filename.lower().endswith(SLIDE_EXTENSIONS)
+            one, many = ("diap.", "diaps.") if slides else ("pág.", "págs.")
             if self.page_end is not None and self.page_end != self.page:
-                return f"{self.name}, págs. {self.page}-{self.page_end}"
-            return f"{self.name}, pág. {self.page}"
+                return f"{self.name}, {many} {self.page}-{self.page_end}"
+            return f"{self.name}, {one} {self.page}"
         # La sección no se repite si es el propio título (el primer encabezado de un
         # Markdown suele serlo).
         if self.heading and self.heading != self.name:

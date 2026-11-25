@@ -11,7 +11,7 @@ from sqlalchemy import select
 from app.api.deps import DbSession
 from app.api.schemas import PublicDocumentOut
 from app.core.auth import AdminDep, CurrentUserDep
-from app.db.models import Category, Document, DocumentStatus
+from app.db.models import Category, Document, DocumentKind, DocumentStatus
 from app.services.documents import DocumentService, UploadError
 
 router = APIRouter(prefix="/admin/documents", tags=["documents"])
@@ -32,7 +32,7 @@ class DocumentOut(BaseModel):
     filename: str
     title: str
     category_id: int | None
-    kind: Literal["pdf", "markdown", "html"]
+    kind: DocumentKind
     size_bytes: int
     status: Literal["pending", "processing", "ready", "error"]
     chunk_count: int
@@ -242,6 +242,15 @@ _INLINE_TYPES: dict[str, str] = {
     "markdown": "text/plain; charset=utf-8",
     "html": "text/html; charset=utf-8",
 }
+# Office y OpenDocument: el navegador no los muestra, se descargan.
+_DOWNLOAD_TYPES: dict[str, str] = {
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "odt": "application/vnd.oasis.opendocument.text",
+    "odp": "application/vnd.oasis.opendocument.presentation",
+    "ods": "application/vnd.oasis.opendocument.spreadsheet",
+}
 
 
 @public_router.get("", response_model=list[PublicDocumentOut])
@@ -261,7 +270,8 @@ async def list_indexed_documents(db: DbSession, _: CurrentUserDep) -> list[Publi
 
 @public_router.get("/{document_id}/file", response_class=FileResponse)
 async def view_document(document_id: str, service: DocumentsDep, _: CurrentUserDep) -> FileResponse:
-    """Muestra el original en el navegador (los PDF admiten `#page=N`)."""
+    """Muestra el original en el navegador (los PDF admiten `#page=N`); los de Office y
+    OpenDocument se descargan."""
     document = await _get_or_404(service, document_id)
     path = service.file_path(document)
     if not path.is_file():
@@ -269,10 +279,11 @@ async def view_document(document_id: str, service: DocumentsDep, _: CurrentUserD
     headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=300"}
     if document.kind == "html":
         headers["Content-Security-Policy"] = HTML_SANDBOX_CSP
+    inline = document.kind in _INLINE_TYPES
     return FileResponse(
         path,
         filename=document.filename,
-        media_type=_INLINE_TYPES[document.kind],
-        content_disposition_type="inline",
+        media_type=_INLINE_TYPES.get(document.kind) or _DOWNLOAD_TYPES[document.kind],
+        content_disposition_type="inline" if inline else "attachment",
         headers=headers,
     )

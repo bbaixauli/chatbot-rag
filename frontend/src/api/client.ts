@@ -60,12 +60,16 @@ export interface Conversation {
   document_ids?: string[]
 }
 
+/** Formatos de documento admitidos. */
+export type DocumentKind =
+  'pdf' | 'markdown' | 'html' | 'docx' | 'pptx' | 'xlsx' | 'odt' | 'odp' | 'ods'
+
 /** Documento indexado, para elegir dónde buscar. */
 export interface IndexedDocument {
   id: string
   filename: string
   title: string
-  kind: 'pdf' | 'markdown' | 'html'
+  kind: DocumentKind
   category: string | null
 }
 
@@ -102,9 +106,13 @@ export interface Message {
 }
 
 /** URL para ver el original de una fuente (los PDF se abren en la página citada). */
+/** Las presentaciones numeran diapositivas en lugar de páginas. */
+export const isSlides = (filename: string) => /\.(pptx|odp)$/i.test(filename)
+
 export function sourceUrl(source: Source): string | null {
   if (!source.document_id) return null
-  const page = source.page ? `#page=${source.page}` : ''
+  // Solo los PDF se abren en la página citada; los demás formatos se muestran o descargan.
+  const page = source.page && /\.pdf$/i.test(source.filename) ? `#page=${source.page}` : ''
   return `${API_BASE}/documents/${source.document_id}/file${page}`
 }
 

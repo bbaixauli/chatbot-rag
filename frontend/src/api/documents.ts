@@ -1,4 +1,4 @@
-import { API_BASE, apiGet, apiRequest } from './client'
+import { API_BASE, apiGet, apiRequest, type DocumentKind } from './client'
 
 export type DocumentStatus = 'pending' | 'processing' | 'ready' | 'error'
 
@@ -8,7 +8,7 @@ export interface DocumentItem {
   /** Lo que se muestra en las referencias y se pasa al indexar. */
   title: string
   category_id: number | null
-  kind: 'pdf' | 'markdown' | 'html'
+  kind: DocumentKind
   size_bytes: number
   status: DocumentStatus
   chunk_count: number
@@ -53,7 +53,19 @@ export interface IndexStats {
   outdated: number
 }
 
-export const ACCEPTED_EXTENSIONS = ['.pdf', '.md', '.markdown', '.html', '.htm']
+export const ACCEPTED_EXTENSIONS = [
+  '.pdf',
+  '.md',
+  '.markdown',
+  '.html',
+  '.htm',
+  '.docx',
+  '.pptx',
+  '.xlsx',
+  '.odt',
+  '.odp',
+  '.ods',
+]
 
 export const listDocuments = () => apiGet<DocumentItem[]>('/admin/documents')
 

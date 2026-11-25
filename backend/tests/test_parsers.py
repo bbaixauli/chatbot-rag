@@ -23,7 +23,7 @@ from tests.factories import HTML, MARKDOWN, make_pdf
         ("notas.markdown", DocumentKind.MARKDOWN),
         ("web.html", DocumentKind.HTML),
         ("web.htm", DocumentKind.HTML),
-        ("hoja.xlsx", None),
+        ("hoja.xls", None),
         ("sin_extension", None),
     ],
 )
