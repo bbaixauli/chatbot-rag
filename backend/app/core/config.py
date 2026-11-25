@@ -184,6 +184,13 @@ class Settings(BaseSettings):
     # Si la pregunta nombra un documento (por su código, p. ej. «NOR-013», o su título), la
     # búsqueda se limita a él (#58).
     rag_detect_document_names: bool = True
+    # Fragmentos anteriores y posteriores que se añaden a cada fragmento recuperado (0 = no
+    # se añaden). Los contiguos se unen en un pasaje; siempre dentro de rag_max_context_chars.
+    rag_neighbor_chunks: int = Field(default=0, ge=0, le=3)
+    # Si la búsqueda se limita a un solo documento y su texto cabe en estos caracteres, se
+    # envía el documento completo en lugar de fragmentos (0 = nunca). Debe caber en la
+    # ventana de contexto del modelo de chat (unos 4 caracteres por token en español).
+    rag_full_document_max_chars: int = Field(default=0, ge=0)
 
     # --- Valores iniciales (#42): conversación
     chat_history_max_messages: int = Field(default=20, ge=0)

@@ -246,6 +246,8 @@ export const t = {
           top_k: 'Fragmentos por pregunta (top-k)',
           min_score: 'Puntuación mínima (0-1)',
           max_context_chars: 'Máximo de contexto (caracteres)',
+          neighbor_chunks: 'Fragmentos vecinos que se añaden (0-3)',
+          full_document_max_chars: 'Documento completo hasta (caracteres)',
           condense_question: 'Reformular las preguntas de seguimiento antes de buscar',
           condense_history_messages: 'Mensajes previos para reformular',
           toc_score_factor: 'Peso de los fragmentos de índice (0-1)',
@@ -255,6 +257,10 @@ export const t = {
         hints: {
           min_score: 'Similitud mínima para usar un fragmento; depende del modelo de embeddings.',
           max_context_chars: 'Protege la ventana de contexto del modelo.',
+          full_document_max_chars:
+            'Si se busca en un solo documento y cabe, se envía entero (0 = nunca). Debe caber en la ventana de contexto del modelo: unos 4 caracteres por token.',
+          neighbor_chunks:
+            'Anteriores y posteriores a cada fragmento recuperado, dentro del máximo de contexto. Útil si la respuesta queda partida entre fragmentos.',
           condense_question: 'Cuesta una llamada extra al modelo cuando hay historial.',
           toc_score_factor:
             'Multiplica su puntuación para que no desplacen al contenido; 1 = sin cambios.',

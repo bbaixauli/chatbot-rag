@@ -159,6 +159,15 @@ se limita a él solo para esa pregunta y sus preguntas de seguimiento (se recono
 pregunta reformulada). Si se nombran más de 5 documentos, no se limita. Se puede desactivar en
 la configuración de recuperación.
 
+Opcionalmente, a cada fragmento recuperado se le pueden añadir los **fragmentos vecinos** del
+mismo documento (hasta 3 antes y después, dentro del máximo de contexto), unidos en un pasaje
+sin repetir el solapamiento: útil cuando la respuesta queda partida entre fragmentos.
+
+Si la búsqueda se limita a **un solo documento** y este cabe en el límite configurado, se envía
+**completo** al modelo, dividido en partes citables por página o apartado («resúmeme el
+NOR-013»). Está desactivado por defecto: el límite debe caber en la ventana de contexto del
+modelo de chat.
+
 Antes de indexar se limpia el texto: se quitan de los PDF los encabezados y pies que se repiten
 en todas las páginas (sellos de firma electrónica, «Página 3 de 27»…), se quitan los puntos de
 relleno de los índices y cada fragmento se busca con el título del documento y su sección

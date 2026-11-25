@@ -5,7 +5,7 @@ import json
 import logging
 import time
 from collections.abc import AsyncIterator, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Any
 
@@ -63,11 +63,14 @@ def select_sources(
     """Fuentes que se muestran con la respuesta y si fueron citadas.
 
     Si el modelo cita, solo se muestran las citadas. Si no cita nada (habitual en
-    modelos pequeños), se muestran todas como «consultadas».
+    modelos pequeños), se muestran todas como «consultadas»; si se envió un documento
+    completo, se muestra una sola vez (sus partes serían muchas fuentes del mismo fichero).
     """
     cited = set(extract_citations(answer, len(sources)))
     if cited:
         return [(s, True) for s in sources if s.number in cited]
+    if sources and all(s.full_document for s in sources):
+        return [(replace(sources[0], page=None, heading=None), False)]
     return [(s, False) for s in sources]
 
 

@@ -298,6 +298,35 @@ Si se nombran más de 5 documentos no se limita. Los documentos elegidos en el c
 prioridad. `app.diagnose query` aplica la misma detección e indica qué documentos ha
 reconocido.
 
+#### Fragmentos vecinos
+
+Si la respuesta queda partida entre dos fragmentos (una tabla que sigue en la página siguiente,
+un procedimiento que empieza al final de un fragmento), con **«Fragmentos vecinos que se
+añaden»** (*Recuperación*, `CHATBOT_RAG_NEIGHBOR_CHUNKS`, de 0 a 3; 0 por defecto) se añaden a
+cada fragmento recuperado los anteriores y posteriores del mismo documento: primero los más
+cercanos y los de los fragmentos más relevantes, mientras quepan en el máximo de contexto. Los
+fragmentos contiguos se unen en un solo pasaje sin repetir el solapamiento del troceado, y la
+fuente indica el rango de páginas («págs. 4-5»). Aumenta el texto que se envía al modelo en
+cada pregunta: conviene subir también el máximo de contexto.
+
+#### Documento completo
+
+Preguntas como «resúmeme el NOR-013» no se pueden responder con unos fragmentos: piden el
+documento entero. Con **«Documento completo hasta (caracteres)»** (*Recuperación*,
+`CHATBOT_RAG_FULL_DOCUMENT_MAX_CHARS`, 0 por defecto: desactivado), si la búsqueda se limita a
+**un solo documento** (elegido en el chat o nombrado en la pregunta) y su texto cabe en ese
+límite, se envía completo al modelo en lugar de fragmentos. Se reconstruye a partir de los
+fragmentos indexados (ya sin encabezados repetidos y sin repetir el solapamiento), dividido en
+partes citables: una por página en los PDF y una por apartado en Markdown y HTML. Si el modelo
+no cita ninguna parte, el documento aparece una sola vez como fuente. Si no cabe, se usan los
+fragmentos más parecidos de ese documento, como siempre.
+
+Este límite sustituye al máximo de contexto en ese caso, así que debe caber en la **ventana de
+contexto del modelo de chat** (en español, unos 4 caracteres por token), junto con el prompt
+de sistema y el historial: por ejemplo, 60000 caracteres son unos 15000 tokens. Cada pregunta
+sobre un documento completo es más lenta y consume más tokens. `app.diagnose query` indica si
+se enviaría el documento completo y su tamaño.
+
 Para consultarla o, si una configuración deja la aplicación inservible, volver a los valores de
 `.env`:
 
