@@ -145,6 +145,29 @@ como «Fuentes consultadas».
 Las preguntas de seguimiento («¿y con cuánta antelación?») se reformulan con el historial antes
 de buscar (se puede desactivar en la configuración de recuperación); la respuesta se genera con la pregunta original.
 
+La búsqueda se puede **limitar a uno o varios documentos** (hasta 5) con el botón **«Buscar en»**
+que hay sobre el campo de texto del chat, que permite filtrar la lista de documentos por nombre:
+la limitación se guarda en la conversación y se aplica a sus preguntas siguientes hasta que se
+quita. Bajo cada respuesta limitada se indica en qué documentos se buscó. Entonces solo se
+busca en esos documentos (comparando con todos sus fragmentos) y en lugar de la puntuación
+mínima general se usa la de la búsqueda limitada (*Recuperación*, 0 por defecto: basta con el
+top-k), porque quien pregunta ya ha indicado dónde está la respuesta.
+
+Si la pregunta **nombra un documento**, por su código («¿qué dice el NOR-013?», también «nor
+13») o por su título completo («la normativa de control de acceso lógico en DTIC»), la búsqueda
+se limita a él solo para esa pregunta y sus preguntas de seguimiento (se reconoce también en la
+pregunta reformulada). Si se nombran más de 5 documentos, no se limita. Se puede desactivar en
+la configuración de recuperación.
+
+Opcionalmente, a cada fragmento recuperado se le pueden añadir los **fragmentos vecinos** del
+mismo documento (hasta 3 antes y después, dentro del máximo de contexto), unidos en un pasaje
+sin repetir el solapamiento: útil cuando la respuesta queda partida entre fragmentos.
+
+Si la búsqueda se limita a **un solo documento** y este cabe en el límite configurado, se envía
+**completo** al modelo, dividido en partes citables por página o apartado («resúmeme el
+NOR-013»). Está desactivado por defecto: el límite debe caber en la ventana de contexto del
+modelo de chat.
+
 Antes de indexar se limpia el texto: se quitan de los PDF los encabezados y pies que se repiten
 en todas las páginas (sellos de firma electrónica, «Página 3 de 27»…), se quitan los puntos de
 relleno de los índices y cada fragmento se busca con el título del documento y su sección
@@ -233,10 +256,10 @@ Documentación interactiva en http://localhost:8000/docs. Endpoints principales:
 |---|---|---|
 | GET | `/api/v1/health` | Estado de la API y de la BD |
 | GET/POST | `/api/v1/conversations` | Listar / crear conversaciones |
-| PATCH/DELETE | `/api/v1/conversations/{id}` | Renombrar / eliminar |
+| PATCH/DELETE | `/api/v1/conversations/{id}` | Renombrar o limitar la búsqueda a unos documentos (`document_ids`) / eliminar |
 | GET | `/api/v1/conversations/{id}/messages` | Mensajes de una conversación |
 | GET | `/api/v1/chat/config` | Mensaje inicial y preguntas sugeridas |
-| POST | `/api/v1/chat` | Envía un mensaje; respuesta en streaming SSE (`conversation`, `token`, `sources`, `done`, `error`) |
+| POST | `/api/v1/chat` | Envía un mensaje (con `document_ids`, solo se busca en esos documentos); respuesta en streaming SSE (`conversation`, `scope`, `token`, `sources`, `done`, `error`) |
 | GET/POST/DELETE | `/api/v1/auth/session` | Sesión del usuario del chat (modo LDAP) |
 | POST | `/api/v1/auth/anonymous` | Nueva sesión anónima: acceso anónimo con LDAP o sesión privada sin él (si la administración lo permite) |
 | GET/POST/DELETE | `/api/v1/admin/session` | Estado / inicio / cierre de sesión de administración |
@@ -268,6 +291,7 @@ Documentación interactiva en http://localhost:8000/docs. Endpoints principales:
 | GET/DELETE | `/api/v1/admin/documents/{id}` | Detalle / eliminar (admin) |
 | POST | `/api/v1/admin/documents/{id}/reindex` | Reindexar uno (admin) |
 | GET | `/api/v1/admin/documents/{id}/file` | Descargar el original (admin) |
+| GET | `/api/v1/documents` | Documentos indexados (id, nombre y tipo), para limitar la búsqueda del chat |
 | GET | `/api/v1/documents/{id}/file` | Ver el original desde una referencia del chat (PDF en línea, Markdown como texto, HTML en sandbox) |
 
 ## Calidad y tests

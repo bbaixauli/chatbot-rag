@@ -337,4 +337,111 @@ describe('ChatPage', () => {
       expect(screen.getByText('¿En qué puedo ayudarte?')).toBeInTheDocument()
     })
   })
+  it('limita la búsqueda de una conversación nueva a los documentos elegidos', async () => {
+    const scope = { documents: [{ id: 'd1', filename: 'manual.pdf' }], source: 'selector' }
+    let created = false
+    mockApi({
+      'GET /health': health,
+      'GET /conversations': () =>
+        jsonResponse(
+          created
+            ? [{ id: 'n1', title: 'Horario', created_at: '', updated_at: '', document_ids: ['d1'] }]
+            : [],
+        ),
+      'GET /documents': () => jsonResponse([{ id: 'd1', filename: 'manual.pdf', kind: 'pdf' }]),
+      'POST /chat': (init) => {
+        expect(JSON.parse(init!.body as string)).toEqual({
+          message: 'Horario',
+          conversation_id: null,
+          document_ids: ['d1'],
+        })
+        created = true
+        return sseResponse([
+          ['conversation', { id: 'n1', title: 'Horario', user_message_id: 1 }],
+          ['scope', scope],
+          ['token', { content: 'De 8 a 15.' }],
+          ['done', { message_id: 2 }],
+        ])
+      },
+      'GET /conversations/n1/messages': () =>
+        jsonResponse([msg(1, 'user', 'Horario'), { ...msg(2, 'assistant', 'De 8 a 15.'), scope }]),
+    })
+    renderApp()
+
+    await userEvent.click(await screen.findByRole('button', { name: /Buscar en:/ }))
+    await userEvent.click(await screen.findByLabelText('manual.pdf'))
+    await userEvent.click(screen.getByRole('button', { name: 'Cerrar' }))
+    await ask('Horario')
+
+    const list = await screen.findByRole('list', { name: 'Mensajes' })
+    expect(await within(list).findByText(/Buscado solo en: manual\.pdf/)).toBeInTheDocument()
+    await waitFor(() => expect(list.querySelectorAll('li')).toHaveLength(2))
+    // La limitación queda guardada en la conversación.
+    expect(
+      await screen.findByRole('button', { name: /Buscar en: 1 documento/ }),
+    ).toBeInTheDocument()
+  })
+
+  it('cambia en qué documentos busca una conversación existente', async () => {
+    const sent: unknown[] = []
+    mockApi({
+      'GET /health': health,
+      'GET /conversations': () =>
+        jsonResponse([
+          { id: 'c1', title: 'Normas', created_at: '', updated_at: '', document_ids: ['d1'] },
+        ]),
+      'GET /conversations/c1/messages': () => jsonResponse([]),
+      'GET /documents': () => jsonResponse([{ id: 'd1', filename: 'manual.pdf', kind: 'pdf' }]),
+      'PATCH /conversations/c1': (init) => {
+        sent.push(JSON.parse(init!.body as string))
+        return jsonResponse({
+          id: 'c1',
+          title: 'Normas',
+          created_at: '',
+          updated_at: '',
+          document_ids: [],
+        })
+      },
+    })
+    renderApp('/c/c1')
+
+    const chips = await screen.findByRole('list', { name: 'Se busca solo en' })
+    expect(await within(chips).findByText('manual.pdf')).toBeInTheDocument()
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Buscar también fuera de manual.pdf' }),
+    )
+
+    await waitFor(() => expect(sent).toEqual([{ document_ids: [] }]))
+    expect(
+      screen.getByRole('button', { name: /Buscar en: Todos los documentos/ }),
+    ).toBeInTheDocument()
+  })
+
+  it('indica cuando la pregunta nombra un documento', async () => {
+    const scope = { documents: [{ id: 'd1', filename: 'NOR-013.pdf' }], source: 'detected' }
+    mockApi({
+      'GET /health': health,
+      'GET /conversations': () => jsonResponse([]),
+      'POST /chat': () =>
+        sseResponse([
+          ['conversation', { id: 'n2', title: 'NOR-013', user_message_id: 1 }],
+          ['scope', scope],
+          ['token', { content: 'Resumen.' }],
+          ['done', { message_id: 2 }],
+        ]),
+      'GET /conversations/n2/messages': () =>
+        jsonResponse([
+          msg(1, 'user', 'Resume el NOR-013'),
+          { ...msg(2, 'assistant', 'Resumen.'), scope },
+        ]),
+    })
+    renderApp()
+
+    await ask('Resume el NOR-013')
+
+    const list = await screen.findByRole('list', { name: 'Mensajes' })
+    expect(
+      await within(list).findByText(/Buscado solo en: NOR-013\.pdf \(nombrado en la pregunta\)/),
+    ).toBeInTheDocument()
+  })
 })

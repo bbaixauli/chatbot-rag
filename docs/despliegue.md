@@ -276,6 +276,57 @@ tenía el índice del documento.
 Tras actualizar a una versión que cambia esta limpieza, *Documentos* indica que hay
 documentos desactualizados: pulsa *Reindexar todo*.
 
+#### Búsqueda limitada a unos documentos
+
+Cuando la búsqueda del chat se limita a unos documentos, se comparan todos sus fragmentos con
+la pregunta (búsqueda exacta) y se usa la **puntuación mínima al buscar en documentos
+concretos** (*Recuperación*, `CHATBOT_RAG_SCOPED_MIN_SCORE`, 0 por defecto) en lugar de la
+general: basta con el top-k. El registro de preguntas guarda a qué documentos se limitó cada
+búsqueda y si fue porque se eligieron en el chat o porque la pregunta los nombraba.
+
+Con **«Buscar solo en los documentos que nombre la pregunta»** (`CHATBOT_RAG_DETECT_DOCUMENT_NAMES`,
+activado por defecto), la búsqueda se limita a los documentos que la pregunta nombra:
+
+- por su **código**: letras mayúsculas y números del nombre del fichero («NOR-013»,
+  «PRO_02», «IT0045»), que en la pregunta se reconocen con o sin guion, en minúsculas y sin
+  ceros a la izquierda («nor 13»);
+- por su **título completo**, sin tener en cuenta mayúsculas ni acentos, con o sin la versión
+  y el código («Control de acceso lógico en DTIC»). Los títulos de menos de 3 palabras o 15
+  caracteres no se reconocen, para no confundirlos con palabras sueltas.
+
+Si se nombran más de 5 documentos no se limita. Los documentos elegidos en el chat tienen
+prioridad. `app.diagnose query` aplica la misma detección e indica qué documentos ha
+reconocido.
+
+#### Fragmentos vecinos
+
+Si la respuesta queda partida entre dos fragmentos (una tabla que sigue en la página siguiente,
+un procedimiento que empieza al final de un fragmento), con **«Fragmentos vecinos que se
+añaden»** (*Recuperación*, `CHATBOT_RAG_NEIGHBOR_CHUNKS`, de 0 a 3; 0 por defecto) se añaden a
+cada fragmento recuperado los anteriores y posteriores del mismo documento: primero los más
+cercanos y los de los fragmentos más relevantes, mientras quepan en el máximo de contexto. Los
+fragmentos contiguos se unen en un solo pasaje sin repetir el solapamiento del troceado, y la
+fuente indica el rango de páginas («págs. 4-5»). Aumenta el texto que se envía al modelo en
+cada pregunta: conviene subir también el máximo de contexto.
+
+#### Documento completo
+
+Preguntas como «resúmeme el NOR-013» no se pueden responder con unos fragmentos: piden el
+documento entero. Con **«Documento completo hasta (caracteres)»** (*Recuperación*,
+`CHATBOT_RAG_FULL_DOCUMENT_MAX_CHARS`, 0 por defecto: desactivado), si la búsqueda se limita a
+**un solo documento** (elegido en el chat o nombrado en la pregunta) y su texto cabe en ese
+límite, se envía completo al modelo en lugar de fragmentos. Se reconstruye a partir de los
+fragmentos indexados (ya sin encabezados repetidos y sin repetir el solapamiento), dividido en
+partes citables: una por página en los PDF y una por apartado en Markdown y HTML. Si el modelo
+no cita ninguna parte, el documento aparece una sola vez como fuente. Si no cabe, se usan los
+fragmentos más parecidos de ese documento, como siempre.
+
+Este límite sustituye al máximo de contexto en ese caso, así que debe caber en la **ventana de
+contexto del modelo de chat** (en español, unos 4 caracteres por token), junto con el prompt
+de sistema y el historial: por ejemplo, 60000 caracteres son unos 15000 tokens. Cada pregunta
+sobre un documento completo es más lenta y consume más tokens. `app.diagnose query` indica si
+se enviaría el documento completo y su tamaño.
+
 Para consultarla o, si una configuración deja la aplicación inservible, volver a los valores de
 `.env`:
 
@@ -782,6 +833,10 @@ docker compose exec backend python -m app.diagnose query "¿cómo se solicitan l
 docker compose exec backend python -m app.diagnose query "¿cómo se solicitan las vacaciones?" \
   --document manual-empleado
 
+# Qué recuperaría el chat si la búsqueda se limita a un documento (se puede repetir)
+docker compose exec backend python -m app.diagnose query "resúmeme el procedimiento" \
+  --scope manual-empleado
+
 # ¿Recorta el servidor de embeddings los fragmentos largos?
 docker compose exec backend python -m app.diagnose index manual-empleado --truncation-check --max-chunks 10
 ```
@@ -812,4 +867,5 @@ marca con ✓ los fragmentos que llegarían al modelo según el top-k, la puntua
 máximo de contexto de la configuración de recuperación, y con el peso de los fragmentos de
 índice aplicado. Con `--document` (se puede repetir)
 clasifica todo el índice y muestra en qué puesto quedan los fragmentos de ese documento, con
-la diferencia de score respecto al último fragmento que llega al modelo.
+la diferencia de score respecto al último fragmento que llega al modelo. Con `--scope` (se
+puede repetir) busca solo en esos documentos, como el chat cuando se limita la búsqueda.

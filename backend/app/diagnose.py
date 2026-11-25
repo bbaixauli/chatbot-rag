@@ -35,6 +35,7 @@ from app.core.runtime_config import RuntimeConfig
 from app.db.models import Document, DocumentKind, DocumentStatus
 from app.db.session import build_engine, build_sessionmaker
 from app.services.backends import build_vector_store, close_vector_store
+from app.services.document_names import detect_documents
 from app.services.documents import document_file_path
 from app.services.embeddings import EmbeddingError, Embeddings, build_embeddings
 from app.services.ingestion.parsers import ParseError, parse_document
@@ -44,8 +45,9 @@ from app.services.ingestion.preprocess import (
     looks_like_toc,
     preprocessing_signature,
 )
-from app.services.rag import candidates_limit, rank_hits
+from app.services.rag import candidates_limit, full_document_sources, rank_hits
 from app.services.runtime_config import load_runtime_config
+from app.services.scope import indexed_documents
 from app.services.vectorstore import SearchHit, StoredChunk, VectorStore, VectorStoreError
 
 # Por debajo de esta similitud, el vector guardado no es el que calcula ahora el servicio.
@@ -387,19 +389,22 @@ async def diagnose_query(
     embeddings: Embeddings,
     top: int,
     full_ranking: bool = False,
+    scope: Sequence[str] | None = None,
 ) -> list[QueryHit]:
     """Fragmentos más parecidos a la pregunta, con los criterios del `Retriever`.
 
     Con `full_ranking` se clasifica todo el índice (para ver en qué puesto queda un
-    documento concreto); si no, solo los `top` primeros.
+    documento concreto); si no, solo los `top` primeros. Con `scope` se busca solo en
+    esos documentos, como el chat cuando se limita la búsqueda (#58).
     """
     rag = config.rag
+    min_score = rag.min_score if scope is None else rag.scoped_min_score
     [vector] = await embeddings.embed([query])
     limit = await store.count() if full_ranking else max(top, candidates_limit(rag))
     if limit == 0:
         return []
     # Con la misma ordenación que el chat (resta peso a los fragmentos de índice).
-    hits = rank_hits(await store.search(vector, limit), rag.toc_score_factor)
+    hits = rank_hits(await store.search(vector, limit, scope), rag.toc_score_factor)
     result = []
     used_chars = 0
     used_count = 0
@@ -409,8 +414,8 @@ async def diagnose_query(
         if stopped is None:
             if rank > rag.top_k:
                 stopped = f"fuera de los {rag.top_k} primeros (top-k)"
-            elif hit.score < rag.min_score:
-                stopped = f"por debajo de la puntuación mínima ({rag.min_score})"
+            elif hit.score < min_score:
+                stopped = f"por debajo de la puntuación mínima ({min_score})"
             elif used_count and used_chars + len(hit.text) > rag.max_context_chars:
                 stopped = f"supera el máximo de contexto ({rag.max_context_chars} caracteres)"
         used = stopped is None
@@ -538,8 +543,47 @@ async def run(args: argparse.Namespace, settings: Settings, out: TextIO) -> int:
                 if args.document
                 else []
             )
+            scope = (
+                await find_documents(build_sessionmaker(engine), args.scope, False)
+                if args.scope
+                else None
+            )
+            scope_ids = [document.id for document in scope] if scope else None
+            if scope:
+                names = ", ".join(document.filename for document in scope)
+                print(f"Búsqueda limitada a: {names}\n", file=out)
+            elif config.rag.enabled and config.rag.detect_document_names:
+                # Como el chat: si la pregunta nombra documentos, se busca solo en ellos.
+                async with build_sessionmaker(engine)() as session:
+                    detected = detect_documents([args.question], await indexed_documents(session))
+                if detected:
+                    names = ", ".join(document.filename for document in detected)
+                    print(f"Documentos nombrados en la pregunta: {names}\n", file=out)
+                    scope_ids = [document.id for document in detected]
+            limit = config.rag.full_document_max_chars
+            if scope_ids and len(scope_ids) == 1 and limit:
+                parts = await full_document_sources(store, scope_ids[0], limit)
+                if parts:
+                    chars = sum(len(part.text) for part in parts)
+                    print(
+                        f"El chat enviaría el documento completo: {len(parts)} partes, "
+                        f"{chars} caracteres (límite {limit}).\n",
+                        file=out,
+                    )
+                else:
+                    print(
+                        f"El documento supera el límite de {limit} caracteres: el chat usaría "
+                        f"fragmentos.\n",
+                        file=out,
+                    )
             hits = await diagnose_query(
-                args.question, config, store, embeddings, args.top, full_ranking=bool(selected)
+                args.question,
+                config,
+                store,
+                embeddings,
+                args.top,
+                full_ranking=bool(selected),
+                scope=scope_ids,
             )
             print_query_report(args.question, hits, out, args.top, selected)
             return 0
@@ -611,6 +655,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         metavar="DOCUMENTO",
         help="Muestra en qué puesto quedan los fragmentos de este documento (se puede repetir)",
+    )
+    query.add_argument(
+        "--scope",
+        action="append",
+        metavar="DOCUMENTO",
+        help="Busca solo en este documento, como el chat al limitar la búsqueda (se puede repetir)",
     )
     return parser
 

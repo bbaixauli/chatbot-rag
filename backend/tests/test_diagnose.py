@@ -209,12 +209,14 @@ async def test_find_documents_by_id_name_or_all(app: FastAPI, client: AsyncClien
     assert [d.id for d in await find_documents(sessionmaker, [], True)] == [document.id]
 
 
-async def _prepare(settings: Settings) -> None:
+async def _prepare(settings: Settings, extra: dict[str, str] | None = None) -> None:
     application = create_app(settings)
     async with application.router.lifespan_context(application):
         async with application.state.engine.begin() as connection:
             await connection.run_sync(Base.metadata.create_all)
         await application.state.documents.upload("guia.md", _Reader(MARKDOWN), "admin")
+        for filename, content in (extra or {}).items():
+            await application.state.documents.upload(filename, _Reader(content), "admin")
         await application.state.tasks.drain()
 
 
@@ -416,3 +418,27 @@ async def test_query_lowers_tables_of_contents(
     toc = next(item for item in hits if item.toc)
     assert toc.hit.score == 0.0
     assert hits[0] is not toc
+
+
+def test_cli_query_with_scope(settings: Settings, capsys: pytest.CaptureFixture[str]) -> None:
+    asyncio.run(_prepare(settings))
+
+    assert main(["query", "vacaciones", "--scope", "guia.md"], settings) == 0
+    output = capsys.readouterr().out
+    assert "Búsqueda limitada a: guia.md" in output
+    assert "El chat usaría" in output
+
+    assert main(["query", "vacaciones", "--scope", "no-existe"], settings) == 1
+    assert "No hay ningún documento" in capsys.readouterr().err
+
+
+def test_cli_query_detects_named_documents(
+    settings: Settings, capsys: pytest.CaptureFixture[str]
+) -> None:
+    norma = "# Control de acceso\n\nLas cuentas se bloquean tras 5 intentos fallidos."
+    asyncio.run(_prepare(settings, {"NOR-013 Control de acceso.md": norma}))
+
+    assert main(["query", "¿Qué dice el NOR-013 de las vacaciones?"], settings) == 0
+    output = capsys.readouterr().out
+    assert "Documentos nombrados en la pregunta: NOR-013 Control de acceso.md" in output
+    assert "guia.md" not in output.split("El chat usaría")[0]

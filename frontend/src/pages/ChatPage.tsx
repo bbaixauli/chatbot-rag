@@ -1,9 +1,17 @@
-import { useQuery } from '@tanstack/react-query'
-import { useCallback, useEffect, useRef } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
-import { ApiError, getChatConfig, listConversations, listMessages } from '../api/client'
+import {
+  ApiError,
+  getChatConfig,
+  listConversations,
+  listMessages,
+  updateConversationScope,
+  type Conversation,
+} from '../api/client'
 import { Composer } from '../components/Composer'
 import { MessageBubble } from '../components/MessageBubble'
+import { ScopePicker } from '../components/ScopePicker'
 import { useChat } from '../hooks/useChat'
 import { useAppearance } from '../hooks/useAppearance'
 import { usePageTitle } from '../hooks/usePageTitle'
@@ -42,9 +50,36 @@ export function ChatPage() {
 
   // Un único h1 por página: el título de la conversación (o «Nueva conversación»).
   const conversations = useQuery({ queryKey: ['conversations'], queryFn: listConversations })
+  const conversation = conversations.data?.find((c) => c.id === conversationId)
   const title = conversationId
-    ? (conversations.data?.find((c) => c.id === conversationId)?.title ?? t.chat.conversation)
+    ? (conversation?.title ?? t.chat.conversation)
     : t.chat.newConversation
+
+  // En qué documentos buscar: en una conversación, lo guardado en ella; en una nueva, lo
+  // elegido hasta enviar la primera pregunta (que lo guarda).
+  const queryClient = useQueryClient()
+  const [draftScope, setDraftScope] = useState<string[]>([])
+  // Al volver a «Nueva conversación» se empieza buscando en todos.
+  const [shownConversation, setShownConversation] = useState(conversationId)
+  if (conversationId !== shownConversation) {
+    setShownConversation(conversationId)
+    if (conversationId === null) setDraftScope([])
+  }
+  const scope = conversationId ? (conversation?.document_ids ?? []) : draftScope
+  const saveScope = useMutation({
+    mutationFn: ({ id, documentIds }: { id: string; documentIds: string[] }) =>
+      updateConversationScope(id, documentIds),
+    onMutate: ({ id, documentIds }) => {
+      queryClient.setQueryData<Conversation[]>(['conversations'], (list) =>
+        list?.map((c) => (c.id === id ? { ...c, document_ids: documentIds } : c)),
+      )
+    },
+    onError: () => void queryClient.invalidateQueries({ queryKey: ['conversations'] }),
+  })
+  const changeScope = (documentIds: string[]) => {
+    if (conversationId) saveScope.mutate({ id: conversationId, documentIds })
+    else setDraftScope(documentIds)
+  }
   usePageTitle(title)
   const { ai_notice: aiNotice } = useAppearance()
 
@@ -73,7 +108,13 @@ export function ChatPage() {
           <ol aria-label={t.chat.messages} className="mx-auto flex max-w-3xl flex-col gap-4">
             {welcome && !messages.isLoading && <MessageBubble role="assistant" content={welcome} />}
             {history.map((m) => (
-              <MessageBubble key={m.id} role={m.role} content={m.content} sources={m.sources} />
+              <MessageBubble
+                key={m.id}
+                role={m.role}
+                content={m.content}
+                sources={m.sources}
+                scope={m.scope}
+              />
             ))}
             {pending && (
               <>
@@ -82,6 +123,7 @@ export function ChatPage() {
                   role="assistant"
                   content={pending.answer}
                   sources={pending.sources}
+                  scope={pending.scope}
                   streaming
                 />
               </>
@@ -97,9 +139,22 @@ export function ChatPage() {
       </div>
       <Composer
         disabled={isStreaming || notFound}
-        onSend={(text) => void send(text)}
+        onSend={(text) =>
+          // En una conversación nueva se envía lo elegido; en una existente ya está guardado.
+          void send(text, !conversationId && draftScope.length ? draftScope : undefined)
+        }
         suggestions={suggestions}
         aiNotice={aiNotice}
+        toolbar={
+          !notFound && (
+            <ScopePicker
+              selected={scope}
+              onChange={changeScope}
+              disabled={isStreaming || saveScope.isPending}
+              error={saveScope.isError ? t.chat.scope.saveError : null}
+            />
+          )
+        }
       />
     </section>
   )

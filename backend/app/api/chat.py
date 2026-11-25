@@ -12,6 +12,7 @@ from app.core.rate_limit import ChatRateLimit, client_key
 from app.services.chat import ChatService, ConversationNotFoundError, Requester
 from app.services.chat_config import ChatConfig, ChatConfigRepository
 from app.services.llm import LLMClient
+from app.services.scope import ScopeError
 
 router = APIRouter(tags=["chat"])
 
@@ -47,8 +48,12 @@ async def chat(
 ) -> StreamingResponse:
     """Envía un mensaje y devuelve la respuesta como eventos SSE.
 
-    Eventos: `conversation` (id y título), `token` (fragmento de texto),
-    `done` (id del mensaje guardado) y `error` (detalle legible).
+    Eventos: `conversation` (id y título), `scope` (documentos a los que se limita la
+    búsqueda, si se limita), `token` (fragmento de texto), `sources` (fuentes), `done` (id
+    del mensaje guardado) y `error` (detalle legible).
+
+    `document_ids` limita la búsqueda a esos documentos y lo guarda en la conversación
+    (`[]` la quita; sin indicar, se mantiene la guardada).
     """
     text = body.message.strip()
     if not text:
@@ -71,9 +76,12 @@ async def chat(
                 user_agent=(request.headers.get("user-agent") or "")[:300] or None,
                 display_name=user.display_name,
             ),
+            document_ids=body.document_ids,
         )
     except ConversationNotFoundError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Conversación no encontrada") from exc
+    except ScopeError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
 
     return StreamingResponse(
         service.stream(prepared),

@@ -7,6 +7,7 @@ from app.api.schemas import ConversationCreate, ConversationOut, ConversationUpd
 from app.core.auth import CurrentUserDep
 from app.db.models import Conversation
 from app.services.conversations import DEFAULT_TITLE, ConversationRepository
+from app.services.scope import ScopeError, resolve_scope
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 
@@ -36,14 +37,24 @@ async def create_conversation(
 
 
 @router.patch("/{conversation_id}", response_model=ConversationOut)
-async def rename_conversation(
+async def update_conversation(
     conversation_id: str, body: ConversationUpdate, db: DbSession, user: CurrentUserDep
 ) -> Conversation:
-    title = body.title.strip()
-    if not title:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "El título no puede estar vacío")
+    """Cambia el título o los documentos a los que se limita la búsqueda (`[]`: todos)."""
     repo = ConversationRepository(db)
-    conversation = await repo.rename(await _get_owned(repo, conversation_id, user.id), title)
+    conversation = await _get_owned(repo, conversation_id, user.id)
+    if body.title is not None:
+        title = body.title.strip()
+        if not title:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT, "El título no puede estar vacío"
+            )
+        conversation = await repo.rename(conversation, title)
+    if body.document_ids is not None:
+        try:
+            await resolve_scope(db, conversation, body.document_ids)
+        except ScopeError as exc:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
     await db.commit()
     return conversation
 

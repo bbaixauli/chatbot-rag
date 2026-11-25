@@ -5,7 +5,7 @@ import json
 import logging
 import time
 from collections.abc import AsyncIterator, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Any
 
@@ -21,14 +21,17 @@ from app.db.models import (
     MessageRole,
     MessageSource,
     QuestionStatus,
+    ScopeSource,
     utcnow,
 )
 from app.services.condense import condense_question
 from app.services.conversations import ConversationRepository, make_title
 from app.services.dashboard import QuestionRecord, record_question
+from app.services.document_names import detect_documents
 from app.services.llm import ChatMessage, LLMClient, LLMError
 from app.services.prompts import PromptRepository
 from app.services.rag import ContextSource, Retriever, build_system_prompt, extract_citations
+from app.services.scope import ScopeDocument, indexed_documents, resolve_scope
 
 logger = logging.getLogger(__name__)
 
@@ -60,11 +63,14 @@ def select_sources(
     """Fuentes que se muestran con la respuesta y si fueron citadas.
 
     Si el modelo cita, solo se muestran las citadas. Si no cita nada (habitual en
-    modelos pequeños), se muestran todas como «consultadas».
+    modelos pequeños), se muestran todas como «consultadas»; si se envió un documento
+    completo, se muestra una sola vez (sus partes serían muchas fuentes del mismo fichero).
     """
     cited = set(extract_citations(answer, len(sources)))
     if cited:
         return [(s, True) for s in sources if s.number in cited]
+    if sources and all(s.full_document for s in sources):
+        return [(replace(sources[0], page=None, heading=None), False)]
     return [(s, False) for s in sources]
 
 
@@ -108,6 +114,8 @@ class PreparedChat:
     # Auditoría (#50).
     requester: Requester = field(default_factory=Requester)
     prompt_version_id: int | None = None
+    # Documentos a los que se limita la búsqueda (#58); vacía: todos.
+    scope: list[ScopeDocument] = field(default_factory=list)
 
 
 class ChatService:
@@ -138,10 +146,14 @@ class ChatService:
         session_id: str | None = None,
         access_kind: AccessKind = AccessKind.SHARED,
         requester: Requester | None = None,
+        document_ids: Sequence[str] | None = None,
     ) -> PreparedChat:
         """Guarda el mensaje del usuario y prepara el prompt.
 
-        Se ejecuta antes de empezar el streaming para poder responder 404 si procede.
+        Se ejecuta antes de empezar el streaming para poder responder 404 (conversación) o
+        422 (`ScopeError`: algún documento de `document_ids` no existe) si procede.
+        `document_ids` cambia la limitación de la búsqueda de la conversación (ver
+        `resolve_scope`).
         """
         started = time.perf_counter()
         async with self._sessionmaker() as session:
@@ -153,6 +165,7 @@ class ChatService:
                 if found is None:
                     raise ConversationNotFoundError(conversation_id)
                 conversation = found
+            scope = await resolve_scope(session, conversation, document_ids)
             user_message = await repo.add_message(conversation, MessageRole.USER, text)
             history = await repo.recent_messages(
                 conversation.id, self._config.chat.history_max_messages + 1
@@ -175,6 +188,7 @@ class ChatService:
                 access_kind=access_kind,
                 requester=requester or Requester(),
                 prompt_version_id=system_prompt.version.id if system_prompt.version else None,
+                scope=scope,
             )
 
     async def stream(self, prepared: PreparedChat) -> AsyncIterator[str]:
@@ -214,10 +228,26 @@ class ChatService:
             },
         )
         sources: list[ContextSource] = []
+        scope_payload: dict[str, Any] | None = None
         if self._retriever:
             query = await self._search_query(prepared)
             record.search_query = query
-            sources = await self._retriever.retrieve(query)
+            # La limitación elegida en el chat tiene prioridad; si no hay, se busca en los
+            # documentos que nombre la pregunta (o su reformulación, en las de seguimiento).
+            scope, origin = prepared.scope, ScopeSource.SELECTOR
+            if not scope:
+                scope = await self._detect_scope(prepared.question, query)
+                origin = ScopeSource.DETECTED
+            scope_ids = [document.id for document in scope]
+            if scope_ids:
+                record.scope_document_ids = scope_ids
+                record.scope_source = origin.value
+                scope_payload = {
+                    "documents": [{"id": d.id, "filename": d.filename} for d in scope],
+                    "source": origin.value,
+                }
+                yield sse_event("scope", scope_payload)
+            sources = await self._retriever.retrieve(query, scope_ids or None)
         prompt = [
             ChatMessage(
                 role="system", content=build_system_prompt(prepared.system_prompt, sources)
@@ -282,6 +312,7 @@ class ChatService:
                 yield sse_event("error", {"detail": "La conversación ya no existe."})
                 return
             message = await repo.add_message(conversation, MessageRole.ASSISTANT, answer)
+            message.scope = scope_payload
             # Un documento puede borrarse mientras se genera la respuesta: su referencia se
             # guarda sin enlace (si no, la clave foránea impediría guardar la respuesta).
             existing = set(
@@ -308,6 +339,15 @@ class ChatService:
             )
             await session.commit()
         yield sse_event("done", {"message_id": message.id})
+
+    async def _detect_scope(self, question: str, query: str) -> list[ScopeDocument]:
+        """Documentos que nombra la pregunta, si la detección está activada."""
+        rag = self._config.rag
+        if not rag.enabled or not rag.detect_document_names:
+            return []
+        async with self._sessionmaker() as session:
+            documents = await indexed_documents(session)
+        return detect_documents([question, query], documents)
 
     async def _search_query(self, prepared: PreparedChat) -> str:
         """Consulta para la búsqueda: la pregunta, reformulada si hay historial."""

@@ -1,9 +1,18 @@
 """Esquemas de entrada y salida de la API."""
 
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
+
+from app.services.scope import MAX_SCOPE_DOCUMENTS
+
+# Documentos a los que se limita la búsqueda (#58), como mucho `MAX_SCOPE_DOCUMENTS`; una
+# lista vacía quita la limitación.
+ScopeIds = Annotated[
+    list[Annotated[str, Field(min_length=1, max_length=36)]],
+    Field(max_length=MAX_SCOPE_DOCUMENTS),
+]
 
 
 class ConversationOut(BaseModel):
@@ -13,6 +22,8 @@ class ConversationOut(BaseModel):
     title: str
     created_at: datetime
     updated_at: datetime
+    # Documentos a los que se limita la búsqueda (vacía: todos).
+    document_ids: Annotated[list[str], BeforeValidator(lambda value: value or [])] = []
 
 
 class ConversationCreate(BaseModel):
@@ -20,7 +31,10 @@ class ConversationCreate(BaseModel):
 
 
 class ConversationUpdate(BaseModel):
-    title: str = Field(min_length=1, max_length=200)
+    """Cambia el título o los documentos a los que se limita la búsqueda."""
+
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    document_ids: ScopeIds | None = None
 
 
 class SourceOut(BaseModel):
@@ -35,6 +49,19 @@ class SourceOut(BaseModel):
     cited: bool
 
 
+class ScopeDocumentOut(BaseModel):
+    id: str
+    filename: str
+
+
+class ScopeOut(BaseModel):
+    """Documentos a los que se limitó la búsqueda de una respuesta (#58)."""
+
+    documents: list[ScopeDocumentOut]
+    # `selector`: elegidos en el chat; `detected`: nombrados en la pregunta.
+    source: Literal["selector", "detected"]
+
+
 class MessageOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -43,6 +70,7 @@ class MessageOut(BaseModel):
     content: str
     created_at: datetime
     sources: list[SourceOut] = []
+    scope: ScopeOut | None = None
 
 
 class ChatConfigOut(BaseModel):
@@ -57,3 +85,15 @@ class ChatConfigOut(BaseModel):
 class ChatRequest(BaseModel):
     conversation_id: str | None = None
     message: str = Field(min_length=1)
+    # Sin indicar: se mantiene la limitación guardada en la conversación.
+    document_ids: ScopeIds | None = None
+
+
+class PublicDocumentOut(BaseModel):
+    """Documento indexado, para elegir dónde buscar en el chat."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    filename: str
+    kind: Literal["pdf", "markdown", "html"]

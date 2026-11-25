@@ -178,6 +178,19 @@ class Settings(BaseSettings):
     # Multiplica la puntuación de los fragmentos que parecen un índice del documento para
     # que no desplacen a los de contenido (1 = sin cambios; 0 = descartarlos).
     rag_toc_score_factor: float = Field(default=0.8, ge=0, le=1)
+    # Puntuación mínima cuando la búsqueda se limita a unos documentos (#58): quien pregunta
+    # ya ha indicado dónde está la respuesta, así que basta con el top-k.
+    rag_scoped_min_score: float = Field(default=0.0, ge=0, le=1)
+    # Si la pregunta nombra un documento (por su código, p. ej. «NOR-013», o su título), la
+    # búsqueda se limita a él (#58).
+    rag_detect_document_names: bool = True
+    # Fragmentos anteriores y posteriores que se añaden a cada fragmento recuperado (0 = no
+    # se añaden). Los contiguos se unen en un pasaje; siempre dentro de rag_max_context_chars.
+    rag_neighbor_chunks: int = Field(default=0, ge=0, le=3)
+    # Si la búsqueda se limita a un solo documento y su texto cabe en estos caracteres, se
+    # envía el documento completo en lugar de fragmentos (0 = nunca). Debe caber en la
+    # ventana de contexto del modelo de chat (unos 4 caracteres por token en español).
+    rag_full_document_max_chars: int = Field(default=0, ge=0)
 
     # --- Valores iniciales (#42): conversación
     chat_history_max_messages: int = Field(default=20, ge=0)

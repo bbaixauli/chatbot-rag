@@ -181,6 +181,9 @@ class QuestionRecord:
     search_query: str | None = None
     cited_documents: list[dict[str, Any]] | None = None
     error_detail: str | None = None
+    # Búsqueda limitada a unos documentos (#58) y su origen (`ScopeSource`).
+    scope_document_ids: list[str] | None = None
+    scope_source: str | None = None
 
 
 async def record_question(
@@ -217,6 +220,8 @@ async def record_question(
                     search_query=record.search_query,
                     cited_documents=record.cited_documents,
                     error_detail=record.error_detail,
+                    scope_document_ids=record.scope_document_ids,
+                    scope_source=record.scope_source,
                 )
             )
             await session.commit()

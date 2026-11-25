@@ -105,9 +105,9 @@ async def _record_queries(app: FastAPI, monkeypatch: pytest.MonkeyPatch) -> list
     queries: list[str] = []
     original = app.state.retriever.retrieve
 
-    async def spy(query: str):  # type: ignore[no-untyped-def]
+    async def spy(query: str, document_ids=None):  # type: ignore[no-untyped-def]
         queries.append(query)
-        return await original(query)
+        return await original(query, document_ids)
 
     monkeypatch.setattr(app.state.retriever, "retrieve", spy)
     return queries
