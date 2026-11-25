@@ -56,7 +56,8 @@ def parse_document(path: Path, kind: DocumentKind) -> list[Section]:
     try:
         if kind is DocumentKind.PDF:
             sections = parse_pdf(path)
-        elif kind is DocumentKind.MARKDOWN:
+        elif kind in (DocumentKind.MARKDOWN, DocumentKind.WEB):
+            # Las páginas web se guardan ya limpias, como Markdown (#78).
             sections = parse_markdown(read_text(path))
         elif kind is DocumentKind.HTML:
             sections = parse_html(read_text(path))

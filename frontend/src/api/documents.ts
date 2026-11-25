@@ -20,6 +20,8 @@ export interface DocumentItem {
   uploaded_by: string
   created_at: string
   updated_at: string
+  /** Dirección web, si se añadió por ella. */
+  source_url?: string | null
   /** Indexado con otro modelo, troceado, preprocesado, título o categoría. */
   outdated: boolean
 }
@@ -86,6 +88,19 @@ export async function uploadDocument(
   if (categoryId !== null) body.append('category_id', String(categoryId))
   return apiRequest<UploadResult[]>('/admin/documents', { method: 'POST', body })
 }
+
+/** Como mucho, direcciones que se pueden añadir de una vez (igual que el servidor). */
+export const MAX_URLS = 50
+
+/** Descarga y da de alta varias direcciones web: un resultado por dirección, en orden. */
+export const addUrls = (
+  urls: string[],
+  { useFilename = false, categoryId = null }: UploadOptions = {},
+) =>
+  apiRequest<UploadResult[]>('/admin/documents/urls', {
+    method: 'POST',
+    body: JSON.stringify({ urls, use_filename: useFilename, category_id: categoryId }),
+  })
 
 /** Cambia el título o la categoría (`null`: sin categoría). */
 export const updateDocument = (

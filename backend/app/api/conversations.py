@@ -7,7 +7,7 @@ from app.api.schemas import ConversationCreate, ConversationOut, ConversationUpd
 from app.core.auth import CurrentUserDep
 from app.db.models import Conversation
 from app.services.conversations import DEFAULT_TITLE, ConversationRepository
-from app.services.scope import ScopeError, document_titles, resolve_scope
+from app.services.scope import ScopeError, document_refs, resolve_scope
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 
@@ -71,19 +71,23 @@ async def list_messages(
     conversation_id: str, db: DbSession, user: CurrentUserDep
 ) -> list[MessageOut]:
     """Mensajes de la conversación. Las fuentes y los documentos de la búsqueda limitada
-    llevan el título actual de su documento (#75); si se borró, el nombre del fichero."""
+    llevan el título actual de su documento (#75), y las fuentes su dirección web si la
+    tiene (#78); si se borró, el nombre del fichero."""
     repo = ConversationRepository(db)
     conversation = await _get_owned(repo, conversation_id, user.id)
     messages = [MessageOut.model_validate(m) for m in await repo.list_messages(conversation.id)]
-    titles = await document_titles(
+    refs = await document_refs(
         db,
         [s.document_id for m in messages for s in m.sources]
         + [d.id for m in messages if m.scope for d in m.scope.documents],
     )
     for message in messages:
         for source in message.sources:
-            source.title = titles.get(source.document_id or "", source.filename)
+            ref = refs.get(source.document_id or "")
+            source.title = ref.title if ref else source.filename
+            source.url = ref.url if ref else None
         if message.scope:
             for document in message.scope.documents:
-                document.title = titles.get(document.id, document.title or document.filename)
+                ref = refs.get(document.id)
+                document.title = ref.title if ref else document.title or document.filename
     return messages

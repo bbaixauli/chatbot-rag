@@ -62,7 +62,17 @@ export interface Conversation {
 
 /** Formatos de documento admitidos. */
 export type DocumentKind =
-  'pdf' | 'markdown' | 'html' | 'docx' | 'pptx' | 'xlsx' | 'odt' | 'odp' | 'ods'
+  | 'pdf'
+  | 'markdown'
+  | 'html'
+  | 'docx'
+  | 'pptx'
+  | 'xlsx'
+  | 'odt'
+  | 'odp'
+  | 'ods'
+  /** Página web añadida por su dirección. */
+  | 'web'
 
 /** Documento indexado, para elegir dónde buscar. */
 export interface IndexedDocument {
@@ -90,6 +100,8 @@ export interface Source {
   filename: string
   /** Título actual del documento (o el nombre del fichero si se borró). */
   title?: string
+  /** Dirección web del documento, si se añadió por ella: la referencia enlaza a ella. */
+  url?: string | null
   page: number | null
   heading: string | null
   snippet: string
@@ -113,6 +125,8 @@ export function sourceUrl(source: Source): string | null {
   if (!source.document_id) return null
   // Solo los PDF se abren en la página citada; los demás formatos se muestran o descargan.
   const page = source.page && /\.pdf$/i.test(source.filename) ? `#page=${source.page}` : ''
+  // Los documentos añadidos por su dirección enlazan a la original.
+  if (source.url) return `${source.url}${page}`
   return `${API_BASE}/documents/${source.document_id}/file${page}`
 }
 

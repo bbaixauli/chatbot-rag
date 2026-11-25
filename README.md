@@ -143,6 +143,23 @@ que un ZIP malicioso no llena el disco); el ZIP en sí no tiene límite propio, 
 (`CHATBOT_MAX_BODY_SIZE`, ver la [guía de despliegue](docs/despliegue.md)). Los nombres con
 acentos de los ZIP creados en Windows se leen bien aunque no estén en UTF-8.
 
+### Documentos web
+
+En *Administración → Documentos* se pueden añadir documentos por su **dirección web** (varias,
+una por línea). El servidor los descarga: de las **páginas HTML** se guarda solo el contenido
+principal, sin menús, cabeceras, pies ni avisos de cookies (con
+[trafilatura](https://trafilatura.readthedocs.io/)), en Markdown y con sus apartados; los PDF,
+Markdown y documentos de Office se guardan tal cual. El título es el de la página (sin el nombre
+del sitio) o el de los metadatos, y las **referencias del chat enlazan a la dirección
+original** (los PDF, a la página citada). Reindexar no vuelve a descargar.
+
+Por seguridad, solo se admiten direcciones `http` y `https` sin usuario ni contraseña (no hay
+acceso con autenticación), la descarga tiene un tiempo y un tamaño máximos y se comprueba el
+destino de cada redirección. En *Configuración → Documentos web* se fija el tiempo máximo y,
+opcionalmente, los **dominios permitidos** (cada uno con sus subdominios). Ten en cuenta que el
+servidor descarga desde su propia red: puede acceder a páginas internas que el administrador no
+vea desde fuera.
+
 ### Título y categorías de los documentos
 
 Cada documento tiene un **título**, que es lo que muestran las referencias del chat y el
@@ -331,7 +348,7 @@ Documentación interactiva en http://localhost:8000/docs. Endpoints principales:
 | PUT/DELETE | `/api/v1/admin/appearance/logo` | Subir o quitar el logo (admin) |
 | GET/PUT | `/api/v1/admin/access` | Acceso anónimo (con LDAP) o sesiones privadas (sin LDAP) (admin) |
 | GET | `/api/v1/admin/config` | Configuración de la aplicación por grupos, sin secretos (admin) |
-| PUT | `/api/v1/admin/config/{grupo}` | Cambia un grupo (`llm`, `embeddings`, `indexing`, `rag`, `chat`, `limits`, `users`, `audit`); avisa si hay que reindexar (admin) |
+| PUT | `/api/v1/admin/config/{grupo}` | Cambia un grupo (`llm`, `embeddings`, `indexing`, `rag`, `chat`, `limits`, `users`, `audit`, `web`); avisa si hay que reindexar (admin) |
 | POST | `/api/v1/admin/config/{llm,embeddings}/test` | Prueba la conexión con los valores enviados, sin guardarlos (admin) |
 | GET/PUT | `/api/v1/admin/prompt` | Prompt de sistema vigente / guardar nueva versión (admin) |
 | GET | `/api/v1/admin/prompt/versions` | Historial de versiones (admin) |
@@ -340,6 +357,7 @@ Documentación interactiva en http://localhost:8000/docs. Endpoints principales:
 | GET | `/api/v1/admin/documents/stats` | Nº de documentos, fragmentos, desactualizados y modelo de embeddings (admin) |
 | POST | `/api/v1/admin/documents/reindex` | Reindexar todos (admin) |
 | POST | `/api/v1/admin/documents/reindex-outdated` | Reindexar los desactualizados (admin) |
+| POST | `/api/v1/admin/documents/urls` | Descargar y dar de alta documentos por su dirección web (`urls`, hasta 50; `category_id` y `use_filename` opcionales); un resultado por dirección (admin) |
 | GET/PATCH/DELETE | `/api/v1/admin/documents/{id}` | Detalle / cambiar título o categoría / eliminar (admin) |
 | POST | `/api/v1/admin/documents/{id}/reindex` | Reindexar uno (admin) |
 | GET | `/api/v1/admin/documents/{id}/file` | Descargar el original (admin) |

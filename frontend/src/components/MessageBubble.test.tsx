@@ -60,6 +60,17 @@ describe('fuentes de Office y OpenDocument', () => {
   })
 })
 
+describe('fuentes de documentos web', () => {
+  it('enlazan a la dirección original (los PDF, en la página citada)', () => {
+    const page = source(1, { filename: 'gastos.html', url: 'https://intranet/gastos' })
+    const pdf = source(2, { page: 3, url: 'https://intranet/manual.pdf', document_id: 'd2' })
+    expect(linkCitations('[1][2]', [page, pdf])).toBe(
+      '[\\[1\\]](https://intranet/gastos "gastos.html")' +
+        '[\\[2\\]](https://intranet/manual.pdf#page=3 "manual.pdf · pág. 3")',
+    )
+  })
+})
+
 describe('linkCitations', () => {
   it('enlaza solo las citas con documento disponible', () => {
     const sources = [source(1, { page: 2 }), source(2, { document_id: null })]

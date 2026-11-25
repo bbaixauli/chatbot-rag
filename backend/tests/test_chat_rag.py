@@ -76,6 +76,7 @@ async def test_cited_sources_are_streamed_saved_and_listed(
         "document_id": document_id,
         "filename": "guia.md",
         "title": "Guía de vacaciones",
+        "url": None,
         "page": None,
         "heading": "Guía de vacaciones",
         "snippet": source["snippet"],

@@ -123,6 +123,7 @@ function appConfig(): AppConfig {
         smtp_password: { configured: false, unreadable: false },
         smtp_from: null,
       }),
+      web: group({ timeout_seconds: 30, allowed_domains: null }),
     },
     providers: { llm: ['openai', 'fake'], embeddings: ['openai', 'local', 'fake'] },
   }

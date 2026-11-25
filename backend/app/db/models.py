@@ -89,6 +89,9 @@ class DocumentKind(StrEnum):
     ODT = "odt"
     ODP = "odp"
     ODS = "ods"
+    # Página web añadida por su dirección (#78): se guarda su contenido principal, ya limpio,
+    # como Markdown.
+    WEB = "web"
 
 
 class Category(Base):
@@ -133,6 +136,11 @@ class Document(Base):
     uploaded_by: Mapped[str] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    # Documentos añadidos por su dirección web (#78): la dirección (a la que enlazan las
+    # referencias) y las cabeceras de la última descarga (para actualizarlo, #79).
+    source_url: Mapped[str | None] = mapped_column(String(2048))
+    source_etag: Mapped[str | None] = mapped_column(String(255))
+    source_last_modified: Mapped[str | None] = mapped_column(String(64))
 
 
 class SystemPromptVersion(Base):

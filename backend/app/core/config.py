@@ -151,6 +151,12 @@ class Settings(BaseSettings):
     # Antepone «Documento: <título>» y la sección al texto con el que se calcula el vector.
     indexing_context_prefix: bool = True
 
+    # --- Valores iniciales: documentos web (#78). Tiempo máximo de cada descarga y
+    # dominios de los que se pueden añadir documentos (separados por comas; cada uno admite
+    # también sus subdominios). Vacío: cualquiera.
+    web_timeout_seconds: int = Field(default=30, ge=1, le=300)
+    web_allowed_domains: str = ""
+
     # Escalado (requiere `uv sync --extra escalado`). Por defecto, ChromaDB embebido y
     # tareas en el proceso de la API. Con `arq`, la indexación la hacen workers aparte
     # (`arq app.worker.WorkerSettings`) que leen la cola de Redis.
