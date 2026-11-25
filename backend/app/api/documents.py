@@ -12,7 +12,7 @@ from app.api.deps import DbSession
 from app.api.schemas import PublicDocumentOut
 from app.core.auth import AdminDep, CurrentUserDep
 from app.db.models import Category, Document, DocumentKind, DocumentStatus
-from app.services.documents import DocumentService, UploadError
+from app.services.documents import DocumentService, UploadError, is_archive
 
 router = APIRouter(prefix="/admin/documents", tags=["documents"])
 
@@ -56,7 +56,10 @@ class DocumentUpdate(BaseModel):
 
 
 class UploadResultOut(BaseModel):
+    # En un ZIP, la ruta del fichero dentro de él.
     filename: str
+    # ZIP del que viene el fichero (#77).
+    archive: str | None = None
     document: DocumentOut | None = None
     duplicate: bool = False
     error: str | None = None
@@ -115,14 +118,38 @@ async def upload_documents(
 ) -> list[UploadResultOut]:
     """Sube uno o varios ficheros. Cada uno se valida y procesa por separado.
 
-    Todos van a la categoría `category_id` (si se indica) y, con `use_filename`, toman
-    como título el nombre del fichero en lugar del de sus metadatos.
+    Un ZIP da de alta cada fichero admitido que contenga (un resultado por fichero, con
+    `archive`). Todos van a la categoría `category_id` (si se indica) y, con
+    `use_filename`, toman como título el nombre del fichero en lugar del de sus metadatos.
     """
     await _check_category(service, category_id)
-    results = []
+    results: list[UploadResultOut] = []
     for file in files:
         filename = file.filename or "documento"
         try:
+            if is_archive(filename):
+                entries = await service.upload_archive(
+                    filename,
+                    file,
+                    admin.username,
+                    use_filename=use_filename,
+                    category_id=category_id,
+                )
+                results.extend(
+                    UploadResultOut(
+                        filename=entry.name,
+                        archive=filename,
+                        document=(
+                            DocumentOut.model_validate(entry.result.document)
+                            if entry.result
+                            else None
+                        ),
+                        duplicate=bool(entry.result and entry.result.duplicate),
+                        error=entry.error,
+                    )
+                    for entry in entries
+                )
+                continue
             result = await service.upload(
                 filename,
                 file,

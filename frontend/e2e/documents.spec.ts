@@ -238,3 +238,33 @@ test('indexa Word y Excel y cita el apartado del documento de Word', async ({ pa
       .getByRole('link', { name: 'Abrir fuente: [1] Normas de teletrabajo — Teletrabajo' }),
   ).toBeVisible()
 })
+
+test('sube un ZIP con varios documentos a una categoría', async ({ page }) => {
+  await openDocuments(page)
+
+  // Contiene politica-gastos.html (eliminado en un test anterior), una copia de la guía de
+  // vacaciones, un fichero no admitido y basura de macOS (que se omite).
+  await page
+    .getByRole('combobox', { name: 'Categoría de los documentos que subas' })
+    .selectOption('Recursos humanos')
+  await page.getByTestId('file-input').setInputFiles(fixture('lote.zip'))
+
+  const uploads = page.getByRole('region', { name: 'Subidas' })
+  await expect(uploads.getByRole('listitem').filter({ hasText: /^lote\.zipZIP/ })).toContainText(
+    'ZIP: 2 ficheros subidos, 1 con errores',
+  )
+  await expect(
+    uploads.getByRole('listitem').filter({ hasText: 'lote.zip › politica-gastos.html' }),
+  ).toContainText('Subido')
+  await expect(
+    uploads.getByRole('listitem').filter({ hasText: 'lote.zip › carpeta/copia guía.md' }),
+  ).toContainText('Ya existía')
+  await expect(
+    uploads.getByRole('listitem').filter({ hasText: 'lote.zip › notas.txt' }),
+  ).toContainText('Tipo de fichero no admitido')
+  await expect(uploads.getByText(/__MACOSX/)).toHaveCount(0)
+
+  const gastos = row(page, 'politica-gastos.html')
+  await expect(gastos.getByText('Indexado')).toBeVisible()
+  await expect(gastos).toContainText('Recursos humanos')
+})

@@ -363,6 +363,54 @@ describe('DocumentsPage', () => {
     expect(api.mock.calls.filter(([, i]) => i?.method === 'POST')).toHaveLength(4)
   })
 
+  it('sube un ZIP y muestra el resultado de cada fichero', async () => {
+    documentsApi([], {
+      'POST /admin/documents': () =>
+        jsonResponse([
+          {
+            filename: 'guia.md',
+            archive: 'lote.zip',
+            document: doc('a', 'guia.md'),
+            duplicate: false,
+            error: null,
+          },
+          {
+            filename: 'carpeta/copia.md',
+            archive: 'lote.zip',
+            document: doc('a', 'guia.md'),
+            duplicate: true,
+            error: null,
+          },
+          {
+            filename: 'notas.txt',
+            archive: 'lote.zip',
+            document: null,
+            duplicate: false,
+            error: 'Tipo de fichero no admitido',
+          },
+        ]),
+    })
+    renderApp('/admin/documents')
+
+    await userEvent.upload(await screen.findByTestId('file-input'), file('lote.zip', 'PK'))
+
+    const uploads = await screen.findByRole('region', { name: 'Subidas' })
+    await waitFor(() =>
+      expect(within(uploads).getByText('lote.zip').nextSibling).toHaveTextContent(
+        'ZIP: 2 ficheros subidos, 1 con errores',
+      ),
+    )
+    const rows = within(uploads)
+      .getAllByRole('listitem')
+      .map((item) => item.textContent)
+    expect(rows).toEqual([
+      'lote.zipZIP: 2 ficheros subidos, 1 con errores',
+      'lote.zip › guia.mdSubido',
+      'lote.zip › carpeta/copia.mdYa existía',
+      'lote.zip › notas.txtTipo de fichero no admitido',
+    ])
+  })
+
   it('rechaza en el navegador los tipos no admitidos y acepta arrastrar y soltar', async () => {
     const { api } = documentsApi([], {
       'POST /admin/documents': () =>

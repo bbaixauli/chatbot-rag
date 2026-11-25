@@ -134,6 +134,15 @@ antiguos (`.doc`, `.xls`, `.ppt`) y los documentos protegidos con contraseña no
 hay que guardarlos como `.docx`, `.xlsx` o `.pptx` sin contraseña. Los originales de Office y
 OpenDocument se descargan al abrir la referencia (el navegador no los muestra).
 
+También se puede subir un **ZIP** con varios documentos: cada fichero admitido se da de alta
+por separado (con la categoría y la opción de título elegidas para la subida) y se muestra el
+resultado de cada uno. Se omiten los directorios y los ficheros de sistema (`__MACOSX`,
+`.DS_Store`, `Thumbs.db`, ocultos); no se admiten ZIP dentro de otro ZIP ni ficheros cifrados.
+El tamaño máximo de subida se aplica a cada fichero del ZIP (se comprueba al descomprimirlo, así
+que un ZIP malicioso no llena el disco); el ZIP en sí no tiene límite propio, salvo el del proxy
+(`CHATBOT_MAX_BODY_SIZE`, ver la [guía de despliegue](docs/despliegue.md)). Los nombres con
+acentos de los ZIP creados en Windows se leen bien aunque no estén en UTF-8.
+
 ### Título y categorías de los documentos
 
 Cada documento tiene un **título**, que es lo que muestran las referencias del chat y el
@@ -327,7 +336,7 @@ Documentación interactiva en http://localhost:8000/docs. Endpoints principales:
 | GET/PUT | `/api/v1/admin/prompt` | Prompt de sistema vigente / guardar nueva versión (admin) |
 | GET | `/api/v1/admin/prompt/versions` | Historial de versiones (admin) |
 | POST | `/api/v1/admin/prompt/versions/{id}/restore` | Restaurar una versión (admin) |
-| GET/POST | `/api/v1/admin/documents` | Listar / subir documentos (multipart, varios ficheros; `category_id` y `use_filename` opcionales) (admin) |
+| GET/POST | `/api/v1/admin/documents` | Listar / subir documentos (multipart, varios ficheros o ZIP; `category_id` y `use_filename` opcionales) (admin) |
 | GET | `/api/v1/admin/documents/stats` | Nº de documentos, fragmentos, desactualizados y modelo de embeddings (admin) |
 | POST | `/api/v1/admin/documents/reindex` | Reindexar todos (admin) |
 | POST | `/api/v1/admin/documents/reindex-outdated` | Reindexar los desactualizados (admin) |
