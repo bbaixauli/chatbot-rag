@@ -375,10 +375,10 @@ describe('DocumentsPage', () => {
 
     fireEvent.dragOver(zone)
     fireEvent.dragLeave(zone)
-    fireEvent.drop(zone, { dataTransfer: { files: [file('hoja.xlsx'), file('a.md')] } })
+    fireEvent.drop(zone, { dataTransfer: { files: [file('hoja.xls'), file('a.md')] } })
 
     const uploads = await screen.findByRole('region', { name: 'Subidas' })
-    expect(await within(uploads).findByText('Tipo de fichero no admitido')).toBeVisible()
+    expect(await within(uploads).findByText(/^Tipo de fichero no admitido/)).toBeVisible()
     await waitFor(() =>
       expect(within(uploads).getByText('a.md').nextSibling).toHaveTextContent('Subido'),
     )

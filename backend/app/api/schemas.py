@@ -5,6 +5,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 
+from app.db.models import DocumentKind
 from app.services.scope import MAX_SCOPE_DOCUMENTS
 
 # Documentos a los que se limita la búsqueda (#58), como mucho `MAX_SCOPE_DOCUMENTS`; una
@@ -101,5 +102,5 @@ class PublicDocumentOut(BaseModel):
     id: str
     filename: str
     title: str
-    kind: Literal["pdf", "markdown", "html"]
+    kind: DocumentKind
     category: str | None = None

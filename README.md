@@ -1,7 +1,8 @@
 # Chatbot RAG
 
 Chat conectado a un modelo de IA compatible con la API de OpenAI, con RAG sobre documentos
-(PDF, Markdown y HTML) y referencias a los ficheros de origen. Incluye una zona de
+(PDF, Markdown, HTML, Word, PowerPoint, Excel y OpenDocument) y referencias a los ficheros de
+origen. Incluye una zona de
 administración para definir el prompt de sistema, el mensaje inicial del chat y gestionar los
 documentos.
 
@@ -89,7 +90,8 @@ La administración (http://localhost:5173/admin) se habilita definiendo
 `CHATBOT_ADMIN_PASSWORD` (y, recomendado, `CHATBOT_SESSION_SECRET`, de al menos 16 caracteres;
 en producción es obligatorio y no se admite la contraseña de ejemplo). Desde ella se edita el
 prompt de sistema, que se guarda con histórico de versiones y se aplica a los mensajes nuevos,
-se configura el inicio del chat y se gestionan los documentos del RAG (PDF, Markdown y HTML).
+se configura el inicio del chat y se gestionan los documentos del RAG (ver
+[Formatos de documento](#formatos-de-documento)).
 
 ### Usuarios
 
@@ -114,6 +116,23 @@ En *Administración → Mensaje inicial* se puede definir:
 - Hasta **5 preguntas sugeridas**, que aparecen sobre el campo de texto al empezar una
   conversación. Al pulsar una, su texto sustituye al que hubiera en el campo y se puede editar
   antes de enviarlo.
+
+### Formatos de documento
+
+| Formato | Extensiones | Se cita por |
+|---|---|---|
+| PDF | `.pdf` | página (el enlace abre el PDF en ella) |
+| Markdown | `.md`, `.markdown` | apartado (ruta de encabezados) |
+| HTML | `.html`, `.htm` | apartado |
+| Word / texto de OpenDocument | `.docx`, `.odt` | apartado (estilos de encabezado) |
+| PowerPoint / presentación de OpenDocument | `.pptx`, `.odp` | diapositiva (con sus notas; las ocultas no se indexan) |
+| Excel / hoja de cálculo de OpenDocument | `.xlsx`, `.ods` | hoja (las ocultas no se indexan) |
+
+En las hojas de cálculo, la primera fila con datos se toma como cabecera y cada fila se indexa
+como «Cabecera: valor; …», para que se entienda sin el resto de la tabla. Los formatos
+antiguos (`.doc`, `.xls`, `.ppt`) y los documentos protegidos con contraseña no se admiten:
+hay que guardarlos como `.docx`, `.xlsx` o `.pptx` sin contraseña. Los originales de Office y
+OpenDocument se descargan al abrir la referencia (el navegador no los muestra).
 
 ### Título y categorías de los documentos
 
@@ -161,7 +180,8 @@ Para volúmenes grandes, el índice puede estar en **Qdrant** y la indexación r
 En cada pregunta se recuperan los fragmentos más parecidos (top-k) por encima de la puntuación
 mínima, se añaden numerados al prompt de sistema y se pide al modelo que cite
 con `[n]`. Bajo la respuesta se muestran las fuentes citadas (fichero y página o sección) con
-enlace al original; los PDF se abren en la página citada. Si el modelo no cita, se muestran
+enlace al original; los PDF se abren en la página citada y en las presentaciones se indica la
+diapositiva. Si el modelo no cita, se muestran
 como «Fuentes consultadas».
 
 Las preguntas de seguimiento («¿y con cuánta antelación?») se reformulan con el historial antes
@@ -317,7 +337,7 @@ Documentación interactiva en http://localhost:8000/docs. Endpoints principales:
 | GET/POST | `/api/v1/admin/categories` | Categorías con su nº de documentos / crear una (admin) |
 | PATCH/DELETE | `/api/v1/admin/categories/{id}` | Renombrar / eliminar (sus documentos quedan sin categoría) (admin) |
 | GET | `/api/v1/documents` | Documentos indexados (id, título, fichero, tipo y categoría), para limitar la búsqueda del chat |
-| GET | `/api/v1/documents/{id}/file` | Ver el original desde una referencia del chat (PDF en línea, Markdown como texto, HTML en sandbox) |
+| GET | `/api/v1/documents/{id}/file` | Ver el original desde una referencia del chat (PDF en línea, Markdown como texto, HTML en sandbox; Office y OpenDocument se descargan) |
 
 ## Calidad y tests
 

@@ -370,7 +370,7 @@ export const t = {
   documents: {
     title: 'Documentos',
     description:
-      'Ficheros que el asistente consulta para responder. Se admiten PDF, Markdown y HTML.',
+      'Ficheros que el asistente consulta para responder. Se admiten PDF, Markdown, HTML, Word, PowerPoint, Excel y sus equivalentes de OpenDocument (LibreOffice).',
     stats: (documents: number, chunks: number) =>
       `${documents} ${documents === 1 ? 'documento' : 'documentos'} · ${chunks} ${
         chunks === 1 ? 'fragmento indexado' : 'fragmentos indexados'
@@ -386,7 +386,7 @@ export const t = {
     confirmReindexAll:
       '¿Reindexar todos los documentos? Es necesario si ha cambiado el modelo de embeddings. ' +
       'Hasta que termine, el chat responderá sin ellos.',
-    dropzone: 'Arrastra aquí ficheros PDF, Markdown o HTML',
+    dropzone: 'Arrastra aquí ficheros PDF, Markdown, HTML, Word, PowerPoint, Excel u OpenDocument',
     or: 'o',
     select: 'Seleccionar ficheros',
     uploads: 'Subidas',
@@ -394,7 +394,8 @@ export const t = {
     uploaded: 'Subido',
     duplicate: 'Ya existía',
     uploadFailed: 'No se pudo subir',
-    unsupported: 'Tipo de fichero no admitido',
+    unsupported:
+      'Tipo de fichero no admitido (los formatos antiguos .doc, .xls y .ppt hay que guardarlos como .docx, .xlsx o .pptx)',
     uploadOptions: 'Opciones de la subida',
     uploadCategory: 'Categoría de los documentos que subas',
     useFilename: 'Usar el nombre del fichero como título',
@@ -417,7 +418,17 @@ export const t = {
       uploaded: 'Subido',
       actions: 'Acciones',
     },
-    kinds: { pdf: 'PDF', markdown: 'Markdown', html: 'HTML' },
+    kinds: {
+      pdf: 'PDF',
+      markdown: 'Markdown',
+      html: 'HTML',
+      docx: 'Word',
+      pptx: 'PowerPoint',
+      xlsx: 'Excel',
+      odt: 'Texto OpenDocument',
+      odp: 'Presentación OpenDocument',
+      ods: 'Hoja de cálculo OpenDocument',
+    },
     status: {
       pending: 'Pendiente',
       processing: 'Procesando…',
@@ -822,6 +833,7 @@ export const t = {
     sources: 'Fuentes',
     consultedSources: 'Fuentes consultadas',
     page: (n: number) => `pág. ${n}`,
+    slide: (n: number) => `diap. ${n}`,
     deletedDocument: 'documento eliminado',
     openSource: (label: string) => `Abrir fuente: ${label}`,
   },

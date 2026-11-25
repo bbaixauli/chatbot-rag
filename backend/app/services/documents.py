@@ -135,7 +135,10 @@ class DocumentService:
         name = safe_filename(filename)
         kind = kind_for_filename(name)
         if kind is None:
-            raise UploadError("Tipo de fichero no admitido (se aceptan PDF, Markdown y HTML)")
+            raise UploadError(
+                "Tipo de fichero no admitido (se aceptan PDF, Markdown, HTML, Word, PowerPoint, "
+                "Excel y OpenDocument)"
+            )
 
         uploads = self._settings.uploads_dir
         uploads.mkdir(parents=True, exist_ok=True)

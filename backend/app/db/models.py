@@ -82,6 +82,13 @@ class DocumentKind(StrEnum):
     PDF = "pdf"
     MARKDOWN = "markdown"
     HTML = "html"
+    # Office y OpenDocument (#76).
+    DOCX = "docx"
+    PPTX = "pptx"
+    XLSX = "xlsx"
+    ODT = "odt"
+    ODP = "odp"
+    ODS = "ods"
 
 
 class Category(Base):

@@ -1,4 +1,7 @@
-"""Extracción de texto con su ubicación (página o sección) desde PDF, Markdown y HTML."""
+"""Extracción de texto con su ubicación (página o sección) desde PDF, Markdown y HTML.
+
+Los formatos de Office y OpenDocument están en `office.py`.
+"""
 
 import re
 from dataclasses import dataclass
@@ -16,6 +19,12 @@ EXTENSIONS: dict[str, DocumentKind] = {
     ".markdown": DocumentKind.MARKDOWN,
     ".html": DocumentKind.HTML,
     ".htm": DocumentKind.HTML,
+    ".docx": DocumentKind.DOCX,
+    ".pptx": DocumentKind.PPTX,
+    ".xlsx": DocumentKind.XLSX,
+    ".odt": DocumentKind.ODT,
+    ".odp": DocumentKind.ODP,
+    ".ods": DocumentKind.ODS,
 }
 
 # Elementos HTML que no aportan contenido (navegación, scripts, formularios…).
@@ -49,8 +58,13 @@ def parse_document(path: Path, kind: DocumentKind) -> list[Section]:
             sections = parse_pdf(path)
         elif kind is DocumentKind.MARKDOWN:
             sections = parse_markdown(read_text(path))
-        else:
+        elif kind is DocumentKind.HTML:
             sections = parse_html(read_text(path))
+        else:
+            # Importación diferida: `office` usa las utilidades de este módulo.
+            from app.services.ingestion import office
+
+            sections = office.parse_office(path, kind)
     except ParseError:
         raise
     except Exception as exc:
@@ -74,7 +88,8 @@ def read_text(path: Path) -> str:
     return raw.decode("latin-1")
 
 
-def _clean(text: str) -> str:
+def clean_text(text: str) -> str:
+    """Espacios normalizados y como mucho una línea en blanco seguida."""
     text = text.replace(chr(0xA0), " ")  # espacio de no separación
     text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
@@ -86,17 +101,19 @@ def parse_pdf(path: Path) -> list[Section]:
     sections = []
     with pymupdf.open(path) as pdf:  # type: ignore[no-untyped-call]
         for number, page in enumerate(pdf, start=1):
-            text = _clean(page.get_text("text"))
+            text = clean_text(page.get_text("text"))
             if text:
                 sections.append(Section(text=text, page=number))
     return sections
 
 
-def _heading_path(stack: list[tuple[int, str]]) -> str | None:
+def heading_path(stack: list[tuple[int, str]]) -> str | None:
+    """Ruta de encabezados «A > B» de la pila de encabezados abiertos."""
     return " > ".join(title for _, title in stack) or None
 
 
-def _push_heading(stack: list[tuple[int, str]], level: int, title: str) -> None:
+def push_heading(stack: list[tuple[int, str]], level: int, title: str) -> None:
+    """Abre un encabezado de nivel `level`, cerrando los del mismo nivel o inferiores."""
     while stack and stack[-1][0] >= level:
         stack.pop()
     stack.append((level, title))
@@ -112,7 +129,7 @@ def parse_markdown(source: str) -> list[Section]:
     heading = None
 
     def flush(end: int) -> None:
-        text = _clean("\n".join(lines[start:end]))
+        text = clean_text("\n".join(lines[start:end]))
         if text:
             sections.append(Section(text=text, heading=heading))
 
@@ -121,8 +138,8 @@ def parse_markdown(source: str) -> list[Section]:
             continue
         flush(token.map[0])
         title = tokens[index + 1].content.strip()
-        _push_heading(stack, int(token.tag[1]), title)
-        heading = _heading_path(stack)
+        push_heading(stack, int(token.tag[1]), title)
+        heading = heading_path(stack)
         start = token.map[0]
     flush(len(lines))
     return sections
@@ -142,7 +159,7 @@ def parse_html(source: str) -> list[Section]:
     buffer: list[str] = []
 
     def flush() -> None:
-        text = _clean("\n\n".join(buffer))
+        text = clean_text("\n\n".join(buffer))
         if text:
             sections.append(Section(text=text, heading=heading))
         buffer.clear()
@@ -152,8 +169,8 @@ def parse_html(source: str) -> list[Section]:
             continue
         if element.name in _HEADINGS:
             flush()
-            _push_heading(stack, int(element.name[1]), element.get_text(" ", strip=True))
-            heading = _heading_path(stack)
+            push_heading(stack, int(element.name[1]), element.get_text(" ", strip=True))
+            heading = heading_path(stack)
             continue
         # Evita duplicar texto de bloques anidados (p. ej. <p> dentro de <li>).
         if element.find_parent(_HTML_BLOCKS):
@@ -165,7 +182,7 @@ def parse_html(source: str) -> list[Section]:
 
     if not sections:
         # HTML sin bloques reconocibles: se usa todo el texto visible.
-        text = _clean(root.get_text("\n", strip=True))
+        text = clean_text(root.get_text("\n", strip=True))
         if text:
             sections.append(Section(text=text, heading=title))
     return sections

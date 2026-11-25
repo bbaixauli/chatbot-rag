@@ -42,6 +42,24 @@ describe('sourceLabel', () => {
   })
 })
 
+describe('fuentes de Office y OpenDocument', () => {
+  it('las presentaciones citan diapositivas', () => {
+    expect(sourceLabel(source(1, { filename: 'plan.pptx', page: 2 }))).toBe('plan.pptx · diap. 2')
+    expect(sourceLabel(source(1, { filename: 'plan.odp', page: 3 }))).toBe('plan.odp · diap. 3')
+  })
+
+  it('solo los PDF se enlazan a la página', () => {
+    const [pdf, slides] = [
+      source(1, { page: 2 }),
+      source(2, { filename: 'plan.pptx', page: 2, document_id: 'd2' }),
+    ]
+    expect(linkCitations('[1][2]', [pdf, slides])).toBe(
+      '[\\[1\\]](/api/v1/documents/d1/file#page=2 "manual.pdf · pág. 2")' +
+        '[\\[2\\]](/api/v1/documents/d2/file "plan.pptx · diap. 2")',
+    )
+  })
+})
+
 describe('linkCitations', () => {
   it('enlaza solo las citas con documento disponible', () => {
     const sources = [source(1, { page: 2 }), source(2, { document_id: null })]
