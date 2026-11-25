@@ -211,6 +211,7 @@ async def test_documents_from_app(app: FastAPI, settings: Settings) -> None:
         session.add(
             Document(
                 filename="pendiente.md",
+                title="pendiente.md",
                 kind="markdown",
                 size_bytes=1,
                 sha256="f" * 64,

@@ -274,6 +274,7 @@ async def test_pending_documents_resume_on_startup(settings: Settings, app: Fast
             Document(
                 id="d1",
                 filename="a.md",
+                title="a.md",
                 kind="markdown",
                 size_bytes=6,
                 sha256="0" * 64,

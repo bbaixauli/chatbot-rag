@@ -30,7 +30,7 @@ export function ScopePicker({ selected, onChange, disabled = false, error }: Pro
     enabled: open || selected.length > 0,
     staleTime: 60_000,
   })
-  const names = new Map((documents.data ?? []).map((d) => [d.id, d.filename]))
+  const names = new Map((documents.data ?? []).map((d) => [d.id, d.title]))
 
   function close(focusButton = true) {
     setOpen(false)
@@ -52,10 +52,17 @@ export function ScopePicker({ selected, onChange, disabled = false, error }: Pro
     onChange(selected.includes(id) ? selected.filter((d) => d !== id) : [...selected, id])
   }
 
+  // Se busca en el título, el nombre del fichero y la categoría.
   const needle = filter.trim().toLocaleLowerCase('es')
   const visible = (documents.data ?? [])
-    .filter((d) => !needle || d.filename.toLocaleLowerCase('es').includes(needle))
-    .sort((a, b) => collator.compare(a.filename, b.filename))
+    .filter(
+      (d) =>
+        !needle ||
+        [d.title, d.filename, d.category ?? ''].some((text) =>
+          text.toLocaleLowerCase('es').includes(needle),
+        ),
+    )
+    .sort((a, b) => collator.compare(a.title, b.title))
   const full = selected.length >= MAX_SCOPE_DOCUMENTS
 
   return (
@@ -123,7 +130,16 @@ export function ScopePicker({ selected, onChange, disabled = false, error }: Pro
                         onChange={() => toggle(document.id)}
                         className="mt-1"
                       />
-                      {document.filename}
+                      <span className="flex flex-col">
+                        {document.title}
+                        {(document.category || document.title !== document.filename) && (
+                          <span className="text-xs text-texto-secundario">
+                            {[document.category, document.filename]
+                              .filter((part) => part && part !== document.title)
+                              .join(' · ')}
+                          </span>
+                        )}
+                      </span>
                     </label>
                   )
                 })}

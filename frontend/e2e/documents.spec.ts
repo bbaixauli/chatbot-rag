@@ -15,12 +15,16 @@ async function apiLogin(request: APIRequestContext) {
   expect(response.ok()).toBeTruthy()
 }
 
-// Parte de un índice vacío aunque se reutilice un servidor ya arrancado.
+// Parte de un índice vacío (y sin categorías) aunque se reutilice un servidor ya arrancado.
 test.beforeAll(async ({ request }) => {
   await apiLogin(request)
   const documents = await (await request.get('/api/v1/admin/documents')).json()
   for (const document of documents) {
     await request.delete(`/api/v1/admin/documents/${document.id}`)
+  }
+  const categories = await (await request.get('/api/v1/admin/categories')).json()
+  for (const category of categories) {
+    await request.delete(`/api/v1/admin/categories/${category.id}`)
   }
 })
 
@@ -50,8 +54,15 @@ test('sube PDF, Markdown y HTML y quedan indexados', async ({ page }) => {
     await expect(row(page, name).getByText('Indexado')).toBeVisible()
   }
   await expect(row(page, 'manual-empleado.pdf')).toContainText('PDF')
-  await expect(row(page, 'manual-empleado.pdf').getByRole('cell').nth(4)).toHaveText('3')
+  await expect(row(page, 'manual-empleado.pdf').getByRole('cell').nth(5)).toHaveText('3')
   await expect(row(page, 'politica-gastos.html')).toContainText('HTML')
+  // Títulos: el de la página HTML, el primer encabezado del Markdown y, sin metadatos, el
+  // nombre del fichero del PDF.
+  await expect(row(page, 'politica-gastos.html')).toContainText('Política de gastos')
+  await expect(row(page, 'guia-vacaciones.md')).toContainText('Guía de vacaciones')
+  await expect(
+    row(page, 'manual-empleado.pdf').getByRole('link', { name: 'Descargar manual-empleado.pdf' }),
+  ).toBeVisible()
   await expect(page.getByTestId('index-stats')).toContainText('3 documentos')
   await expect(page.getByTestId('index-stats')).toContainText('fake-hashing')
 })
@@ -77,7 +88,7 @@ test('descarga, reindexa y elimina un documento', async ({ page }) => {
   await openDocuments(page)
 
   const downloadPromise = page.waitForEvent('download')
-  await page.getByRole('link', { name: 'Descargar politica-gastos.html' }).click()
+  await page.getByRole('link', { name: 'Descargar Política de gastos' }).click()
   const download = await downloadPromise
   expect(download.suggestedFilename()).toBe('politica-gastos.html')
 
@@ -124,9 +135,8 @@ test('el chat responde citando el documento y enlaza al fichero', async ({ page 
 
   const answer = answers(page).last()
   const sources = answer.getByRole('region', { name: 'Fuentes' })
-  const link = sources.getByRole('link', {
-    name: 'Abrir fuente: [1] guia-vacaciones.md — Guía de vacaciones',
-  })
+  // Con el título del documento (su sección es el propio título: no se repite).
+  const link = sources.getByRole('link', { name: 'Abrir fuente: [1] Guía de vacaciones' })
   await expect(link).toBeVisible()
   await expect(link).toHaveAttribute('href', /^\/api\/v1\/documents\/[0-9a-f-]{36}\/file$/)
   await expect(answer.getByRole('link', { name: '[1]', exact: true })).toBeVisible()
@@ -138,7 +148,7 @@ test('el chat responde citando el documento y enlaza al fichero', async ({ page 
 
   await page.reload()
   await expect(answers(page).last().getByRole('region', { name: 'Fuentes' })).toContainText(
-    'guia-vacaciones.md',
+    'Guía de vacaciones',
   )
 })
 
@@ -163,4 +173,44 @@ test('una pregunta sin relación con los documentos no muestra fuentes', async (
   await ask(page, 'xyzzy plugh frobozz')
 
   await expect(answers(page).last().getByRole('region')).toHaveCount(0)
+})
+
+test('cambia el título y la categoría y las referencias usan el título nuevo', async ({ page }) => {
+  await openDocuments(page)
+
+  const categories = page.getByRole('region', { name: 'Categorías' })
+  await categories.getByRole('textbox', { name: 'Nueva categoría' }).fill('Recursos humanos')
+  await categories.getByRole('button', { name: 'Añadir' }).click()
+  await expect(categories.getByRole('list', { name: 'Categorías' })).toContainText(
+    'Recursos humanos0 documentos',
+  )
+
+  await page.getByRole('button', { name: 'Editar: manual-empleado.pdf' }).click()
+  const form = page.getByRole('form', { name: 'Editar «manual-empleado.pdf»' })
+  await form.getByRole('textbox', { name: 'Título' }).fill('Manual del empleado')
+  await form.getByRole('combobox', { name: 'Categoría' }).selectOption('Recursos humanos')
+  await form.getByRole('button', { name: 'Guardar' }).click()
+
+  const manual = row(page, 'manual-empleado.pdf')
+  await expect(manual).toContainText('Manual del empleado')
+  await expect(manual).toContainText('Recursos humanos')
+  await expect(manual).toContainText('Desactualizado')
+  await expect(page.getByText(/1 documento está desactualizado/)).toBeVisible()
+
+  await page.getByRole('button', { name: 'Reindexar desactualizados' }).click()
+  await expect(manual).not.toContainText('Desactualizado')
+  await expect(manual.getByText('Indexado')).toBeVisible()
+
+  await page
+    .getByRole('combobox', { name: 'Categoría', exact: true })
+    .selectOption('Recursos humanos')
+  await expect(page.getByRole('row')).toHaveCount(2) // cabecera y el manual
+
+  await page.goto('/')
+  await ask(page, '¿Cuál es el horario de oficina?')
+  await expect(
+    answers(page)
+      .last()
+      .getByRole('link', { name: 'Abrir fuente: [1] Manual del empleado · pág. 2' }),
+  ).toBeVisible()
 })

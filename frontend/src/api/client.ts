@@ -64,12 +64,15 @@ export interface Conversation {
 export interface IndexedDocument {
   id: string
   filename: string
+  title: string
   kind: 'pdf' | 'markdown' | 'html'
+  category: string | null
 }
 
 /** Documentos a los que se limitó la búsqueda de una respuesta. */
 export interface Scope {
-  documents: { id: string; filename: string }[]
+  /** `title`: título actual del documento (las respuestas anteriores a #75 no lo tienen). */
+  documents: { id: string; filename: string; title?: string }[]
   /** `selector`: elegidos en el chat; `detected`: nombrados en la pregunta. */
   source: 'selector' | 'detected'
 }
@@ -81,6 +84,8 @@ export interface Source {
   number: number
   document_id: string | null
   filename: string
+  /** Título actual del documento (o el nombre del fichero si se borró). */
+  title?: string
   page: number | null
   heading: string | null
   snippet: string

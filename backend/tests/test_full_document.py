@@ -181,8 +181,9 @@ async def test_chat_sends_the_whole_named_document(
 
     system = llm.calls[-1][0].content
     assert FULL_DOCUMENT_NOTE.strip() in system
-    assert "[1] Fuente: NOR-013 Control.md — Control de acceso" in system
-    assert "[2] Fuente: NOR-013 Control.md — Altas y bajas" in system
+    # Con el título del documento (el primer encabezado), que no se repite como sección.
+    assert "[1] Fuente: Control de acceso\n" in system
+    assert "[2] Fuente: Control de acceso — Altas y bajas" in system
     assert "guia.md" not in system
     events = parse_sse(response.text)
     sources = next(data["sources"] for kind, data in events if kind == "sources")

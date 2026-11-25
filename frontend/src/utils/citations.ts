@@ -1,11 +1,13 @@
 import { sourceUrl, type Source } from '../api/client'
 import { t } from '../i18n/es'
 
-/** «fichero · pág. N» o «fichero — sección». */
+/** «documento · pág. N» o «documento — sección», con el título del documento. */
 export function sourceLabel(source: Source): string {
-  if (source.page) return `${source.filename} · ${t.chat.page(source.page)}`
-  if (source.heading) return `${source.filename} — ${source.heading}`
-  return source.filename
+  const name = source.title || source.filename
+  if (source.page) return `${name} · ${t.chat.page(source.page)}`
+  // La sección no se repite si es el propio título.
+  if (source.heading && source.heading !== name) return `${name} — ${source.heading}`
+  return name
 }
 
 const CITATION = /\[(\d+)\](?!\()/g

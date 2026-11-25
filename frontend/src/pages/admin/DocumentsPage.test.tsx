@@ -1,13 +1,15 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
-import type { DocumentItem, IndexStats, UploadResult } from '../../api/documents'
+import type { Category, DocumentItem, IndexStats, UploadResult } from '../../api/documents'
 import { health, jsonResponse, mockApi, renderApp } from '../../test/utils'
 import { formatBytes } from '../../utils/format'
 
 const doc = (id: string, filename: string, patch: Partial<DocumentItem> = {}): DocumentItem => ({
   id,
   filename,
+  title: filename,
+  category_id: null,
   kind: 'markdown',
   size_bytes: 2048,
   status: 'ready',
@@ -19,6 +21,7 @@ const doc = (id: string, filename: string, patch: Partial<DocumentItem> = {}): D
   uploaded_by: 'admin',
   created_at: '2026-11-17T10:00:00Z',
   updated_at: '2026-11-17T10:00:00Z',
+  outdated: false,
   ...patch,
 })
 
@@ -27,21 +30,29 @@ const statsFor = (docs: DocumentItem[]): IndexStats => ({
   chunks: docs.filter((d) => d.status === 'ready').reduce((n, d) => n + d.chunk_count, 0),
   by_status: {},
   embedding_model: 'bge-m3',
-  outdated: docs.filter((d) => d.embedding_model !== 'fake').length,
+  outdated: docs.filter((d) => d.outdated).length,
 })
 
-function documentsApi(initial: DocumentItem[], overrides: Parameters<typeof mockApi>[0] = {}) {
-  const state = { docs: initial }
+function documentsApi(
+  initial: DocumentItem[],
+  overrides: Parameters<typeof mockApi>[0] = {},
+  categories: Category[] = [],
+) {
+  const state = { docs: initial, categories }
   const api = mockApi({
     'GET /health': health,
     'GET /admin/session': () =>
       jsonResponse({ authenticated: true, username: 'admin', enabled: true }),
     'GET /admin/documents': () => jsonResponse(state.docs),
     'GET /admin/documents/stats': () => jsonResponse(statsFor(state.docs)),
+    'GET /admin/categories': () => jsonResponse(state.categories),
     ...overrides,
   })
   return { api, state }
 }
+
+const rrhh: Category = { id: 1, name: 'Recursos humanos', documents: 1 }
+const calidad: Category = { id: 2, name: 'Calidad', documents: 0 }
 
 const file = (name: string, content = '# hola') => new File([content], name)
 
@@ -68,17 +79,225 @@ describe('DocumentsPage', () => {
     const row = screen.getByRole('row', { name: /roto\.pdf/ })
     expect(within(row).getByText('Error')).toBeVisible()
     expect(within(row).getByText('Sin texto (OCR)')).toBeVisible()
-    expect(within(row).getByText('—')).toBeVisible()
+    expect(within(row).getAllByText('—')).toHaveLength(2) // sin categoría ni fragmentos
     const link = screen.getByRole('link', { name: 'Descargar guia.md' })
     expect(link).toHaveAttribute('href', '/api/v1/admin/documents/1/file')
     expect(screen.getByRole('row', { name: /guia\.md/ })).toHaveTextContent('2 KB')
   })
 
-  it('avisa de los documentos indexados con otra configuración', async () => {
-    documentsApi([doc('1', 'a.md'), doc('2', 'b.md', { embedding_model: 'antiguo' })])
+  it('avisa de los documentos desactualizados y los reindexa', async () => {
+    const { state, api } = documentsApi([doc('1', 'a.md'), doc('2', 'b.md', { outdated: true })], {
+      'POST /admin/documents/reindex-outdated': () => {
+        state.docs = state.docs.map((d) => ({ ...d, outdated: false }))
+        return jsonResponse({ scheduled: 1 })
+      },
+    })
     renderApp('/admin/documents')
 
-    expect(await screen.findByText(/1 documento se indexó con otro modelo/)).toBeInTheDocument()
+    expect(await screen.findByText(/1 documento está desactualizado/)).toBeInTheDocument()
+    expect(screen.getByRole('row', { name: /b\.md/ })).toHaveTextContent('Desactualizado')
+    expect(screen.getByRole('row', { name: /a\.md/ })).not.toHaveTextContent('Desactualizado')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Reindexar desactualizados' }))
+
+    await waitFor(() => expect(screen.queryByText(/está desactualizado/)).toBeNull())
+    expect(api).toHaveBeenCalledWith(
+      '/api/v1/admin/documents/reindex-outdated',
+      expect.objectContaining({ method: 'POST' }),
+    )
+    expect(screen.getByRole('button', { name: 'Reindexar desactualizados' })).toBeDisabled()
+  })
+
+  it('muestra el título, el fichero y la categoría', async () => {
+    documentsApi(
+      [doc('1', 'nor13.pdf', { title: 'Normativa de acceso', kind: 'pdf', category_id: 1 })],
+      {},
+      [rrhh],
+    )
+    renderApp('/admin/documents')
+
+    const row = await screen.findByRole('row', { name: /Normativa de acceso/ })
+    expect(row).toHaveTextContent('nor13.pdf')
+    expect(row).toHaveTextContent('Recursos humanos')
+    const link = within(row).getByRole('link', { name: 'Descargar Normativa de acceso' })
+    expect(link).toHaveAttribute('download', 'nor13.pdf')
+  })
+
+  it('sube con la categoría y el nombre del fichero como título', async () => {
+    let sent: FormData | undefined
+    documentsApi(
+      [],
+      {
+        'POST /admin/documents': (init) => {
+          sent = init!.body as FormData
+          return jsonResponse([
+            { filename: 'a.md', document: doc('a', 'a.md'), duplicate: false, error: null },
+          ])
+        },
+      },
+      [rrhh],
+    )
+    renderApp('/admin/documents')
+
+    await screen.findAllByRole('option', { name: 'Recursos humanos' })
+    await userEvent.selectOptions(
+      await screen.findByRole('combobox', { name: 'Categoría de los documentos que subas' }),
+      'Recursos humanos',
+    )
+    await userEvent.click(
+      screen.getByRole('checkbox', { name: 'Usar el nombre del fichero como título' }),
+    )
+    await userEvent.upload(screen.getByTestId('file-input'), file('a.md'))
+
+    await waitFor(() => expect(sent).toBeDefined())
+    expect(sent!.get('category_id')).toBe('1')
+    expect(sent!.get('use_filename')).toBe('true')
+  })
+
+  it('por defecto sube sin categoría y con el título de los metadatos', async () => {
+    let sent: FormData | undefined
+    documentsApi([], {
+      'POST /admin/documents': (init) => {
+        sent = init!.body as FormData
+        return jsonResponse([
+          { filename: 'a.md', document: doc('a', 'a.md'), duplicate: false, error: null },
+        ])
+      },
+    })
+    renderApp('/admin/documents')
+
+    await userEvent.upload(await screen.findByTestId('file-input'), file('a.md'))
+
+    await waitFor(() => expect(sent).toBeDefined())
+    expect(sent!.has('category_id')).toBe(false)
+    expect(sent!.has('use_filename')).toBe(false)
+  })
+
+  it('edita el título y la categoría de un documento', async () => {
+    let body: unknown
+    const { state } = documentsApi(
+      [doc('1', 'nor13.pdf', { title: 'Normativa', kind: 'pdf' })],
+      {
+        'PATCH /admin/documents/1': (init) => {
+          body = JSON.parse(init!.body as string)
+          state.docs = [{ ...state.docs[0], title: 'Normativa de acceso', category_id: 2 }]
+          return jsonResponse(state.docs[0])
+        },
+      },
+      [rrhh, calidad],
+    )
+    renderApp('/admin/documents')
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Editar: Normativa' }))
+    const form = screen.getByRole('form', { name: 'Editar «Normativa»' })
+    const title = within(form).getByRole('textbox', { name: 'Título' })
+    expect(title).toHaveAccessibleDescription('Fichero: nor13.pdf')
+    await userEvent.click(within(form).getByRole('button', { name: 'Usar el nombre del fichero' }))
+    expect(title).toHaveValue('nor13.pdf')
+    await userEvent.clear(title)
+    await userEvent.type(title, '  Normativa de acceso ')
+    await userEvent.selectOptions(
+      within(form).getByRole('combobox', { name: 'Categoría' }),
+      'Calidad',
+    )
+    await userEvent.click(within(form).getByRole('button', { name: 'Guardar' }))
+
+    expect(await screen.findByRole('row', { name: /Normativa de acceso/ })).toHaveTextContent(
+      'Calidad',
+    )
+    expect(body).toEqual({ title: 'Normativa de acceso', category_id: 2 })
+    expect(screen.queryByRole('form', { name: /Editar/ })).toBeNull()
+  })
+
+  it('cancela la edición y no guarda un título vacío', async () => {
+    const { api } = documentsApi([doc('1', 'a.md')])
+    renderApp('/admin/documents')
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Editar: a.md' }))
+    const form = screen.getByRole('form', { name: 'Editar «a.md»' })
+    await userEvent.clear(within(form).getByRole('textbox', { name: 'Título' }))
+    expect(within(form).getByRole('button', { name: 'Guardar' })).toBeDisabled()
+    await userEvent.click(within(form).getByRole('button', { name: 'Cancelar' }))
+
+    expect(screen.queryByRole('form', { name: /Editar/ })).toBeNull()
+    expect(api.mock.calls.some(([, init]) => init?.method === 'PATCH')).toBe(false)
+  })
+
+  it('filtra los documentos por categoría', async () => {
+    documentsApi(
+      [
+        doc('1', 'a.md', { category_id: 1 }),
+        doc('2', 'b.md'),
+        doc('3', 'c.md', { category_id: 2 }),
+      ],
+      {},
+      [rrhh, calidad],
+    )
+    renderApp('/admin/documents')
+    const filter = await screen.findByRole('combobox', { name: 'Categoría' })
+    const names = () =>
+      screen.getAllByRole('link', { name: /^Descargar/ }).map((link) => link.textContent)
+
+    expect(names()).toEqual(['a.md', 'b.md', 'c.md'])
+    await userEvent.selectOptions(filter, 'Recursos humanos')
+    expect(names()).toEqual(['a.md'])
+    await userEvent.selectOptions(filter, 'Sin categoría')
+    expect(names()).toEqual(['b.md'])
+  })
+
+  it('crea, renombra y elimina categorías', async () => {
+    const state = { categories: [rrhh] }
+    documentsApi([], {
+      'GET /admin/categories': () => jsonResponse(state.categories),
+      'POST /admin/categories': (init) => {
+        const { name } = JSON.parse(init!.body as string) as { name: string }
+        if (name === 'Recursos humanos') {
+          return jsonResponse({ detail: 'Ya existe la categoría «Recursos humanos»' }, 409)
+        }
+        state.categories = [...state.categories, { id: 3, name, documents: 0 }]
+        return jsonResponse(state.categories.at(-1), 201)
+      },
+      'PATCH /admin/categories/1': () => {
+        state.categories = state.categories.map((c) =>
+          c.id === 1 ? { ...c, name: 'Personas' } : c,
+        )
+        return jsonResponse(state.categories[0])
+      },
+      'DELETE /admin/categories/3': () => {
+        state.categories = state.categories.filter((c) => c.id !== 3)
+        return jsonResponse(null, 204)
+      },
+    })
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    renderApp('/admin/documents')
+    const list = await screen.findByRole('list', { name: 'Categorías' })
+    expect(list).toHaveTextContent('Recursos humanos1 documento')
+
+    const name = screen.getByRole('textbox', { name: 'Nueva categoría' })
+    await userEvent.type(name, 'Recursos humanos')
+    await userEvent.click(screen.getByRole('button', { name: 'Añadir' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Ya existe la categoría «Recursos humanos»',
+    )
+
+    await userEvent.clear(name)
+    await userEvent.type(name, 'Calidad{Enter}')
+    await waitFor(() => expect(list).toHaveTextContent('Calidad'))
+    expect(name).toHaveValue('')
+    expect(screen.queryByRole('alert')).toBeNull()
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Renombrar la categoría «Recursos humanos»' }),
+    )
+    const rename = screen.getByRole('textbox', {
+      name: 'Renombrar la categoría «Recursos humanos»',
+    })
+    await userEvent.clear(rename)
+    await userEvent.type(rename, 'Personas{Enter}')
+    await waitFor(() => expect(list).toHaveTextContent('Personas'))
+
+    await userEvent.click(screen.getByRole('button', { name: 'Eliminar la categoría «Calidad»' }))
+    await waitFor(() => expect(list).not.toHaveTextContent('Calidad'))
   })
 
   it('indica cuando no hay documentos y desactiva reindexar todo', async () => {

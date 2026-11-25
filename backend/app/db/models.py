@@ -84,6 +84,16 @@ class DocumentKind(StrEnum):
     HTML = "html"
 
 
+class Category(Base):
+    """Categoría para organizar los documentos (un solo nivel, #75)."""
+
+    __tablename__ = "categories"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(100), unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class Document(Base):
     """Fichero subido para el RAG."""
 
@@ -91,6 +101,12 @@ class Document(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     filename: Mapped[str] = mapped_column(String(255))
+    # Lo que se muestra en las referencias y se pasa al indexar (#75). Por defecto, el de
+    # los metadatos del fichero; si no tiene uno válido, el nombre del fichero.
+    title: Mapped[str] = mapped_column(String(255))
+    category_id: Mapped[int | None] = mapped_column(
+        ForeignKey("categories.id", ondelete="SET NULL"), index=True
+    )
     kind: Mapped[str] = mapped_column(String(16))
     size_bytes: Mapped[int] = mapped_column(Integer)
     sha256: Mapped[str] = mapped_column(String(64), unique=True)
@@ -103,6 +119,10 @@ class Document(Base):
     chunk_overlap_chars: Mapped[int | None] = mapped_column(Integer)
     # Preprocesado con el que se indexó (`preprocessing_signature`, #62).
     preprocessing: Mapped[str | None] = mapped_column(String(64))
+    # Título y categoría con los que se indexó (van en el texto de los vectores): si
+    # cambian, el documento queda desactualizado.
+    indexed_title: Mapped[str | None] = mapped_column(String(255))
+    indexed_category: Mapped[str | None] = mapped_column(String(100))
     uploaded_by: Mapped[str] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -143,7 +163,7 @@ class Message(Base):
     content: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     # Respuestas: documentos a los que se limitó la búsqueda (#58), como el evento `scope`:
-    # {"documents": [{"id", "filename"}], "source": "selector" | "detected"}.
+    # {"documents": [{"id", "filename", "title"}], "source": "selector" | "detected"}.
     scope: Mapped[dict[str, Any] | None] = mapped_column(JSON)
 
     conversation: Mapped[Conversation] = relationship(back_populates="messages")
@@ -236,7 +256,7 @@ class QuestionLog(Base):
     prompt_version_id: Mapped[int | None] = mapped_column(Integer)
     # Consulta con la que se buscó en los documentos (la pregunta reformulada).
     search_query: Mapped[str | None] = mapped_column(Text)
-    # [{"document_id", "filename", "page", "cited"}] de las fuentes mostradas.
+    # [{"document_id", "filename", "title", "page", "cited"}] de las fuentes mostradas.
     cited_documents: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON)
     error_detail: Mapped[str | None] = mapped_column(Text)
     # Búsqueda limitada a unos documentos (#58): cuáles y por qué (`ScopeSource`).

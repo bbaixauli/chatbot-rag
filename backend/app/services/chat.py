@@ -31,7 +31,12 @@ from app.services.document_names import detect_documents
 from app.services.llm import ChatMessage, LLMClient, LLMError
 from app.services.prompts import PromptRepository
 from app.services.rag import ContextSource, Retriever, build_system_prompt, extract_citations
-from app.services.scope import ScopeDocument, indexed_documents, resolve_scope
+from app.services.scope import (
+    ScopeDocument,
+    document_titles,
+    indexed_documents,
+    resolve_scope,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +84,7 @@ def source_payload(source: ContextSource, cited: bool) -> dict[str, Any]:
         "number": source.number,
         "document_id": source.document_id,
         "filename": source.filename,
+        "title": source.name,
         "page": source.page,
         "heading": source.heading,
         "snippet": source.snippet,
@@ -243,11 +249,13 @@ class ChatService:
                 record.scope_document_ids = scope_ids
                 record.scope_source = origin.value
                 scope_payload = {
-                    "documents": [{"id": d.id, "filename": d.filename} for d in scope],
+                    "documents": [document.payload for document in scope],
                     "source": origin.value,
                 }
                 yield sse_event("scope", scope_payload)
-            sources = await self._retriever.retrieve(query, scope_ids or None)
+            sources = await self._with_titles(
+                await self._retriever.retrieve(query, scope_ids or None)
+            )
         prompt = [
             ChatMessage(
                 role="system", content=build_system_prompt(prepared.system_prompt, sources)
@@ -297,6 +305,7 @@ class ChatService:
             {
                 "document_id": source.document_id,
                 "filename": source.filename,
+                "title": source.name,
                 "page": source.page,
                 "cited": cited,
             }
@@ -339,6 +348,14 @@ class ChatService:
             )
             await session.commit()
         yield sse_event("done", {"message_id": message.id})
+
+    async def _with_titles(self, sources: list[ContextSource]) -> list[ContextSource]:
+        """Pone a las fuentes el título actual de su documento (el índice no lo tiene)."""
+        if not sources:
+            return sources
+        async with self._sessionmaker() as session:
+            titles = await document_titles(session, (s.document_id for s in sources))
+        return [replace(s, title=titles.get(s.document_id, s.filename)) for s in sources]
 
     async def _detect_scope(self, question: str, query: str) -> list[ScopeDocument]:
         """Documentos que nombra la pregunta, si la detección está activada."""

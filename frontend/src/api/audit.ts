@@ -44,7 +44,15 @@ export interface AuditEntry {
   prompt_version_id: number | null
   search_query: string | null
   cited_documents:
-    { document_id: string | null; filename: string; page: number | null; cited: boolean }[] | null
+    | {
+        document_id: string | null
+        filename: string
+        /** Título del documento al responder (no está en las preguntas anteriores a #75). */
+        title?: string
+        page: number | null
+        cited: boolean
+      }[]
+    | null
   error_detail: string | null
 }
 

@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from typing import TextIO
 
 import numpy as np
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import Settings, get_settings
@@ -41,6 +41,8 @@ from app.services.embeddings import EmbeddingError, Embeddings, build_embeddings
 from app.services.ingestion.parsers import ParseError, parse_document
 from app.services.ingestion.preprocess import (
     build_chunks,
+    document_label,
+    document_title,
     embedding_text,
     looks_like_toc,
     preprocessing_signature,
@@ -135,7 +137,8 @@ class DocumentReport:
 async def find_documents(
     sessionmaker: async_sessionmaker[AsyncSession], selectors: Sequence[str], all_documents: bool
 ) -> list[Document]:
-    """Documentos por id o por parte del nombre (o todos los indexados con `all_documents`)."""
+    """Documentos por id o por parte del nombre o del título (o todos los indexados con
+    `all_documents`)."""
     async with sessionmaker() as session:
         if all_documents:
             result = await session.scalars(
@@ -152,7 +155,12 @@ async def find_documents(
                 if document is not None
                 else list(
                     await session.scalars(
-                        select(Document).where(Document.filename.contains(selector))
+                        select(Document).where(
+                            or_(
+                                Document.filename.contains(selector),
+                                Document.title.contains(selector),
+                            )
+                        )
                     )
                 )
             )
@@ -292,9 +300,13 @@ async def diagnose_document(
     sample = stored if max_chunks is None else stored[:max_chunks]
     if len(sample) < len(stored):
         report.notes.append(f"Solo se comprueban los {len(sample)} primeros fragmentos")
-    # Texto con el que se calculó el vector (con el título y la sección, si procede).
+    # Texto con el que se calculó el vector (con el título, la categoría y la sección, si
+    # procede): los que tenía el documento al indexarlo.
+    label = document_label(document.indexed_title or document.title, document.filename)
+    file = document_title(document.filename)
+    category = document.indexed_category
     texts = [
-        embedding_text(chunk.text, document.filename, chunk.heading, config.indexing)
+        embedding_text(chunk.text, label, chunk.heading, config.indexing, category, file)
         for chunk in sample
     ]
     try:

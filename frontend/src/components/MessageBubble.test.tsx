@@ -29,6 +29,17 @@ describe('sourceLabel', () => {
     expect(sourceLabel(source(1, { heading: 'A > B' }))).toBe('manual.pdf — A > B')
     expect(sourceLabel(source(1))).toBe('manual.pdf')
   })
+
+  it('usa el título del documento y no repite la sección si es el título', () => {
+    const titled = { title: 'Manual del empleado' }
+    expect(sourceLabel(source(1, { ...titled, page: 3 }))).toBe('Manual del empleado · pág. 3')
+    expect(sourceLabel(source(1, { ...titled, heading: 'Altas' }))).toBe(
+      'Manual del empleado — Altas',
+    )
+    expect(sourceLabel(source(1, { ...titled, heading: 'Manual del empleado' }))).toBe(
+      'Manual del empleado',
+    )
+  })
 })
 
 describe('linkCitations', () => {

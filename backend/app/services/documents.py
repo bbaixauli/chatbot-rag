@@ -9,19 +9,22 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Protocol
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import ColumnElement, and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import Settings
-from app.core.runtime_config import ConfigSource
-from app.db.models import Document, DocumentKind, DocumentStatus, utcnow
+from app.core.runtime_config import ConfigSource, IndexingConfig
+from app.db.models import Category, Document, DocumentKind, DocumentStatus, utcnow
 from app.services.embeddings import EmbeddingError, Embeddings
 from app.services.ingestion.parsers import ParseError, kind_for_filename, parse_document
 from app.services.ingestion.preprocess import (
     build_chunks,
+    document_label,
+    document_title,
     embedding_texts,
     preprocessing_signature,
 )
+from app.services.ingestion.titles import extract_title
 from app.services.tasks import INDEX_DOCUMENT, TaskRunner
 from app.services.vectorstore import VectorStore, VectorStoreError
 
@@ -50,8 +53,8 @@ class IndexStats:
     documents: int
     chunks: int
     by_status: dict[str, int]
-    # Documentos indexados con otro modelo de embeddings, otro troceado u otro
-    # preprocesado que el vigente.
+    # Documentos indexados con otro modelo de embeddings, otro troceado, otro preprocesado
+    # u otro título o categoría que los vigentes.
     outdated: int
 
 
@@ -114,8 +117,21 @@ class DocumentService:
         """Ruta del original en disco (nombrado por id para evitar colisiones)."""
         return document_file_path(self._settings, document)
 
-    async def upload(self, filename: str, content: AsyncReadable, uploaded_by: str) -> UploadResult:
-        """Guarda el fichero, detecta duplicados y programa su indexación."""
+    async def upload(
+        self,
+        filename: str,
+        content: AsyncReadable,
+        uploaded_by: str,
+        *,
+        use_filename: bool = False,
+        category_id: int | None = None,
+    ) -> UploadResult:
+        """Guarda el fichero, detecta duplicados y programa su indexación.
+
+        El título es el de los metadatos del fichero o, si no tiene uno válido o se pide
+        con `use_filename`, el nombre del fichero. Un duplicado se devuelve tal cual (sin
+        cambiar su título ni su categoría).
+        """
         name = safe_filename(filename)
         kind = kind_for_filename(name)
         if kind is None:
@@ -128,12 +144,15 @@ class DocumentService:
             digest, size = await self._write(content, temp)
             if size == 0:
                 raise UploadError("El fichero está vacío")
+            title = None if use_filename else await asyncio.to_thread(extract_title, temp, kind)
             async with self._sessionmaker() as session:
                 existing = await session.scalar(select(Document).where(Document.sha256 == digest))
                 if existing is not None:
                     return UploadResult(existing, duplicate=True)
                 document = Document(
                     filename=name,
+                    title=title or name,
+                    category_id=category_id,
                     kind=kind.value,
                     size_bytes=size,
                     sha256=digest,
@@ -179,10 +198,18 @@ class DocumentService:
             document.error = None
             document.updated_at = utcnow()
             await session.commit()
-            path, kind, filename = (
+            path, kind, filename, title = (
                 self.file_path(document),
                 DocumentKind(document.kind),
                 document.filename,
+                document.title,
+            )
+            category = (
+                await session.scalar(
+                    select(Category.name).where(Category.id == document.category_id)
+                )
+                if document.category_id is not None
+                else None
             )
 
         chunk_count = 0
@@ -192,7 +219,14 @@ class DocumentService:
         try:
             sections = await asyncio.to_thread(parse_document, path, kind)
             chunks = build_chunks(sections, indexing)
-            vectors = await self._embeddings.embed(embedding_texts(chunks, filename, indexing))
+            texts = embedding_texts(
+                chunks,
+                document_label(title, filename),
+                indexing,
+                category,
+                document_title(filename),
+            )
+            vectors = await self._embeddings.embed(texts)
             # Se sustituyen los fragmentos sin dejar el documento fuera del índice en ningún
             # momento (importante al reindexar): primero se escriben y luego se borran los
             # que sobran de la versión anterior.
@@ -219,6 +253,8 @@ class DocumentService:
             document.chunk_size_chars = None if error else indexing.chunk_size_chars
             document.chunk_overlap_chars = None if error else indexing.chunk_overlap_chars
             document.preprocessing = None if error else preprocessing_signature(indexing)
+            document.indexed_title = None if error else title
+            document.indexed_category = None if error else category
             document.updated_at = utcnow()
             await session.commit()
 
@@ -227,9 +263,33 @@ class DocumentService:
             result = await session.scalars(select(Document).order_by(Document.created_at.desc()))
             return list(result)
 
+    async def category_exists(self, category_id: int) -> bool:
+        async with self._sessionmaker() as session:
+            return await session.get(Category, category_id) is not None
+
     async def get(self, document_id: str) -> Document | None:
         async with self._sessionmaker() as session:
             return await session.get(Document, document_id)
+
+    async def update(
+        self, document_id: str, changes: dict[str, str | int | None]
+    ) -> Document | None:
+        """Cambia el título (`title`) o la categoría (`category_id`, nula: sin categoría).
+
+        No reindexa: si el título o la categoría van en el texto de los vectores, el
+        documento queda desactualizado hasta que se reindexe.
+        """
+        async with self._sessionmaker() as session:
+            document = await session.get(Document, document_id)
+            if document is None:
+                return None
+            if "title" in changes:
+                document.title = str(changes["title"])
+            if "category_id" in changes:
+                category_id = changes["category_id"]
+                document.category_id = None if category_id is None else int(category_id)
+            await session.commit()
+            return document
 
     async def delete(self, document_id: str) -> bool:
         async with self._sessionmaker() as session:
@@ -254,6 +314,13 @@ class DocumentService:
             await session.commit()
         await self._schedule(document_id, document.updated_at)
         return document
+
+    async def reindex_outdated(self) -> int:
+        """Reindexa los documentos desactualizados (sin vaciar el índice)."""
+        ids = await self.outdated_ids()
+        for document_id in sorted(ids):
+            await self.reindex(document_id)
+        return len(ids)
 
     async def reindex_all(self) -> int:
         """Vacía el índice y vuelve a indexar todos los documentos.
@@ -297,6 +364,39 @@ class DocumentService:
             )
         return int(count or 0)
 
+    def _outdated(self, indexing: IndexingConfig, model_name: str) -> ColumnElement[bool]:
+        """Condición de los documentos indexados que hay que reindexar (hay que unir
+        `Category`).
+
+        Sin troceado guardado (indexados antes de guardarlo) no se compara el troceado; sin
+        preprocesado guardado (indexados antes de #62), sí cuentan como desactualizados: no
+        tienen marcados los fragmentos de índice. El título y la categoría (#75) solo
+        cuentan si van en el texto de los vectores.
+        """
+        changed = [
+            Document.embedding_model.is_distinct_from(model_name),
+            Document.chunk_size_chars != indexing.chunk_size_chars,
+            Document.chunk_overlap_chars != indexing.chunk_overlap_chars,
+            Document.preprocessing.is_distinct_from(preprocessing_signature(indexing)),
+        ]
+        if indexing.context_prefix:
+            changed += [
+                Document.indexed_title.is_distinct_from(Document.title),
+                Document.indexed_category.is_distinct_from(Category.name),
+            ]
+        return and_(Document.status == DocumentStatus.READY.value, or_(*changed))
+
+    async def outdated_ids(self) -> set[str]:
+        """Documentos indexados que hay que reindexar."""
+        indexing = self._config.current.indexing
+        async with self._sessionmaker() as session:
+            result = await session.scalars(
+                select(Document.id)
+                .outerjoin(Category, Document.category_id == Category.id)
+                .where(self._outdated(indexing, self._embeddings.model_name))
+            )
+            return set(result)
+
     async def stats(self) -> IndexStats:
         indexing = self._config.current.indexing
         model_name = self._embeddings.model_name
@@ -312,19 +412,11 @@ class DocumentService:
                 by_status[status] = int(count)
                 if status == DocumentStatus.READY.value:
                     chunks += int(chunk_sum)
-            # Sin troceado guardado (indexados antes de guardarlo) no se compara el troceado;
-            # sin preprocesado guardado (indexados antes de #62), sí cuentan como
-            # desactualizados: no tienen marcados los fragmentos de índice.
             outdated = await session.scalar(
-                select(func.count()).where(
-                    Document.status == DocumentStatus.READY.value,
-                    or_(
-                        Document.embedding_model.is_distinct_from(model_name),
-                        Document.chunk_size_chars != indexing.chunk_size_chars,
-                        Document.chunk_overlap_chars != indexing.chunk_overlap_chars,
-                        Document.preprocessing.is_distinct_from(preprocessing_signature(indexing)),
-                    ),
-                )
+                select(func.count())
+                .select_from(Document)
+                .outerjoin(Category, Document.category_id == Category.id)
+                .where(self._outdated(indexing, model_name))
             )
         return IndexStats(
             documents=sum(by_status.values()),

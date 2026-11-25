@@ -403,7 +403,9 @@ LOG_HEADERS = [
 
 def _log_row(row: QuestionLog, settings: Settings, *, as_text: bool) -> list[Any]:
     asked = dashboard.local_time(row.asked_at, settings.zone)
-    documents = ", ".join(str(d.get("filename")) for d in row.cited_documents or [])
+    documents = ", ".join(
+        str(d.get("title") or d.get("filename")) for d in row.cited_documents or []
+    )
     safe = dashboard.safe_cell
     return [
         asked.strftime("%d/%m/%Y %H:%M:%S") if as_text else asked.replace(tzinfo=None),
