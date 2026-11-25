@@ -140,6 +140,10 @@ class RagConfig(ConfigGroup):
     scoped_min_score: float = Field(ge=0, le=1)
     # Limita la búsqueda a los documentos que se nombran en la pregunta (código o título).
     detect_document_names: bool
+    # Fragmentos vecinos (anteriores y posteriores) que se añaden a cada fragmento recuperado.
+    neighbor_chunks: int = Field(ge=0, le=3)
+    # Documento completo si la búsqueda se limita a uno que cabe en estos caracteres (0: no).
+    full_document_max_chars: int = Field(ge=0)
 
 
 class ChatLimits(ConfigGroup):

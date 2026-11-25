@@ -1,4 +1,11 @@
-import { useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
+import {
+  useLayoutEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+  type ReactNode,
+} from 'react'
 import { t } from '../i18n/es'
 
 interface Props {
@@ -8,9 +15,11 @@ interface Props {
   suggestions?: string[]
   /** Aviso de IA configurado (vacío: el texto por defecto). */
   aiNotice?: string
+  /** Controles sobre el campo de texto (p. ej. en qué documentos buscar). */
+  toolbar?: ReactNode
 }
 
-export function Composer({ disabled, onSend, suggestions = [], aiNotice }: Props) {
+export function Composer({ disabled, onSend, suggestions = [], aiNotice, toolbar }: Props) {
   const [text, setText] = useState('')
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const focusAtEnd = useRef(false)
@@ -70,6 +79,7 @@ export function Composer({ disabled, onSend, suggestions = [], aiNotice }: Props
           ))}
         </ul>
       )}
+      {toolbar}
       <div className="flex gap-2">
         <textarea
           ref={inputRef}

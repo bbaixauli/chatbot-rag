@@ -1,7 +1,8 @@
-import { API_BASE, ApiError, type Source } from './client'
+import { API_BASE, ApiError, type Scope, type Source } from './client'
 
 export type ChatEvent =
   | { event: 'conversation'; data: { id: string; title: string; user_message_id: number } }
+  | { event: 'scope'; data: Scope }
   | { event: 'token'; data: { content: string } }
   | { event: 'sources'; data: { sources: Source[] } }
   | { event: 'done'; data: { message_id: number } }
@@ -43,16 +44,23 @@ function parseBlock(block: string): RawEvent | null {
   return data.length ? { event, data: data.join('\n') } : null
 }
 
-/** Envía un mensaje y devuelve los eventos de la respuesta en streaming. */
+/**
+ * Envía un mensaje y devuelve los eventos de la respuesta en streaming. Con `documentIds` se
+ * limita la búsqueda a esos documentos (y se guarda en la conversación); sin indicarlo, se
+ * mantiene la limitación que ya tenga la conversación.
+ */
 export async function* streamChat(
   message: string,
   conversationId: string | null,
   signal?: AbortSignal,
+  documentIds?: string[],
 ): AsyncGenerator<ChatEvent> {
+  const body: Record<string, unknown> = { message, conversation_id: conversationId }
+  if (documentIds) body.document_ids = documentIds
   const response = await fetch(`${API_BASE}/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
-    body: JSON.stringify({ message, conversation_id: conversationId }),
+    body: JSON.stringify(body),
     signal,
   })
   if (!response.ok || !response.body) {

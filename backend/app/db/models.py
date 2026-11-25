@@ -142,6 +142,9 @@ class Message(Base):
     role: Mapped[str] = mapped_column(String(16))
     content: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    # Respuestas: documentos a los que se limitó la búsqueda (#58), como el evento `scope`:
+    # {"documents": [{"id", "filename"}], "source": "selector" | "detected"}.
+    scope: Mapped[dict[str, Any] | None] = mapped_column(JSON)
 
     conversation: Mapped[Conversation] = relationship(back_populates="messages")
     sources: Mapped[list["MessageSource"]] = relationship(

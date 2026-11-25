@@ -5,7 +5,7 @@ import json
 import logging
 import time
 from collections.abc import AsyncIterator, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Any
 
@@ -63,11 +63,14 @@ def select_sources(
     """Fuentes que se muestran con la respuesta y si fueron citadas.
 
     Si el modelo cita, solo se muestran las citadas. Si no cita nada (habitual en
-    modelos pequeños), se muestran todas como «consultadas».
+    modelos pequeños), se muestran todas como «consultadas»; si se envió un documento
+    completo, se muestra una sola vez (sus partes serían muchas fuentes del mismo fichero).
     """
     cited = set(extract_citations(answer, len(sources)))
     if cited:
         return [(s, True) for s in sources if s.number in cited]
+    if sources and all(s.full_document for s in sources):
+        return [(replace(sources[0], page=None, heading=None), False)]
     return [(s, False) for s in sources]
 
 
@@ -225,6 +228,7 @@ class ChatService:
             },
         )
         sources: list[ContextSource] = []
+        scope_payload: dict[str, Any] | None = None
         if self._retriever:
             query = await self._search_query(prepared)
             record.search_query = query
@@ -238,13 +242,11 @@ class ChatService:
             if scope_ids:
                 record.scope_document_ids = scope_ids
                 record.scope_source = origin.value
-                yield sse_event(
-                    "scope",
-                    {
-                        "documents": [{"id": d.id, "filename": d.filename} for d in scope],
-                        "source": origin.value,
-                    },
-                )
+                scope_payload = {
+                    "documents": [{"id": d.id, "filename": d.filename} for d in scope],
+                    "source": origin.value,
+                }
+                yield sse_event("scope", scope_payload)
             sources = await self._retriever.retrieve(query, scope_ids or None)
         prompt = [
             ChatMessage(
@@ -310,6 +312,7 @@ class ChatService:
                 yield sse_event("error", {"detail": "La conversación ya no existe."})
                 return
             message = await repo.add_message(conversation, MessageRole.ASSISTANT, answer)
+            message.scope = scope_payload
             # Un documento puede borrarse mientras se genera la respuesta: su referencia se
             # guarda sin enlace (si no, la clave foránea impediría guardar la respuesta).
             existing = set(

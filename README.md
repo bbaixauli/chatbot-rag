@@ -145,8 +145,10 @@ como «Fuentes consultadas».
 Las preguntas de seguimiento («¿y con cuánta antelación?») se reformulan con el historial antes
 de buscar (se puede desactivar en la configuración de recuperación); la respuesta se genera con la pregunta original.
 
-La búsqueda se puede **limitar a uno o varios documentos** (hasta 5): la limitación se guarda en
-la conversación y se aplica a sus preguntas siguientes hasta que se quita. Entonces solo se
+La búsqueda se puede **limitar a uno o varios documentos** (hasta 5) con el botón **«Buscar en»**
+que hay sobre el campo de texto del chat, que permite filtrar la lista de documentos por nombre:
+la limitación se guarda en la conversación y se aplica a sus preguntas siguientes hasta que se
+quita. Bajo cada respuesta limitada se indica en qué documentos se buscó. Entonces solo se
 busca en esos documentos (comparando con todos sus fragmentos) y en lugar de la puntuación
 mínima general se usa la de la búsqueda limitada (*Recuperación*, 0 por defecto: basta con el
 top-k), porque quien pregunta ya ha indicado dónde está la respuesta.
@@ -156,6 +158,15 @@ Si la pregunta **nombra un documento**, por su código («¿qué dice el NOR-013
 se limita a él solo para esa pregunta y sus preguntas de seguimiento (se reconoce también en la
 pregunta reformulada). Si se nombran más de 5 documentos, no se limita. Se puede desactivar en
 la configuración de recuperación.
+
+Opcionalmente, a cada fragmento recuperado se le pueden añadir los **fragmentos vecinos** del
+mismo documento (hasta 3 antes y después, dentro del máximo de contexto), unidos en un pasaje
+sin repetir el solapamiento: útil cuando la respuesta queda partida entre fragmentos.
+
+Si la búsqueda se limita a **un solo documento** y este cabe en el límite configurado, se envía
+**completo** al modelo, dividido en partes citables por página o apartado («resúmeme el
+NOR-013»). Está desactivado por defecto: el límite debe caber en la ventana de contexto del
+modelo de chat.
 
 Antes de indexar se limpia el texto: se quitan de los PDF los encabezados y pies que se repiten
 en todas las páginas (sellos de firma electrónica, «Página 3 de 27»…), se quitan los puntos de
