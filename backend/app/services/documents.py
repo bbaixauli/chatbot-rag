@@ -4,9 +4,10 @@ import asyncio
 import hashlib
 import logging
 import uuid
+import zipfile
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Protocol
 
 from sqlalchemy import ColumnElement, and_, func, or_, select
@@ -15,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.core.config import Settings
 from app.core.runtime_config import ConfigSource, IndexingConfig
 from app.db.models import Category, Document, DocumentKind, DocumentStatus, utcnow
+from app.services.archives import ArchiveError, MemberReader, members, open_archive
 from app.services.embeddings import EmbeddingError, Embeddings
 from app.services.ingestion.parsers import ParseError, kind_for_filename, parse_document
 from app.services.ingestion.preprocess import (
@@ -46,6 +48,20 @@ class AsyncReadable(Protocol):
 class UploadResult:
     document: Document
     duplicate: bool
+
+
+@dataclass(frozen=True, slots=True)
+class ArchiveEntryResult:
+    """Resultado de un fichero de un ZIP: el documento subido o por qué no se subió."""
+
+    # Ruta dentro del ZIP.
+    name: str
+    result: UploadResult | None = None
+    error: str | None = None
+
+
+def is_archive(filename: str) -> bool:
+    return Path(filename).suffix.lower() == ".zip"
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,15 +188,81 @@ class DocumentService:
         await self._schedule(document.id, document.updated_at)
         return UploadResult(document, duplicate=False)
 
-    async def _write(self, content: AsyncReadable, target: Path) -> tuple[str, int]:
+    async def upload_archive(
+        self,
+        filename: str,
+        content: AsyncReadable,
+        uploaded_by: str,
+        *,
+        use_filename: bool = False,
+        category_id: int | None = None,
+    ) -> list[ArchiveEntryResult]:
+        """Da de alta cada fichero de un ZIP como un documento (como `upload`).
+
+        El ZIP no se conserva ni tiene límite de tamaño propio: el límite de subida se
+        aplica a cada fichero. Lanza `UploadError` si el ZIP no se puede leer o está vacío.
+        """
+        uploads = self._settings.uploads_dir
+        uploads.mkdir(parents=True, exist_ok=True)
+        temp = uploads / f".zip-{uuid.uuid4()}"
+        try:
+            await self._write(content, temp, limited=False)
+            try:
+                archive = open_archive(str(temp))
+            except ArchiveError as exc:
+                raise UploadError(str(exc)) from exc
+            results: list[ArchiveEntryResult] = []
+            with archive:
+                for member in members(archive):
+                    if member.info is None:
+                        results.append(ArchiveEntryResult(member.name, error=member.error))
+                        continue
+                    try:
+                        with archive.open(member.info) as stream:
+                            result = await self.upload(
+                                PurePosixPath(member.name).name,
+                                MemberReader(stream),
+                                uploaded_by,
+                                use_filename=use_filename,
+                                category_id=category_id,
+                            )
+                    except (UploadError, ArchiveError) as exc:
+                        results.append(ArchiveEntryResult(member.name, error=str(exc)))
+                    except zipfile.BadZipFile:
+                        results.append(
+                            ArchiveEntryResult(
+                                member.name, error="El fichero está dañado dentro del ZIP"
+                            )
+                        )
+                    except NotImplementedError:
+                        # Métodos de compresión que Python no lee (p. ej. Deflate64).
+                        results.append(
+                            ArchiveEntryResult(
+                                member.name,
+                                error="Método de compresión no admitido: vuelve a crear el ZIP",
+                            )
+                        )
+                    else:
+                        results.append(ArchiveEntryResult(member.name, result=result))
+            if not results:
+                raise UploadError("El ZIP no contiene ningún fichero")
+            return results
+        finally:
+            temp.unlink(missing_ok=True)
+
+    async def _write(
+        self, content: AsyncReadable, target: Path, *, limited: bool = True
+    ) -> tuple[str, int]:
+        """Copia el contenido a `target` y devuelve su SHA-256 y su tamaño. Con `limited`,
+        falla si supera el tamaño máximo de subida."""
         max_mb = self._config.current.indexing.upload_max_mb
-        limit = max_mb * 1024 * 1024
+        limit = max_mb * 1024 * 1024 if limited else None
         sha = hashlib.sha256()
         size = 0
         with target.open("wb") as out:
             while chunk := await content.read(READ_CHUNK_BYTES):
                 size += len(chunk)
-                if size > limit:
+                if limit is not None and size > limit:
                     raise UploadError(f"El fichero supera el tamaño máximo ({max_mb} MB)")
                 sha.update(chunk)
                 out.write(chunk)

@@ -16,6 +16,7 @@ import {
   type Category,
   type DocumentItem,
   type DocumentStatus,
+  type UploadResult,
 } from '../../api/documents'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { t } from '../../i18n/es'
@@ -35,9 +36,13 @@ const ALL = 'all'
 interface UploadEntry {
   key: number
   name: string
-  state: 'uploading' | 'uploaded' | 'duplicate' | 'error'
+  /** `archive`: ZIP ya procesado (sus ficheros van en entradas propias). */
+  state: 'uploading' | 'uploaded' | 'duplicate' | 'error' | 'archive'
   message?: string
 }
+
+const resultState = (result: UploadResult): UploadEntry['state'] =>
+  result.error ? 'error' : result.duplicate ? 'duplicate' : 'uploaded'
 
 const statusStyles: Record<DocumentStatus, string> = {
   pending: 'border-borde-control bg-fondo-alt text-texto',
@@ -131,9 +136,34 @@ export function DocumentsPage() {
         continue
       }
       try {
-        const result = await uploadDocument(file, options)
-        if (result.error) update(key, { state: 'error', message: result.error })
-        else update(key, { state: result.duplicate ? 'duplicate' : 'uploaded' })
+        const results = await uploadDocument(file, options)
+        const [first] = results
+        if (results.length === 1 && !first.archive) {
+          update(key, { state: resultState(first), message: first.error ?? undefined })
+        } else {
+          // ZIP: un resumen y, debajo, cada fichero.
+          const uploaded = results.filter((r) => !r.error).length
+          const children = results.map((result) => ({
+            key: nextKey.current++,
+            name: `${file.name} › ${result.filename}`,
+            state: resultState(result),
+            message: result.error ?? undefined,
+          }))
+          setUploads((list) =>
+            list.flatMap((u) =>
+              u.key === key
+                ? [
+                    {
+                      ...u,
+                      state: 'archive' as const,
+                      message: t.documents.archiveSummary(uploaded, results.length - uploaded),
+                    },
+                    ...children,
+                  ]
+                : [u],
+            ),
+          )
+        }
       } catch (error) {
         const message =
           error instanceof ApiError && error.detail ? error.detail : t.documents.uploadFailed

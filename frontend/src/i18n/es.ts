@@ -370,7 +370,7 @@ export const t = {
   documents: {
     title: 'Documentos',
     description:
-      'Ficheros que el asistente consulta para responder. Se admiten PDF, Markdown, HTML, Word, PowerPoint, Excel y sus equivalentes de OpenDocument (LibreOffice).',
+      'Ficheros que el asistente consulta para responder. Se admiten PDF, Markdown, HTML, Word, PowerPoint, Excel y sus equivalentes de OpenDocument (LibreOffice), sueltos o en un ZIP.',
     stats: (documents: number, chunks: number) =>
       `${documents} ${documents === 1 ? 'documento' : 'documentos'} · ${chunks} ${
         chunks === 1 ? 'fragmento indexado' : 'fragmentos indexados'
@@ -386,12 +386,16 @@ export const t = {
     confirmReindexAll:
       '¿Reindexar todos los documentos? Es necesario si ha cambiado el modelo de embeddings. ' +
       'Hasta que termine, el chat responderá sin ellos.',
-    dropzone: 'Arrastra aquí ficheros PDF, Markdown, HTML, Word, PowerPoint, Excel u OpenDocument',
+    dropzone:
+      'Arrastra aquí ficheros PDF, Markdown, HTML, Word, PowerPoint, Excel u OpenDocument, o un ZIP con varios',
     or: 'o',
     select: 'Seleccionar ficheros',
     uploads: 'Subidas',
     uploading: 'Subiendo…',
     uploaded: 'Subido',
+    archiveSummary: (uploaded: number, failed: number) =>
+      `ZIP: ${uploaded} ${uploaded === 1 ? 'fichero subido' : 'ficheros subidos'}` +
+      (failed ? `, ${failed} con errores` : ''),
     duplicate: 'Ya existía',
     uploadFailed: 'No se pudo subir',
     unsupported:

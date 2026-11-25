@@ -204,7 +204,7 @@ Se definen como variables de entorno al ejecutar `docker compose` o en el propio
 |---|---|---|
 | `CHATBOT_HTTP_PORT` | `8080` | Puerto publicado |
 | `CHATBOT_HTTP_BIND` | `0.0.0.0` | Interfaz; usa `127.0.0.1` si hay un proxy HTTPS en el mismo servidor |
-| `CHATBOT_MAX_BODY_SIZE` | `60m` | Tamaño máximo de una petición en nginx (debe superar el tamaño máximo de subida de la configuración) |
+| `CHATBOT_MAX_BODY_SIZE` | `60m` | Tamaño máximo de una petición en nginx (debe superar el tamaño máximo de subida de la configuración). Limita también el tamaño de los ZIP con varios documentos: súbelo si se van a subir ZIP grandes (por ejemplo `500m`) |
 | `CHATBOT_UV_EXTRAS` | — | `local-embeddings` para incluir sentence-transformers en la imagen |
 | `CHATBOT_IMAGE_TAG` | `latest` | Etiqueta de las imágenes construidas |
 | `CHATBOT_TRUSTED_PROXIES` | — | IP o rangos del proxy HTTPS propio, para conocer la IP real de los clientes (ver [HTTPS](#https)) |

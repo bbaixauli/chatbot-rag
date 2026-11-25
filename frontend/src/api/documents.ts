@@ -38,7 +38,10 @@ export interface UploadOptions {
 }
 
 export interface UploadResult {
+  /** En un ZIP, la ruta del fichero dentro de él. */
   filename: string
+  /** ZIP del que viene el fichero. */
+  archive?: string | null
   document: DocumentItem | null
   duplicate: boolean
   error: string | null
@@ -65,22 +68,23 @@ export const ACCEPTED_EXTENSIONS = [
   '.odt',
   '.odp',
   '.ods',
+  '.zip',
 ]
 
 export const listDocuments = () => apiGet<DocumentItem[]>('/admin/documents')
 
 export const getIndexStats = () => apiGet<IndexStats>('/admin/documents/stats')
 
+/** Sube un fichero: un resultado, o uno por fichero si es un ZIP. */
 export async function uploadDocument(
   file: File,
   { useFilename = false, categoryId = null }: UploadOptions = {},
-): Promise<UploadResult> {
+): Promise<UploadResult[]> {
   const body = new FormData()
   body.append('files', file, file.name)
   if (useFilename) body.append('use_filename', 'true')
   if (categoryId !== null) body.append('category_id', String(categoryId))
-  const [result] = await apiRequest<UploadResult[]>('/admin/documents', { method: 'POST', body })
-  return result
+  return apiRequest<UploadResult[]>('/admin/documents', { method: 'POST', body })
 }
 
 /** Cambia el título o la categoría (`null`: sin categoría). */
