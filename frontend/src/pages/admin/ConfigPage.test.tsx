@@ -76,6 +76,7 @@ function appConfig(): AppConfig {
           scoped_min_score: 0,
           detect_document_names: true,
           neighbor_chunks: 0,
+          full_document_max_chars: 0,
         },
         { updated_by: 'ana', updated_at: '2026-11-20T12:30:00Z' },
       ),
@@ -226,6 +227,7 @@ describe('ConfigPage', () => {
           scoped_min_score: 0,
           detect_document_names: true,
           neighbor_chunks: 0,
+          full_document_max_chars: 0,
         },
       },
     ])

@@ -257,3 +257,15 @@ async def test_chunks_by_index(store: QdrantVectorStore) -> None:
 
     assert [(h.chunk_index, h.text) for h in hits] == [(0, CHUNKS[0].text), (2, CHUNKS[2].text)]
     assert await store.chunks_by_index("d1", []) == []
+
+
+async def test_document_chunks_without_vectors(store: QdrantVectorStore) -> None:
+    await _add(store, "d1", CHUNKS)
+
+    chunks = await store.document_chunks("d1", with_vectors=False)
+
+    assert [(c.chunk_index, c.vector, c.filename) for c in chunks] == [
+        (0, [], "d1.md"),
+        (1, [], "d1.md"),
+        (2, [], "d1.md"),
+    ]

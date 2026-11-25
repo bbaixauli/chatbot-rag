@@ -202,7 +202,9 @@ class QdrantVectorStore:
         hits = [_hit(point.payload or {}, 0.0) for point in points]
         return sorted(hits, key=lambda hit: hit.chunk_index)
 
-    async def document_chunks(self, document_id: str) -> list[StoredChunk]:
+    async def document_chunks(
+        self, document_id: str, with_vectors: bool = True
+    ) -> list[StoredChunk]:
         if not await self._client.collection_exists(self._collection):
             return []
         condition = models.FieldCondition(
@@ -217,13 +219,13 @@ class QdrantVectorStore:
                 limit=256,
                 offset=offset,
                 with_payload=True,
-                with_vectors=True,
+                with_vectors=with_vectors,
             )
             for point in points:
                 payload = point.payload or {}
                 page = payload.get("page")
                 heading = payload.get("heading")
-                vector = point.vector
+                vector = point.vector if with_vectors else []
                 if not isinstance(vector, list):
                     raise VectorStoreError("La colección no usa un único vector por fragmento")
                 chunks.append(
@@ -234,6 +236,7 @@ class QdrantVectorStore:
                         heading=str(heading) if heading else None,
                         vector=[float(v) for v in vector],  # type: ignore[arg-type]
                         toc=bool(payload.get("toc")),
+                        filename=str(payload.get("filename", "")),
                     )
                 )
             if offset is None:

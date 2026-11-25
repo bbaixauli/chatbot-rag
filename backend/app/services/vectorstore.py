@@ -39,6 +39,7 @@ class StoredChunk:
     heading: str | None
     vector: list[float]
     toc: bool = False
+    filename: str = ""
 
 
 class VectorStoreError(Exception):
@@ -72,8 +73,11 @@ class VectorStore(Protocol):
         (en ese caso, con búsqueda exacta: son pocos fragmentos y no se pierde ninguno)."""
         ...
 
-    async def document_chunks(self, document_id: str) -> list[StoredChunk]:
-        """Fragmentos de un documento con sus vectores, ordenados por índice."""
+    async def document_chunks(
+        self, document_id: str, with_vectors: bool = True
+    ) -> list[StoredChunk]:
+        """Fragmentos de un documento ordenados por índice, con sus vectores (o con
+        vectores vacíos si `with_vectors` es falso: p. ej. para reconstruir el texto)."""
         ...
 
     async def chunks_by_index(self, document_id: str, indices: Sequence[int]) -> list[SearchHit]:
@@ -251,15 +255,18 @@ class ChromaVectorStore:
         ]
         return sorted(hits, key=lambda hit: hit.chunk_index)
 
-    async def document_chunks(self, document_id: str) -> list[StoredChunk]:
+    async def document_chunks(
+        self, document_id: str, with_vectors: bool = True
+    ) -> list[StoredChunk]:
+        include: Any = ["documents", "metadatas", "embeddings"]
         result = await asyncio.to_thread(
             self._collection.get,
             where={"document_id": document_id},
-            include=["documents", "metadatas", "embeddings"],
+            include=include if with_vectors else include[:2],
         )
         documents = result["documents"] or []
         metadatas = result["metadatas"] or []
-        embeddings = result["embeddings"]
+        embeddings: Any = result["embeddings"] if with_vectors else [[] for _ in documents]
         vectors = [] if embeddings is None else embeddings
         chunks = []
         for text, metadata, vector in zip(documents, metadatas, vectors, strict=True):
@@ -273,6 +280,7 @@ class ChromaVectorStore:
                     heading=str(heading) if heading is not None else None,
                     vector=[float(v) for v in vector],
                     toc=bool(metadata.get("toc")),
+                    filename=str(metadata.get("filename", "")),
                 )
             )
         return sorted(chunks, key=lambda c: c.chunk_index)
