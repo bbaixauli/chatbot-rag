@@ -22,6 +22,13 @@ export interface DocumentItem {
   updated_at: string
   /** Dirección web, si se añadió por ella. */
   source_url?: string | null
+  /** Actualización periódica de los documentos web: última comprobación y último cambio. */
+  source_checked_at?: string | null
+  source_changed_at?: string | null
+  /** Error de la última comprobación. */
+  source_error?: string | null
+  /** Comprobaciones seguidas en las que no se ha encontrado (se borra al llegar al límite). */
+  source_not_found?: number
   /** Indexado con otro modelo, troceado, preprocesado, título o categoría. */
   outdated: boolean
 }
@@ -117,6 +124,10 @@ export const deleteDocument = (id: string) =>
 
 export const reindexDocument = (id: string) =>
   apiRequest<DocumentItem>(`/admin/documents/${id}/reindex`, { method: 'POST' })
+
+/** Comprueba ahora si ha cambiado un documento web. */
+export const refreshDocument = (id: string) =>
+  apiRequest<DocumentItem>(`/admin/documents/${id}/refresh`, { method: 'POST' })
 
 export const reindexAll = () =>
   apiRequest<{ scheduled: number }>('/admin/documents/reindex', { method: 'POST' })

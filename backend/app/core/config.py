@@ -156,6 +156,11 @@ class Settings(BaseSettings):
     # también sus subdominios). Vacío: cualquiera.
     web_timeout_seconds: int = Field(default=30, ge=1, le=300)
     web_allowed_domains: str = ""
+    # Actualización periódica (#79): cada cuántas horas se comprueba si han cambiado y tras
+    # cuántas comprobaciones seguidas con «no encontrado» (404 o 410) se borran.
+    web_refresh_enabled: bool = True
+    web_refresh_interval_hours: int = Field(default=24, ge=1, le=720)
+    web_not_found_limit: int = Field(default=3, ge=1, le=100)
 
     # Escalado (requiere `uv sync --extra escalado`). Por defecto, ChromaDB embebido y
     # tareas en el proceso de la API. Con `arq`, la indexación la hacen workers aparte

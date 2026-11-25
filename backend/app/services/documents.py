@@ -27,9 +27,11 @@ from app.services.ingestion.preprocess import (
     preprocessing_signature,
 )
 from app.services.ingestion.titles import extract_title
-from app.services.tasks import INDEX_DOCUMENT, TaskRunner
+from app.services.tasks import INDEX_DOCUMENT, REFRESH_DOCUMENT, TaskRunner
 from app.services.vectorstore import VectorStore, VectorStoreError
 from app.services.web import (
+    Download,
+    NotFoundError,
     WebError,
     WebFetcher,
     check_url,
@@ -128,6 +130,18 @@ def _next_request_time(previous: datetime) -> datetime:
     return max(utcnow(), _as_utc(previous) + timedelta(microseconds=1))
 
 
+async def _content(download: Download) -> tuple[DocumentKind, str, bytes, str | None]:
+    """Tipo, nombre, contenido que se guarda y título de un documento descargado: de las
+    páginas web, su contenido principal en Markdown y el título de la página."""
+    kind = document_kind(download)
+    name = safe_filename(document_name(download, kind))
+    if kind is not DocumentKind.WEB:
+        return kind, name, download.body, None
+    html = decode_html(download)
+    body = (await asyncio.to_thread(html_to_markdown, html)).encode("utf-8")
+    return kind, name, body, await asyncio.to_thread(page_title, html)
+
+
 def document_file_path(settings: Settings, document: Document) -> Path:
     """Ruta del original en disco (nombrado por id para evitar colisiones). De las páginas
     web se guarda su contenido limpio, en Markdown."""
@@ -164,6 +178,7 @@ class DocumentService:
         self._store = vector_store
         self._tasks = tasks
         tasks.register(INDEX_DOCUMENT, self.process)
+        tasks.register(REFRESH_DOCUMENT, self.refresh)
 
     def file_path(self, document: Document) -> Path:
         """Ruta del original en disco (nombrado por id para evitar colisiones)."""
@@ -220,15 +235,9 @@ class DocumentService:
         max_bytes = config.indexing.upload_max_mb * 1024 * 1024
         try:
             download = await self.fetcher.fetch(url, config.web, max_bytes)
-            kind = document_kind(download)
+            kind, name, body, title = await _content(download)
         except WebError as exc:
             raise UploadError(str(exc)) from exc
-        name = safe_filename(document_name(download, kind))
-        body, title = download.body, None
-        if kind is DocumentKind.WEB:
-            html = decode_html(download)
-            body = (await asyncio.to_thread(html_to_markdown, html)).encode("utf-8")
-            title = await asyncio.to_thread(page_title, html)
         return await self._save(
             name,
             kind,
@@ -239,6 +248,150 @@ class DocumentService:
             title=title,
             source=Source(url, download.etag, download.last_modified),
         )
+
+    async def check_now(self, document_id: str) -> Document | None:
+        """Comprueba ahora un documento web («Comprobar ahora») y lo devuelve actualizado.
+
+        Devuelve `None` si no existe (o se ha borrado por no encontrarse). Lanza
+        `UploadError` si no se añadió por su dirección.
+        """
+        document = await self.get(document_id)
+        if document is None:
+            return None
+        if document.source_url is None:
+            raise UploadError("El documento no se añadió por su dirección web")
+        await self.refresh(document_id)
+        return await self.get(document_id)
+
+    async def refresh(self, document_id: str) -> None:
+        """Comprueba si un documento web ha cambiado y, si es así, lo actualiza (#79).
+
+        - Sin cambios (304 o el mismo contenido): se anota la comprobación.
+        - Con cambios: se sustituye el contenido y se reindexa (mismo documento, así que las
+          referencias y las búsquedas limitadas a él siguen valiendo).
+        - «No encontrado» (404 o 410): se cuenta; al llegar al límite configurado, se borra.
+        - Otros errores (red, 5xx…): se anotan, sin contar ni cambiar el documento.
+
+        Si el documento se está indexando, se deja para la siguiente comprobación.
+        """
+        document = await self.get(document_id)
+        if document is None or document.source_url is None:
+            return
+        if document.status in (DocumentStatus.PENDING.value, DocumentStatus.PROCESSING.value):
+            return
+        config = self._config.current
+        headers = {}
+        if document.source_etag:
+            headers["If-None-Match"] = document.source_etag
+        if document.source_last_modified:
+            headers["If-Modified-Since"] = document.source_last_modified
+        max_bytes = config.indexing.upload_max_mb * 1024 * 1024
+        try:
+            download = await self.fetcher.fetch(document.source_url, config.web, max_bytes, headers)
+            if download.not_modified:
+                await self._checked(document_id, download)
+                return
+            kind, _, body, _ = await _content(download)
+        except NotFoundError as exc:
+            await self._not_found(document_id, str(exc), config.web.not_found_limit)
+            return
+        except WebError as exc:
+            await self._checked(document_id, error=str(exc))
+            return
+        if kind.value != document.kind:
+            await self._checked(
+                document_id,
+                download,
+                error=f"El tipo del documento ha cambiado ({document.kind} → {kind.value})",
+            )
+            return
+        digest = hashlib.sha256(body).hexdigest()
+        if digest == document.sha256:
+            await self._checked(document_id, download)
+            return
+        await self._replace(document_id, download, body, digest)
+
+    async def _checked(
+        self,
+        document_id: str,
+        download: Download | None = None,
+        *,
+        error: str | None = None,
+    ) -> None:
+        """Anota una comprobación sin cambios (con la respuesta) o con un error."""
+        async with self._sessionmaker() as session:
+            document = await session.get(Document, document_id)
+            if document is None:
+                return
+            document.source_checked_at = utcnow()
+            document.source_error = error
+            if download is not None:
+                document.source_not_found = 0
+                document.source_etag = download.etag or document.source_etag
+                document.source_last_modified = (
+                    download.last_modified or document.source_last_modified
+                )
+            await session.commit()
+
+    async def _not_found(self, document_id: str, error: str, limit: int) -> None:
+        async with self._sessionmaker() as session:
+            document = await session.get(Document, document_id)
+            if document is None:
+                return
+            document.source_checked_at = utcnow()
+            document.source_not_found += 1
+            document.source_error = error
+            remove = document.source_not_found >= limit
+            url, times = document.source_url, document.source_not_found
+            await session.commit()
+        if remove:
+            logger.info(
+                "Documento web borrado: no se encuentra tras %d comprobaciones (%s)", times, url
+            )
+            await self.delete(document_id)
+
+    async def _replace(
+        self, document_id: str, download: Download, body: bytes, digest: str
+    ) -> None:
+        """Sustituye el contenido de un documento web y programa su reindexación."""
+        uploads = self._settings.uploads_dir
+        uploads.mkdir(parents=True, exist_ok=True)
+        temp = uploads / f".actualizacion-{uuid.uuid4()}"
+        try:
+            await asyncio.to_thread(temp.write_bytes, body)
+            async with self._sessionmaker() as session:
+                document = await session.get(Document, document_id)
+                if document is None:
+                    return
+                same = await session.scalar(
+                    select(Document.title).where(
+                        Document.sha256 == digest, Document.id != document_id
+                    )
+                )
+                now = utcnow()
+                document.source_checked_at = now
+                if same is not None:
+                    # `sha256` es único: se conserva la versión anterior.
+                    document.source_error = f"El contenido nuevo es el mismo que el de «{same}»"
+                    await session.commit()
+                    return
+                temp.replace(self.file_path(document))
+                document.sha256 = digest
+                document.size_bytes = len(body)
+                document.status = DocumentStatus.PENDING.value
+                document.error = None
+                document.updated_at = _next_request_time(document.updated_at)
+                document.source_changed_at = now
+                document.source_error = None
+                document.source_not_found = 0
+                document.source_etag = download.etag
+                document.source_last_modified = download.last_modified
+                await session.commit()
+                requested_at = document.updated_at
+        finally:
+            temp.unlink(missing_ok=True)
+        logger.info("Documento web actualizado: %s", download.url)
+        await self._schedule(document_id, requested_at)
 
     async def _save(
         self,
@@ -281,6 +434,9 @@ class DocumentService:
                     source_url=source.url if source else None,
                     source_etag=source.etag if source else None,
                     source_last_modified=source.last_modified if source else None,
+                    # Recién descargado: comprobado y cambiado ahora (#79).
+                    source_checked_at=utcnow() if source else None,
+                    source_changed_at=utcnow() if source else None,
                 )
                 session.add(document)
                 await session.flush()

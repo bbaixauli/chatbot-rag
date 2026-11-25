@@ -160,6 +160,17 @@ opcionalmente, los **dominios permitidos** (cada uno con sus subdominios). Ten e
 servidor descarga desde su propia red: puede acceder a páginas internas que el administrador no
 vea desde fuera.
 
+Los documentos web se **actualizan solos**: la API comprueba cada pocos minutos cuáles llevan más
+de la frecuencia configurada sin comprobarse (24 horas por defecto) y encola su comprobación, que
+hace quien atienda la cola (la propia API o los workers). Se pide la página con las cabeceras
+condicionales (`If-None-Match`, `If-Modified-Since`); si ha cambiado su contenido principal (un
+cambio en el menú o el pie no cuenta), se sustituye y se reindexa, conservando el documento (las
+referencias y las búsquedas limitadas a él siguen valiendo) y su título. Si la página **no se
+encuentra** (404 o 410) en varias comprobaciones seguidas (3 por defecto), el documento se borra;
+los fallos de red o del servidor solo se anotan. La lista de documentos muestra la última
+comprobación, el último cambio y el último error, y **Comprobar ahora** comprueba uno al momento.
+La frecuencia y el número de comprobaciones están en *Configuración → Documentos web*.
+
 ### Título y categorías de los documentos
 
 Cada documento tiene un **título**, que es lo que muestran las referencias del chat y el
@@ -357,6 +368,7 @@ Documentación interactiva en http://localhost:8000/docs. Endpoints principales:
 | GET | `/api/v1/admin/documents/stats` | Nº de documentos, fragmentos, desactualizados y modelo de embeddings (admin) |
 | POST | `/api/v1/admin/documents/reindex` | Reindexar todos (admin) |
 | POST | `/api/v1/admin/documents/reindex-outdated` | Reindexar los desactualizados (admin) |
+| POST | `/api/v1/admin/documents/{id}/refresh` | Comprobar ahora si ha cambiado un documento web; devuelve el documento actualizado (404 si se borra por no encontrarse) (admin) |
 | POST | `/api/v1/admin/documents/urls` | Descargar y dar de alta documentos por su dirección web (`urls`, hasta 50; `category_id` y `use_filename` opcionales); un resultado por dirección (admin) |
 | GET/PATCH/DELETE | `/api/v1/admin/documents/{id}` | Detalle / cambiar título o categoría / eliminar (admin) |
 | POST | `/api/v1/admin/documents/{id}/reindex` | Reindexar uno (admin) |

@@ -141,6 +141,12 @@ class Document(Base):
     source_url: Mapped[str | None] = mapped_column(String(2048))
     source_etag: Mapped[str | None] = mapped_column(String(255))
     source_last_modified: Mapped[str | None] = mapped_column(String(64))
+    # Actualización periódica (#79): última comprobación, último cambio, último error de la
+    # comprobación y comprobaciones seguidas con «no encontrado».
+    source_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    source_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    source_error: Mapped[str | None] = mapped_column(Text)
+    source_not_found: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
 
 class SystemPromptVersion(Base):

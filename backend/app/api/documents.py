@@ -50,8 +50,14 @@ class DocumentOut(BaseModel):
     uploaded_by: str
     created_at: datetime
     updated_at: datetime
-    # Dirección web, si se añadió por ella (#78).
+    # Dirección web, si se añadió por ella (#78), y su actualización (#79): última
+    # comprobación, último cambio, error de la última comprobación y comprobaciones seguidas
+    # con «no encontrado».
     source_url: str | None = None
+    source_checked_at: datetime | None = None
+    source_changed_at: datetime | None = None
+    source_error: str | None = None
+    source_not_found: int = 0
     # Indexado con otro modelo, troceado, preprocesado, título o categoría: hay que
     # reindexarlo.
     outdated: bool = False
@@ -282,6 +288,20 @@ async def delete_document(document_id: str, _: AdminDep, service: DocumentsDep) 
 )
 async def reindex_document(document_id: str, _: AdminDep, service: DocumentsDep) -> DocumentOut:
     document = await service.reindex(document_id)
+    if document is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Documento no encontrado")
+    return await _document_out(service, document)
+
+
+@router.post("/{document_id}/refresh", response_model=DocumentOut)
+async def refresh_document(document_id: str, _: AdminDep, service: DocumentsDep) -> DocumentOut:
+    """Comprueba ahora si ha cambiado un documento web (#79) y lo devuelve actualizado (si
+    ha cambiado, queda pendiente de reindexar). 404 si no existe o se ha borrado al no
+    encontrarse la página."""
+    try:
+        document = await service.check_now(document_id)
+    except UploadError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
     if document is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Documento no encontrado")
     return await _document_out(service, document)

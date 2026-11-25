@@ -417,6 +417,50 @@ describe('DocumentsPage', () => {
     expect(link).toHaveAttribute('target', '_blank')
   })
 
+  it('muestra la actualización de los documentos web y los comprueba a petición', async () => {
+    const page = 'https://intranet/gastos'
+    const web = (patch: Partial<DocumentItem> = {}) =>
+      doc('w', 'gastos.html', {
+        title: 'Política de gastos',
+        kind: 'web',
+        source_url: page,
+        source_checked_at: '2026-11-25T10:00:00Z',
+        source_changed_at: '2026-11-20T08:30:00Z',
+        ...patch,
+      })
+    const { state, api } = documentsApi(
+      [web({ source_error: 'No encontrado (404)', source_not_found: 2 }), doc('a', 'a.md')],
+      {
+        'POST /admin/documents/w/refresh': () => {
+          state.docs = [web(), doc('a', 'a.md')]
+          return jsonResponse(state.docs[0], 202)
+        },
+      },
+    )
+    renderApp('/admin/documents')
+
+    const row = await screen.findByRole('row', { name: /Política de gastos/ })
+    // En la zona horaria del navegador (la de los tests puede variar).
+    const local = (iso: string) =>
+      new Date(iso).toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' })
+    expect(row).toHaveTextContent(
+      `Comprobado: ${local('2026-11-25T10:00:00Z')} · Cambiado: ${local('2026-11-20T08:30:00Z')}`,
+    )
+    expect(row).toHaveTextContent('No encontrado en las 2 últimas comprobaciones')
+    // Solo los documentos web se pueden comprobar.
+    expect(screen.queryByRole('button', { name: 'Comprobar ahora: a.md' })).toBeNull()
+
+    await userEvent.click(
+      within(row).getByRole('button', { name: 'Comprobar ahora: Política de gastos' }),
+    )
+
+    await waitFor(() => expect(row).not.toHaveTextContent('No encontrado'))
+    expect(api).toHaveBeenCalledWith(
+      '/api/v1/admin/documents/w/refresh',
+      expect.objectContaining({ method: 'POST' }),
+    )
+  })
+
   it('no envía más direcciones de las permitidas', async () => {
     const { api } = documentsApi([])
     renderApp('/admin/documents')

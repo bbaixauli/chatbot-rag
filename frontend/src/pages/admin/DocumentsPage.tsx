@@ -13,6 +13,7 @@ import {
   reindexAll,
   reindexDocument,
   reindexOutdated,
+  refreshDocument,
   updateDocument,
   uploadDocument,
   type Category,
@@ -117,8 +118,13 @@ export function DocumentsPage() {
   const reindex = useMutation({ mutationFn: reindexDocument, onSettled: refresh })
   const reindexEverything = useMutation({ mutationFn: reindexAll, onSettled: refresh })
   const reindexStale = useMutation({ mutationFn: reindexOutdated, onSettled: refresh })
+  const check = useMutation({ mutationFn: refreshDocument, onSettled: refresh })
   const actionFailed =
-    remove.isError || reindex.isError || reindexEverything.isError || reindexStale.isError
+    remove.isError ||
+    reindex.isError ||
+    reindexEverything.isError ||
+    reindexStale.isError ||
+    check.isError
 
   function update(key: number, patch: Partial<UploadEntry>) {
     setUploads((list) => list.map((u) => (u.key === key ? { ...u, ...patch } : u)))
@@ -457,16 +463,7 @@ export function DocumentsPage() {
                           {d.title}
                         </a>
                         {d.source_url ? (
-                          <p className="text-xs break-all">
-                            <a
-                              href={d.source_url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              aria-label={t.documents.openUrl(d.source_url)}
-                            >
-                              {d.source_url}
-                            </a>
-                          </p>
+                          <SourceStatus document={d} url={d.source_url} />
                         ) : (
                           d.title !== d.filename && (
                             <p className="text-xs break-all text-texto-secundario">{d.filename}</p>
@@ -498,6 +495,17 @@ export function DocumentsPage() {
                       </td>
                       <td className="px-3 py-2">
                         <div className="flex gap-2">
+                          {d.source_url && (
+                            <button
+                              type="button"
+                              aria-label={`${t.documents.refresh}: ${d.title}`}
+                              disabled={d.status === 'pending' || d.status === 'processing'}
+                              onClick={() => check.mutate(d.id)}
+                              className="btn btn-secundario"
+                            >
+                              {t.documents.refresh}
+                            </button>
+                          )}
                           <button
                             type="button"
                             aria-label={`${t.documents.edit}: ${d.title}`}
@@ -540,6 +548,38 @@ export function DocumentsPage() {
 
       <CategoryManager categories={categoryList} onChanged={refresh} />
     </div>
+  )
+}
+
+const formatDate = (value: string) =>
+  new Date(value).toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' })
+
+/** Dirección de un documento web y estado de su actualización periódica. */
+function SourceStatus({ document, url }: { document: DocumentItem; url: string }) {
+  const dates = [
+    document.source_checked_at && t.documents.checked(formatDate(document.source_checked_at)),
+    document.source_changed_at && t.documents.changed(formatDate(document.source_changed_at)),
+  ].filter(Boolean)
+  const notFound = document.source_not_found ?? 0
+  return (
+    <>
+      <p className="text-xs break-all">
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={t.documents.openUrl(url)}
+        >
+          {url}
+        </a>
+      </p>
+      {dates.length > 0 && <p className="text-xs text-texto-secundario">{dates.join(' · ')}</p>}
+      {document.source_error && (
+        <p className="text-xs text-aviso">
+          {notFound > 0 ? t.documents.notFound(notFound) : document.source_error}
+        </p>
+      )}
+    </>
   )
 }
 

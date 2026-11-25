@@ -90,6 +90,8 @@ class Download:
     body: bytes
     etag: str | None = None
     last_modified: str | None = None
+    # Respuesta 304 a una petición condicional (#79): no ha cambiado y no hay contenido.
+    not_modified: bool = False
 
 
 def check_url(url: str, config: WebConfig) -> str:
@@ -124,7 +126,11 @@ class WebFetcher:
         max_bytes: int,
         headers: dict[str, str] | None = None,
     ) -> Download:
-        """Descarga `url` (comprobada con `check_url`) siguiendo las redirecciones."""
+        """Descarga `url` (comprobada con `check_url`) siguiendo las redirecciones.
+
+        Con las cabeceras condicionales (`If-None-Match`, `If-Modified-Since`), una
+        respuesta 304 devuelve `not_modified`.
+        """
         try:
             async with asyncio.timeout(config.timeout_seconds):
                 return await self._fetch(url, config, max_bytes, headers or {})
@@ -153,6 +159,15 @@ class WebFetcher:
                             raise WebError("Redirección sin destino")
                         current = check_url(urljoin(current, location), config)
                         continue
+                    if response.status_code == 304:
+                        return Download(
+                            url=current,
+                            content_type="",
+                            body=b"",
+                            etag=response.headers.get("etag"),
+                            last_modified=response.headers.get("last-modified"),
+                            not_modified=True,
+                        )
                     if response.status_code in (404, 410):
                         raise NotFoundError(f"No encontrado ({response.status_code})")
                     if not response.is_success:

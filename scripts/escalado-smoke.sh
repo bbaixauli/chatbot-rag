@@ -106,4 +106,55 @@ curl -fsS -c "$COOKIES" -H 'Content-Type: application/json' \
 wait_ready 2
 stats | grep -q '"documents":2' || fail "número de documentos inesperado: $(stats)"
 
+step "Documento web: alta por la API, actualización por los workers"
+# Página servida desde el contenedor de la API (los workers la alcanzan por su nombre).
+web_page() {  # web_page <texto>
+  printf '<html><head><title>Politica de viajes</title></head><body><main>'
+  printf '<h1>Politica de viajes</h1><p>%s</p></main></body></html>' "$1"
+}
+web_page "La dieta nacional es de 53 euros para toda la plantilla." \
+  | MSYS_NO_PATHCONV=1 compose exec -T backend sh -c 'mkdir -p /tmp/web && cat > /tmp/web/viajes.html'
+MSYS_NO_PATHCONV=1 compose exec -d backend python -m http.server 8099 --directory /tmp/web
+sleep 2
+added=$(admin -H 'Content-Type: application/json' \
+  -d '{"urls":["http://backend:8099/viajes.html"]}' "$BASE/api/v1/admin/documents/urls")
+echo "$added" | grep -q '"error":null' || fail "no se añadió la página: $added"
+web=$(echo "$added" | sed -n 's/.*"document":{"id":"\([^"]*\)".*/\1/p')
+[ -n "$web" ] || fail "sin id del documento web: $added"
+wait_ready 3
+# La página cambia; la comprobación la hace un worker (se encola como la programada).
+web_page "La dieta nacional sube a 60 euros para toda la plantilla." \
+  | MSYS_NO_PATHCONV=1 compose exec -T backend sh -c 'cat > /tmp/web/viajes.html'
+compose exec -T backend python - "$web" <<'PY'
+import asyncio
+import sys
+
+from app.core.config import get_settings
+from app.services.tasks import REFRESH_DOCUMENT, ArqTaskRunner
+
+
+async def main() -> None:
+    runner = await ArqTaskRunner.connect(get_settings().redis_url)
+    await runner.enqueue(REFRESH_DOCUMENT, sys.argv[1], "smoke")
+    await runner.close()
+
+
+asyncio.run(main())
+PY
+for _ in $(seq 1 60); do
+  compose logs --no-color worker | grep -q "Documento web actualizado" && break
+  sleep 1
+done
+compose logs --no-color worker | grep -q "Documento web actualizado" \
+  || fail "los workers no actualizaron el documento web"
+wait_ready 3
+curl -fsS -N -H 'Content-Type: application/json' \
+  -d '{"message":"la dieta nacional sube a 60 euros"}' "$BASE/api/v1/chat" > "$WORK/chat4.txt"
+grep -q 'http://backend:8099/viajes.html' "$WORK/chat4.txt" \
+  || fail "la referencia no enlaza a la página: $(cat "$WORK/chat4.txt")"
+# La página desaparece: «Comprobar ahora» lo anota.
+MSYS_NO_PATHCONV=1 compose exec -T backend rm /tmp/web/viajes.html
+admin -X POST "$BASE/api/v1/admin/documents/$web/refresh" | grep -q 'No encontrado (404)' \
+  || fail "no se anotó la página no encontrada"
+
 echo "Prueba de escalado superada."
