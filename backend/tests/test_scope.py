@@ -201,3 +201,24 @@ async def test_public_list_of_indexed_documents(app: FastAPI, client: AsyncClien
     assert [d["filename"] for d in listed] == ["dietas.md", "Normativa.md"]
     assert set(listed[0]) == {"id", "filename", "kind"}
     assert broken.document.id not in {d["id"] for d in listed}
+
+
+async def test_answers_keep_where_they_searched(app: FastAPI, client: AsyncClient) -> None:
+    dietas = await _index(app, "dietas.md", DIETAS)
+    events = await _ask(client, message="¿Cuánto es la dieta?", document_ids=[dietas])
+    conversation_id = _event(events, "conversation")["id"]  # type: ignore[index]
+    await _ask(
+        client, message="¿Y en vacaciones?", conversation_id=conversation_id, document_ids=[]
+    )
+
+    messages = (await client.get(f"/api/v1/conversations/{conversation_id}/messages")).json()
+
+    assert [(m["role"], m["scope"]) for m in messages] == [
+        ("user", None),
+        (
+            "assistant",
+            {"documents": [{"id": dietas, "filename": "dietas.md"}], "source": "selector"},
+        ),
+        ("user", None),
+        ("assistant", None),
+    ]

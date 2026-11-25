@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Conversation, Document
+from app.db.models import Conversation, Document, DocumentStatus
 
 # Documentos a los que se puede limitar una búsqueda a la vez.
 MAX_SCOPE_DOCUMENTS = 5
@@ -27,6 +27,14 @@ class ScopeDocument:
 
     id: str
     filename: str
+
+
+async def indexed_documents(session: AsyncSession) -> list[ScopeDocument]:
+    """Documentos indexados (los que se pueden nombrar en una pregunta)."""
+    rows = await session.execute(
+        select(Document.id, Document.filename).where(Document.status == DocumentStatus.READY.value)
+    )
+    return [ScopeDocument(document_id, filename) for document_id, filename in rows.all()]
 
 
 async def _existing(session: AsyncSession, ids: Sequence[str]) -> dict[str, str]:
