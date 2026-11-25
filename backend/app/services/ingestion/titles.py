@@ -67,7 +67,7 @@ def _pdf_title(path: Path) -> str | None:
     return metadata.get("title")
 
 
-def _html_title(source: str) -> str | None:
+def html_title(source: str) -> str | None:
     soup = BeautifulSoup(source, "html.parser")
     candidates: list[str | None] = []
     if soup.title is not None:
@@ -101,10 +101,10 @@ def extract_title(path: Path, kind: DocumentKind) -> str | None:
     try:
         if kind is DocumentKind.PDF:
             raw = _pdf_title(path)
-        elif kind is DocumentKind.MARKDOWN:
+        elif kind in (DocumentKind.MARKDOWN, DocumentKind.WEB):
             raw = _markdown_title(read_text(path))
         elif kind is DocumentKind.HTML:
-            raw = _html_title(read_text(path))
+            raw = html_title(read_text(path))
         else:
             from app.services.ingestion.office import office_title
 

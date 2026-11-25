@@ -1,4 +1,6 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
+import http from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { fileURLToPath } from 'node:url'
 import { ADMIN_PASSWORD } from './constants.ts'
 
@@ -267,4 +269,45 @@ test('sube un ZIP con varios documentos a una categoría', async ({ page }) => {
   const gastos = row(page, 'politica-gastos.html')
   await expect(gastos.getByText('Indexado')).toBeVisible()
   await expect(gastos).toContainText('Recursos humanos')
+})
+
+test('añade una página web por su dirección y la cita con un enlace a ella', async ({ page }) => {
+  // Servidor web propio del test: el backend descarga de él.
+  const html = `<html><head><title>Seguro de viaje | Intranet</title></head><body>
+    <nav>Inicio · Recursos humanos · Contacto</nav>
+    <main><h1>Seguro de viaje</h1>
+    <p>El seguro de viaje internacional contratado por la empresa cubre la asistencia médica
+    urgente, la repatriación y la pérdida de equipaje durante los viajes de trabajo.</p></main>
+    <footer>Aviso legal · Cookies</footer></body></html>`
+  const server = http.createServer((_, response) => {
+    response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
+    response.end(html)
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/seguro-de-viaje`
+  try {
+    await openDocuments(page)
+    await page.getByRole('textbox', { name: 'Direcciones web (una por línea)' }).fill(url)
+    await page.getByRole('button', { name: 'Añadir direcciones' }).click()
+
+    const uploads = page.getByRole('region', { name: 'Subidas' })
+    await expect(uploads.getByRole('listitem').filter({ hasText: url })).toContainText('Subido')
+    const row = page.getByRole('row', { name: /Seguro de viaje/ })
+    await expect(row.getByText('Indexado')).toBeVisible()
+    await expect(row).toContainText('Página web')
+    await expect(row.getByRole('link', { name: `Abrir ${url} (en otra pestaña)` })).toHaveAttribute(
+      'href',
+      url,
+    )
+  } finally {
+    server.close()
+  }
+
+  await page.goto('/')
+  await ask(page, '¿Qué cubre el seguro de viaje internacional contratado por la empresa?')
+  const link = answers(page)
+    .last()
+    .getByRole('region', { name: 'Fuentes' })
+    .getByRole('link', { name: /Abrir fuente: \[\d\] Seguro de viaje/ })
+  await expect(link).toHaveAttribute('href', url)
 })

@@ -46,6 +46,8 @@ class SourceOut(BaseModel):
     filename: str
     # Título actual del documento (#75); si se borró, el nombre del fichero.
     title: str = ""
+    # Dirección web del documento, si se añadió por ella (#78): la referencia enlaza a ella.
+    url: str | None = None
     page: int | None
     heading: str | None
     snippet: str

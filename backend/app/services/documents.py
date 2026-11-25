@@ -29,6 +29,16 @@ from app.services.ingestion.preprocess import (
 from app.services.ingestion.titles import extract_title
 from app.services.tasks import INDEX_DOCUMENT, TaskRunner
 from app.services.vectorstore import VectorStore, VectorStoreError
+from app.services.web import (
+    WebError,
+    WebFetcher,
+    check_url,
+    decode_html,
+    document_kind,
+    document_name,
+    html_to_markdown,
+    page_title,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -44,10 +54,31 @@ class AsyncReadable(Protocol):
     async def read(self, size: int = -1) -> bytes: ...
 
 
+class BytesReader:
+    """Lector asíncrono de un contenido que ya está en memoria."""
+
+    def __init__(self, data: bytes) -> None:
+        self._data = memoryview(data)
+
+    async def read(self, size: int = -1) -> bytes:
+        size = len(self._data) if size < 0 else size
+        chunk, self._data = self._data[:size], self._data[size:]
+        return bytes(chunk)
+
+
 @dataclass(frozen=True, slots=True)
 class UploadResult:
     document: Document
     duplicate: bool
+
+
+@dataclass(frozen=True, slots=True)
+class Source:
+    """Origen de un documento añadido por su dirección web (#78)."""
+
+    url: str
+    etag: str | None = None
+    last_modified: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,8 +129,10 @@ def _next_request_time(previous: datetime) -> datetime:
 
 
 def document_file_path(settings: Settings, document: Document) -> Path:
-    """Ruta del original en disco (nombrado por id para evitar colisiones)."""
-    return settings.uploads_dir / f"{document.id}{Path(document.filename).suffix.lower()}"
+    """Ruta del original en disco (nombrado por id para evitar colisiones). De las páginas
+    web se guarda su contenido limpio, en Markdown."""
+    suffix = ".md" if document.kind == DocumentKind.WEB else Path(document.filename).suffix
+    return settings.uploads_dir / f"{document.id}{suffix.lower()}"
 
 
 def safe_filename(filename: str) -> str:
@@ -120,8 +153,11 @@ class DocumentService:
         vector_store: VectorStore,
         tasks: TaskRunner,
         config: ConfigSource,
+        fetcher: WebFetcher | None = None,
     ) -> None:
         self._sessionmaker = sessionmaker
+        # Descargas por dirección web; se puede sustituir (tests).
+        self.fetcher = fetcher or WebFetcher()
         self._settings = settings
         self._config = config
         self._embeddings = embeddings
@@ -155,7 +191,69 @@ class DocumentService:
                 "Tipo de fichero no admitido (se aceptan PDF, Markdown, HTML, Word, PowerPoint, "
                 "Excel y OpenDocument)"
             )
+        return await self._save(
+            name, kind, content, uploaded_by, use_filename=use_filename, category_id=category_id
+        )
 
+    async def add_url(
+        self,
+        url: str,
+        uploaded_by: str,
+        *,
+        use_filename: bool = False,
+        category_id: int | None = None,
+    ) -> UploadResult:
+        """Descarga un documento por su dirección y lo da de alta (como `upload`).
+
+        Las páginas HTML se guardan reducidas a su contenido principal, en Markdown. Si la
+        dirección ya se había añadido, se devuelve ese documento como duplicado.
+        """
+        config = self._config.current
+        try:
+            url = check_url(url, config.web)
+        except WebError as exc:
+            raise UploadError(str(exc)) from exc
+        async with self._sessionmaker() as session:
+            existing = await session.scalar(select(Document).where(Document.source_url == url))
+        if existing is not None:
+            return UploadResult(existing, duplicate=True)
+        max_bytes = config.indexing.upload_max_mb * 1024 * 1024
+        try:
+            download = await self.fetcher.fetch(url, config.web, max_bytes)
+            kind = document_kind(download)
+        except WebError as exc:
+            raise UploadError(str(exc)) from exc
+        name = safe_filename(document_name(download, kind))
+        body, title = download.body, None
+        if kind is DocumentKind.WEB:
+            html = decode_html(download)
+            body = (await asyncio.to_thread(html_to_markdown, html)).encode("utf-8")
+            title = await asyncio.to_thread(page_title, html)
+        return await self._save(
+            name,
+            kind,
+            BytesReader(body),
+            uploaded_by,
+            use_filename=use_filename,
+            category_id=category_id,
+            title=title,
+            source=Source(url, download.etag, download.last_modified),
+        )
+
+    async def _save(
+        self,
+        name: str,
+        kind: DocumentKind,
+        content: AsyncReadable,
+        uploaded_by: str,
+        *,
+        use_filename: bool,
+        category_id: int | None,
+        title: str | None = None,
+        source: Source | None = None,
+    ) -> UploadResult:
+        """Guarda el contenido, detecta duplicados y programa la indexación. Sin `title`,
+        se toma de los metadatos del fichero."""
         uploads = self._settings.uploads_dir
         uploads.mkdir(parents=True, exist_ok=True)
         temp = uploads / f".subida-{uuid.uuid4()}"
@@ -163,7 +261,10 @@ class DocumentService:
             digest, size = await self._write(content, temp)
             if size == 0:
                 raise UploadError("El fichero está vacío")
-            title = None if use_filename else await asyncio.to_thread(extract_title, temp, kind)
+            if use_filename:
+                title = None
+            elif title is None:
+                title = await asyncio.to_thread(extract_title, temp, kind)
             async with self._sessionmaker() as session:
                 existing = await session.scalar(select(Document).where(Document.sha256 == digest))
                 if existing is not None:
@@ -177,6 +278,9 @@ class DocumentService:
                     sha256=digest,
                     status=DocumentStatus.PENDING.value,
                     uploaded_by=uploaded_by,
+                    source_url=source.url if source else None,
+                    source_etag=source.etag if source else None,
+                    source_last_modified=source.last_modified if source else None,
                 )
                 session.add(document)
                 await session.flush()

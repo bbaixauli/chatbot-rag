@@ -363,6 +363,74 @@ describe('DocumentsPage', () => {
     expect(api.mock.calls.filter(([, i]) => i?.method === 'POST')).toHaveLength(4)
   })
 
+  it('añade documentos por su dirección web', async () => {
+    let body: unknown
+    const page = 'https://intranet/gastos'
+    const { state } = documentsApi(
+      [],
+      {
+        'POST /admin/documents/urls': (init) => {
+          body = JSON.parse(init!.body as string)
+          state.docs = [
+            doc('w', 'gastos.html', { title: 'Política de gastos', kind: 'web', source_url: page }),
+          ]
+          return jsonResponse([
+            { filename: page, document: state.docs[0], duplicate: false, error: null },
+            {
+              filename: 'https://intranet/no',
+              document: null,
+              duplicate: false,
+              error: 'No encontrado (404)',
+            },
+          ])
+        },
+      },
+      [rrhh],
+    )
+    renderApp('/admin/documents')
+    await screen.findAllByRole('option', { name: 'Recursos humanos' })
+    await userEvent.selectOptions(
+      screen.getByRole('combobox', { name: 'Categoría de los documentos que subas' }),
+      'Recursos humanos',
+    )
+    const urls = screen.getByRole('textbox', { name: 'Direcciones web (una por línea)' })
+    await userEvent.type(urls, ` ${page} {Enter}{Enter}https://intranet/no{Enter}${page}`)
+    await userEvent.click(screen.getByRole('button', { name: 'Añadir direcciones' }))
+
+    const uploads = await screen.findByRole('region', { name: 'Subidas' })
+    await waitFor(() =>
+      expect(within(uploads).getByText(page).nextSibling).toHaveTextContent('Subido'),
+    )
+    expect(within(uploads).getByText('https://intranet/no').nextSibling).toHaveTextContent(
+      'No encontrado (404)',
+    )
+    expect(body).toEqual({
+      urls: [page, 'https://intranet/no'],
+      use_filename: false,
+      category_id: 1,
+    })
+    expect(urls).toHaveValue('')
+    const row = await screen.findByRole('row', { name: /Política de gastos/ })
+    expect(row).toHaveTextContent('Página web')
+    const link = within(row).getByRole('link', { name: `Abrir ${page} (en otra pestaña)` })
+    expect(link).toHaveAttribute('href', page)
+    expect(link).toHaveAttribute('target', '_blank')
+  })
+
+  it('no envía más direcciones de las permitidas', async () => {
+    const { api } = documentsApi([])
+    renderApp('/admin/documents')
+    const urls = await screen.findByRole('textbox', { name: 'Direcciones web (una por línea)' })
+
+    fireEvent.change(urls, {
+      target: { value: Array.from({ length: 51 }, (_, n) => `https://intranet/${n}`).join('\n') },
+    })
+    await userEvent.click(screen.getByRole('button', { name: 'Añadir direcciones' }))
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Como mucho 50 direcciones de una vez.')
+    expect(api.mock.calls.some(([url]) => String(url).endsWith('/urls'))).toBe(false)
+  })
+
   it('sube un ZIP y muestra el resultado de cada fichero', async () => {
     documentsApi([], {
       'POST /admin/documents': () =>

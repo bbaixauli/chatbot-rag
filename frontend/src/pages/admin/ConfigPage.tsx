@@ -183,6 +183,13 @@ const GROUPS: GroupSpec[] = [
       { name: 'smtp_from', kind: 'text', optional: true, visible: auditEmail },
     ],
   },
+  {
+    name: 'web',
+    fields: [
+      { name: 'timeout_seconds', kind: 'number', min: 1, max: 300, integer: true },
+      { name: 'allowed_domains', kind: 'text', optional: true },
+    ],
+  },
 ]
 
 interface FormState {

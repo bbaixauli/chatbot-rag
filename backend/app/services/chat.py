@@ -33,7 +33,7 @@ from app.services.prompts import PromptRepository
 from app.services.rag import ContextSource, Retriever, build_system_prompt, extract_citations
 from app.services.scope import (
     ScopeDocument,
-    document_titles,
+    document_refs,
     indexed_documents,
     resolve_scope,
 )
@@ -85,6 +85,7 @@ def source_payload(source: ContextSource, cited: bool) -> dict[str, Any]:
         "document_id": source.document_id,
         "filename": source.filename,
         "title": source.name,
+        "url": source.url,
         "page": source.page,
         "heading": source.heading,
         "snippet": source.snippet,
@@ -350,12 +351,16 @@ class ChatService:
         yield sse_event("done", {"message_id": message.id})
 
     async def _with_titles(self, sources: list[ContextSource]) -> list[ContextSource]:
-        """Pone a las fuentes el título actual de su documento (el índice no lo tiene)."""
+        """Pone a las fuentes el título y la dirección web actuales de su documento (el
+        índice no los tiene)."""
         if not sources:
             return sources
         async with self._sessionmaker() as session:
-            titles = await document_titles(session, (s.document_id for s in sources))
-        return [replace(s, title=titles.get(s.document_id, s.filename)) for s in sources]
+            refs = await document_refs(session, (s.document_id for s in sources))
+        return [
+            replace(s, title=ref.title, url=ref.url) if (ref := refs.get(s.document_id)) else s
+            for s in sources
+        ]
 
     async def _detect_scope(self, question: str, query: str) -> list[ScopeDocument]:
         """Documentos que nombra la pregunta, si la detección está activada."""

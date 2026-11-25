@@ -55,14 +55,25 @@ async def _existing(session: AsyncSession, ids: Sequence[str]) -> dict[str, Scop
     return {row[0]: ScopeDocument(*row) for row in rows.all()}
 
 
-async def document_titles(session: AsyncSession, ids: Iterable[str | None]) -> dict[str, str]:
-    """Título actual de los documentos que existen, por id (las referencias muestran
-    siempre el título vigente, #75)."""
+@dataclass(frozen=True, slots=True)
+class DocumentRef:
+    """Cómo se muestra y a dónde enlaza una referencia a un documento."""
+
+    title: str
+    # Dirección web de los documentos añadidos por ella (#78).
+    url: str | None = None
+
+
+async def document_refs(session: AsyncSession, ids: Iterable[str | None]) -> dict[str, DocumentRef]:
+    """Título y dirección actuales de los documentos que existen, por id (las referencias
+    muestran siempre los vigentes, #75)."""
     wanted = {document_id for document_id in ids if document_id}
     if not wanted:
         return {}
-    rows = await session.execute(select(Document.id, Document.title).where(Document.id.in_(wanted)))
-    return {document_id: title for document_id, title in rows.all()}
+    rows = await session.execute(
+        select(Document.id, Document.title, Document.source_url).where(Document.id.in_(wanted))
+    )
+    return {document_id: DocumentRef(title, url) for document_id, title, url in rows.all()}
 
 
 async def resolve_scope(

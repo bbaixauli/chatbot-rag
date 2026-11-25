@@ -3,11 +3,13 @@ import { useId, useRef, useState, type DragEvent, type FormEvent } from 'react'
 import { ApiError } from '../../api/client'
 import {
   ACCEPTED_EXTENSIONS,
+  addUrls,
   deleteDocument,
   documentFileUrl,
   getIndexStats,
   listCategories,
   listDocuments,
+  MAX_URLS,
   reindexAll,
   reindexDocument,
   reindexOutdated,
@@ -84,6 +86,9 @@ export function DocumentsPage() {
   const [useFilename, setUseFilename] = useState(false)
   const [filter, setFilter] = useState(ALL)
   const [editing, setEditing] = useState<string | null>(null)
+  const [urlText, setUrlText] = useState('')
+  const [addingUrls, setAddingUrls] = useState(false)
+  const [urlError, setUrlError] = useState<string | null>(null)
 
   const documents = useQuery({
     queryKey: DOCUMENTS_KEY,
@@ -169,6 +174,41 @@ export function DocumentsPage() {
           error instanceof ApiError && error.detail ? error.detail : t.documents.uploadFailed
         update(key, { state: 'error', message })
       }
+      await refresh()
+    }
+  }
+
+  async function onAddUrls(event: FormEvent) {
+    event.preventDefault()
+    const urls = [...new Set(urlText.split('\n').map((line) => line.trim()))].filter(Boolean)
+    if (!urls.length) return
+    if (urls.length > MAX_URLS) {
+      setUrlError(t.documents.urls.tooMany(MAX_URLS))
+      return
+    }
+    setUrlError(null)
+    setAddingUrls(true)
+    const entries = urls.map((url) => ({ key: nextKey.current++, url }))
+    setUploads((list) => [
+      ...entries.map(({ key, url }) => ({ key, name: url, state: 'uploading' as const })),
+      ...list,
+    ])
+    try {
+      const results = await addUrls(urls, {
+        useFilename,
+        categoryId: toCategoryId(uploadCategory),
+      })
+      entries.forEach(({ key }, index) => {
+        const result = results[index]
+        update(key, { state: resultState(result), message: result.error ?? undefined })
+      })
+      setUrlText('')
+    } catch (error) {
+      const message =
+        error instanceof ApiError && error.detail ? error.detail : t.documents.uploadFailed
+      for (const { key } of entries) update(key, { state: 'error', message })
+    } finally {
+      setAddingUrls(false)
       await refresh()
     }
   }
@@ -290,6 +330,35 @@ export function DocumentsPage() {
             }}
           />
         </div>
+        <form onSubmit={onAddUrls} className="flex flex-col gap-2">
+          <label htmlFor={`${optionsId}-urls`} className="text-sm">
+            {t.documents.urls.label}
+          </label>
+          <textarea
+            id={`${optionsId}-urls`}
+            rows={3}
+            value={urlText}
+            onChange={(e) => setUrlText(e.target.value)}
+            aria-describedby={`${optionsId}-urls-hint`}
+            placeholder="https://"
+            className="campo font-mono text-sm"
+          />
+          <p id={`${optionsId}-urls-hint`} className="text-xs text-texto-secundario">
+            {t.documents.urls.hint}
+          </p>
+          {urlError && (
+            <p role="alert" className="text-sm text-error">
+              {urlError}
+            </p>
+          )}
+          <button
+            type="submit"
+            disabled={!urlText.trim() || addingUrls}
+            className="btn btn-secundario self-start"
+          >
+            {addingUrls ? t.documents.urls.adding : t.documents.urls.add}
+          </button>
+        </form>
       </section>
 
       {uploads.length > 0 && (
@@ -387,8 +456,21 @@ export function DocumentsPage() {
                         >
                           {d.title}
                         </a>
-                        {d.title !== d.filename && (
-                          <p className="text-xs break-all text-texto-secundario">{d.filename}</p>
+                        {d.source_url ? (
+                          <p className="text-xs break-all">
+                            <a
+                              href={d.source_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              aria-label={t.documents.openUrl(d.source_url)}
+                            >
+                              {d.source_url}
+                            </a>
+                          </p>
+                        ) : (
+                          d.title !== d.filename && (
+                            <p className="text-xs break-all text-texto-secundario">{d.filename}</p>
+                          )
                         )}
                       </td>
                       <td className="px-3 py-2">

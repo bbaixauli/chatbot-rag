@@ -35,6 +35,7 @@ from app.core.runtime_config import IndexingConfig
 from app.db.models import Document, DocumentKind, DocumentStatus
 from app.db.session import build_engine, build_sessionmaker
 from app.services.condense import condense_question
+from app.services.documents import document_file_path
 from app.services.embeddings import Embeddings, build_embeddings
 from app.services.ingestion.parsers import ParseError, kind_for_filename, parse_document
 from app.services.ingestion.preprocess import (
@@ -121,7 +122,7 @@ async def documents_from_app(settings: Settings) -> list[SourceDocument]:
             )
             documents = []
             for row in rows:
-                path = settings.uploads_dir / f"{row.id}{Path(row.filename).suffix.lower()}"
+                path = document_file_path(settings, row)
                 if path.is_file():
                     documents.append(SourceDocument(path, row.filename, DocumentKind(row.kind)))
             return documents

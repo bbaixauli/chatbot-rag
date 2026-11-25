@@ -1,6 +1,8 @@
 """Endpoints de administración de documentos del RAG."""
 
+import asyncio
 from datetime import datetime
+from pathlib import PurePosixPath
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile, status
@@ -13,8 +15,13 @@ from app.api.schemas import PublicDocumentOut
 from app.core.auth import AdminDep, CurrentUserDep
 from app.db.models import Category, Document, DocumentKind, DocumentStatus
 from app.services.documents import DocumentService, UploadError, is_archive
+from app.services.web import MAX_URL_LENGTH
 
 router = APIRouter(prefix="/admin/documents", tags=["documents"])
+
+# Direcciones que se pueden añadir de una vez y descargas simultáneas.
+MAX_URLS = 50
+URL_CONCURRENCY = 4
 
 
 def get_documents(request: Request) -> DocumentService:
@@ -43,6 +50,8 @@ class DocumentOut(BaseModel):
     uploaded_by: str
     created_at: datetime
     updated_at: datetime
+    # Dirección web, si se añadió por ella (#78).
+    source_url: str | None = None
     # Indexado con otro modelo, troceado, preprocesado, título o categoría: hay que
     # reindexarlo.
     outdated: bool = False
@@ -52,6 +61,16 @@ class DocumentUpdate(BaseModel):
     """Cambia el título o la categoría (`null`: sin categoría)."""
 
     title: str | None = Field(default=None, min_length=1, max_length=255)
+    category_id: int | None = None
+
+
+class UrlsIn(BaseModel):
+    """Direcciones web que se añaden como documentos (#78)."""
+
+    urls: list[Annotated[str, Field(min_length=1, max_length=MAX_URL_LENGTH)]] = Field(
+        min_length=1, max_length=MAX_URLS
+    )
+    use_filename: bool = False
     category_id: int | None = None
 
 
@@ -172,6 +191,34 @@ async def upload_documents(
     return results
 
 
+@router.post("/urls", response_model=list[UploadResultOut])
+async def add_urls(body: UrlsIn, admin: AdminDep, service: DocumentsDep) -> list[UploadResultOut]:
+    """Descarga y da de alta los documentos de varias direcciones web (un resultado por
+    dirección, en el mismo orden; `filename` es la dirección)."""
+    await _check_category(service, body.category_id)
+    semaphore = asyncio.Semaphore(URL_CONCURRENCY)
+
+    async def add(url: str) -> UploadResultOut:
+        async with semaphore:
+            try:
+                result = await service.add_url(
+                    url,
+                    admin.username,
+                    use_filename=body.use_filename,
+                    category_id=body.category_id,
+                )
+            except UploadError as exc:
+                return UploadResultOut(filename=url, error=str(exc))
+        return UploadResultOut(
+            filename=url,
+            document=DocumentOut.model_validate(result.document),
+            duplicate=result.duplicate,
+        )
+
+    urls = list(dict.fromkeys(url.strip() for url in body.urls if url.strip()))
+    return list(await asyncio.gather(*(add(url) for url in urls)))
+
+
 @router.get("/stats", response_model=StatsOut)
 async def index_stats(_: AdminDep, service: DocumentsDep, request: Request) -> StatsOut:
     stats = await service.stats()
@@ -242,14 +289,18 @@ async def reindex_document(document_id: str, _: AdminDep, service: DocumentsDep)
 
 @router.get("/{document_id}/file", response_class=FileResponse)
 async def download_document(document_id: str, _: AdminDep, service: DocumentsDep) -> FileResponse:
-    """Descarga el original (siempre como adjunto: nunca se renderiza el HTML subido)."""
+    """Descarga el original (siempre como adjunto: nunca se renderiza el HTML subido). De
+    las páginas web, su contenido limpio en Markdown."""
     document = await _get_or_404(service, document_id)
     path = service.file_path(document)
     if not path.is_file():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "El fichero original no está disponible")
+    filename = document.filename
+    if document.kind == DocumentKind.WEB:
+        filename = f"{PurePosixPath(filename).stem}.md"
     return FileResponse(
         path,
-        filename=document.filename,
+        filename=filename,
         media_type="application/octet-stream",
         content_disposition_type="attachment",
         headers={"X-Content-Type-Options": "nosniff"},
@@ -268,6 +319,8 @@ _INLINE_TYPES: dict[str, str] = {
     "pdf": "application/pdf",
     "markdown": "text/plain; charset=utf-8",
     "html": "text/html; charset=utf-8",
+    # Contenido limpio de una página web (las referencias enlazan a la página).
+    "web": "text/plain; charset=utf-8",
 }
 # Office y OpenDocument: el navegador no los muestra, se descargan.
 _DOWNLOAD_TYPES: dict[str, str] = {

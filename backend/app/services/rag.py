@@ -54,9 +54,10 @@ class ContextSource:
     match_text: str | None = None
     # Parte del documento completo (no un fragmento recuperado por similitud).
     full_document: bool = False
-    # Título del documento (#75); lo pone el chat a partir de la BD (el índice solo tiene
-    # el nombre del fichero).
+    # Título del documento (#75) y su dirección web (#78); los pone el chat a partir de la
+    # BD (el índice solo tiene el nombre del fichero).
     title: str = ""
+    url: str | None = None
 
     @property
     def name(self) -> str:

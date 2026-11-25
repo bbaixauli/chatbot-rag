@@ -227,6 +227,7 @@ lenguaje y los embeddings):
 | Conversación | `CHATBOT_CHAT_*`, `CHATBOT_SYSTEM_PROMPT_MAX_LENGTH` |
 | Límites de peticiones | `CHATBOT_RATE_LIMIT_*` |
 | Usuarios | `CHATBOT_AUTH_MODE`, `CHATBOT_LDAP_*` (salvo `CHATBOT_LDAP_CA_CERT_FILE`) |
+| Documentos web | `CHATBOT_WEB_TIMEOUT_SECONDS` (30), `CHATBOT_WEB_ALLOWED_DOMAINS` (dominios separados por comas, con sus subdominios; vacío: cualquiera) |
 
 En el **primer arranque** se copian de `.env` a la base de datos; a partir de ahí esas
 variables **se ignoran** (si alguna no coincide con lo guardado, el log lo avisa:
@@ -248,6 +249,10 @@ cola (`CHATBOT_VECTOR_STORE`, `CHATBOT_QDRANT_*`, `CHATBOT_TASK_RUNNER`, `CHATBO
   ofrece «Reindexar todo ahora» y *Documentos* avisa mientras queden documentos indexados con la
   configuración anterior. No se permite el cambio mientras haya documentos indexándose.
 - Los workers de indexación leen la configuración antes de cada documento.
+- Los **documentos web** los descarga el backend (no los workers) desde su red: el contenedor
+  tiene que poder resolver y alcanzar las direcciones (proxy de salida, DNS interno). Como
+  puede llegar a servicios internos, conviene limitar los **dominios permitidos** a los de la
+  intranet o las webs de la organización.
 
 #### Limpieza del texto antes de indexar
 

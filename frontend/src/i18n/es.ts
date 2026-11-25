@@ -365,6 +365,18 @@ export const t = {
           notify_to: 'Una o varias direcciones separadas por comas.',
         },
       },
+      web: {
+        title: 'Documentos web',
+        description: 'Descarga de los documentos que se añaden por su dirección web.',
+        fields: {
+          timeout_seconds: 'Tiempo máximo de cada descarga (segundos)',
+          allowed_domains: 'Dominios permitidos',
+        },
+        hints: {
+          allowed_domains:
+            'Separados por comas; cada uno admite también sus subdominios (empresa.es incluye intranet.empresa.es). Vacío: cualquiera.',
+        },
+      },
     },
   },
   documents: {
@@ -432,6 +444,7 @@ export const t = {
       odt: 'Texto OpenDocument',
       odp: 'Presentación OpenDocument',
       ods: 'Hoja de cálculo OpenDocument',
+      web: 'Página web',
     },
     status: {
       pending: 'Pendiente',
@@ -440,6 +453,14 @@ export const t = {
       error: 'Error',
     },
     download: (name: string) => `Descargar ${name}`,
+    openUrl: (url: string) => `Abrir ${url} (en otra pestaña)`,
+    urls: {
+      label: 'Direcciones web (una por línea)',
+      hint: 'De las páginas web se guarda su contenido principal (sin menús ni pies); los PDF y documentos de Office, tal cual. Las referencias del chat enlazan a la dirección original.',
+      add: 'Añadir direcciones',
+      adding: 'Descargando…',
+      tooMany: (max: number) => `Como mucho ${max} direcciones de una vez.`,
+    },
     edit: 'Editar',
     editing: (name: string) => `Editar «${name}»`,
     titleLabel: 'Título',

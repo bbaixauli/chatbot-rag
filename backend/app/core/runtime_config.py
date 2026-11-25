@@ -266,7 +266,28 @@ class AuditConfig(ConfigGroup):
         return self
 
 
-GroupName = Literal["llm", "embeddings", "indexing", "rag", "chat", "limits", "users", "audit"]
+class WebConfig(ConfigGroup):
+    """Documentos añadidos por su dirección web (#78)."""
+
+    SETTINGS_PREFIX = "web_"
+
+    timeout_seconds: int = Field(ge=1, le=300)
+    # Dominios permitidos separados por comas (cada uno con sus subdominios); vacío: todos.
+    allowed_domains: str | None
+
+    @property
+    def domains(self) -> list[str]:
+        """Dominios permitidos, en minúsculas y sin el punto inicial («.empresa.es»)."""
+        return [
+            d.strip().lower().lstrip(".")
+            for d in (self.allowed_domains or "").split(",")
+            if d.strip().strip(".")
+        ]
+
+
+GroupName = Literal[
+    "llm", "embeddings", "indexing", "rag", "chat", "limits", "users", "audit", "web"
+]
 
 GROUPS: dict[str, type[ConfigGroup]] = {
     "llm": LlmConfig,
@@ -277,6 +298,7 @@ GROUPS: dict[str, type[ConfigGroup]] = {
     "limits": RateLimits,
     "users": UsersConfig,
     "audit": AuditConfig,
+    "web": WebConfig,
 }
 
 
@@ -293,6 +315,7 @@ class RuntimeConfig(BaseModel):
     limits: RateLimits
     users: UsersConfig
     audit: AuditConfig
+    web: WebConfig
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "RuntimeConfig":
