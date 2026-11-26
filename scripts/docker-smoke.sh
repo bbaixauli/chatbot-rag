@@ -150,6 +150,8 @@ curl -fsS -b "$COOKIES" "$BASE/api/v1/admin/documents/stats" | grep -q '"chunks"
   || fail "el índice no se reconstruyó: $(curl -fsS -b "$COOKIES" "$BASE/api/v1/admin/documents/stats")"
 
 step "Logs en JSON"
-compose logs --no-color backend | grep -q '"logger": "app.access"' || fail "logs sin formato JSON"
+# Sin `grep -q` tras `compose logs`: con pipefail, si grep sale al encontrarlo, compose
+# recibe SIGPIPE y la tubería falla aunque el texto esté (fallo intermitente con logs largos).
+compose logs --no-color backend | grep '"logger": "app.access"' >/dev/null || fail "logs sin formato JSON"
 
 echo "Prueba de humo superada."

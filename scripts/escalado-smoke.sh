@@ -62,7 +62,9 @@ done
 admin -F "files=@$WORK/vacaciones.md" -F "files=@$WORK/gastos.md" -F "files=@$WORK/teletrabajo.md" \
   "$BASE/api/v1/admin/documents" >/dev/null
 wait_ready 3
-compose logs --no-color worker | grep -q "index_document" || fail "los workers no procesaron trabajos"
+# Sin `grep -q` tras `compose logs`: con pipefail, si grep sale al encontrarlo, compose
+# recibe SIGPIPE y la tubería falla aunque el texto esté (fallo intermitente con logs largos).
+compose logs --no-color worker | grep "index_document" >/dev/null || fail "los workers no procesaron trabajos"
 stats | grep -q '"chunks":[1-9]' || fail "Qdrant no tiene fragmentos: $(stats)"
 
 step "El chat recupera fragmentos desde Qdrant"
@@ -142,10 +144,10 @@ async def main() -> None:
 asyncio.run(main())
 PY
 for _ in $(seq 1 60); do
-  compose logs --no-color worker | grep -q "Documento web actualizado" && break
+  compose logs --no-color worker | grep "Documento web actualizado" >/dev/null && break
   sleep 1
 done
-compose logs --no-color worker | grep -q "Documento web actualizado" \
+compose logs --no-color worker | grep "Documento web actualizado" >/dev/null \
   || fail "los workers no actualizaron el documento web"
 wait_ready 3
 curl -fsS -N -H 'Content-Type: application/json' \
