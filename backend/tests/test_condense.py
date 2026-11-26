@@ -105,13 +105,13 @@ async def _chat(client: AsyncClient, message: str, conversation_id: str | None =
 
 async def _record_queries(app: FastAPI, monkeypatch: pytest.MonkeyPatch) -> list[str]:
     queries: list[str] = []
-    original = app.state.retriever.retrieve
+    original = app.state.retriever.retrieve_within
 
-    async def spy(query: str, document_ids=None):  # type: ignore[no-untyped-def]
+    async def spy(query: str, *args, **kwargs):  # type: ignore[no-untyped-def]
         queries.append(query)
-        return await original(query, document_ids)
+        return await original(query, *args, **kwargs)
 
-    monkeypatch.setattr(app.state.retriever, "retrieve", spy)
+    monkeypatch.setattr(app.state.retriever, "retrieve_within", spy)
     return queries
 
 

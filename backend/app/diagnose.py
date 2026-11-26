@@ -51,6 +51,7 @@ from app.services.llm import ChatMessage
 from app.services.prompt_budget import documents_budget, message_tokens
 from app.services.prompts import PromptRepository
 from app.services.rag import (
+    Retrieval,
     Retriever,
     build_system_prompt,
     candidates_limit,
@@ -59,6 +60,7 @@ from app.services.rag import (
 )
 from app.services.runtime_config import load_runtime_config
 from app.services.scope import indexed_documents
+from app.services.sections import document_headings
 from app.services.vectorstore import SearchHit, StoredChunk, VectorStore, VectorStoreError
 
 # Por debajo de esta similitud, el vector guardado no es el que calcula ahora el servicio.
@@ -104,6 +106,10 @@ def _location(page: int | None, heading: str | None) -> str:
     if page is not None:
         return f"pág. {page}"
     return heading or "—"
+
+
+# Apartados que se listan en el diagnóstico de un documento.
+MAX_HEADINGS_SHOWN = 30
 
 
 @dataclass(slots=True)
@@ -259,7 +265,7 @@ async def diagnose_document(
             f"Indexado con «{document.embedding_model}» pero el modelo configurado es "
             f"«{embeddings.model_name}»: hay que reindexarlo"
         )
-    signature = preprocessing_signature(config.indexing)
+    signature = preprocessing_signature(config.indexing, document.kind)
     if document.status == DocumentStatus.READY.value and document.preprocessing != signature:
         report.problems.append(
             f"Indexado con otro preprocesado del texto ({document.preprocessing or 'anterior'}; "
@@ -288,7 +294,7 @@ async def diagnose_document(
         except ParseError as exc:
             report.problems.append(f"No se puede leer el original: {exc}")
         else:
-            expected = build_chunks(sections, config.indexing)
+            expected = build_chunks(sections, config.indexing, document.kind)
             report.expected_chunks = len(expected)
             stored_texts = [chunk.text for chunk in stored]
             if stored_texts != [chunk.text for chunk in expected]:
@@ -301,6 +307,14 @@ async def diagnose_document(
     toc = [chunk.chunk_index for chunk in stored if chunk.toc or looks_like_toc(chunk.text)]
     if toc:
         report.notes.append(f"Fragmentos con aspecto de índice: {toc}")
+    headings = document_headings(stored)
+    if headings:
+        # Apartados que se pueden citar en una pregunta (#74).
+        shown = ", ".join(h.text for h in headings[:MAX_HEADINGS_SHOWN])
+        more = len(headings) - MAX_HEADINGS_SHOWN
+        report.notes.append(
+            f"Apartados ({len(headings)}): {shown}" + (f" y {more} más" if more > 0 else "")
+        )
 
     if not stored:
         return report
@@ -552,6 +566,21 @@ def print_query_report(
             _print_hit(item, out, reason=False)
 
 
+def _print_sections(retrieval: Retrieval, out: TextIO) -> None:
+    """Apartados citados en la pregunta y los que se añadirían completos (#74)."""
+    if retrieval.references:
+        cited = ", ".join(reference.text for reference in retrieval.references)
+        print(f"   Apartados citados: {cited}", file=out)
+        for source in retrieval.located:
+            print(
+                f"   [{source.number}] {source.section}: {source.label} "
+                f"({len(source.text)} caracteres)",
+                file=out,
+            )
+        if not retrieval.located:
+            print("   No se han encontrado en los documentos de la búsqueda.", file=out)
+
+
 async def print_prompt_estimate(
     question: str,
     config: RuntimeConfig,
@@ -561,14 +590,15 @@ async def print_prompt_estimate(
     scope_ids: Sequence[str] | None,
     out: TextIO,
 ) -> None:
-    """Tamaño del prompt que enviaría el chat para la pregunta, sin historial (#73)."""
+    """Tamaño del prompt que enviaría el chat para la pregunta, sin historial (#73), y
+    apartados citados en ella que se añadirían completos (#74)."""
     async with sessionmaker() as session:
         base_prompt = await PromptRepository(session, settings.default_system_prompt).current()
     system_tokens = message_tokens(ChatMessage("system", base_prompt.content))
     question_tokens = message_tokens(ChatMessage("user", question))
     limit = config.llm.prompt_max_tokens
     budget = None if limit is None else documents_budget(limit, system_tokens + question_tokens)
-    retrieval = await retriever.retrieve_within(question, scope_ids, budget)
+    retrieval = await retriever.retrieve_within(question, scope_ids or None, budget)
     system = ChatMessage("system", build_system_prompt(base_prompt.content, retrieval.sources))
     total = message_tokens(system) + question_tokens
     print("Tamaño estimado del prompt (pregunta nueva, sin historial):", file=out)
@@ -578,6 +608,7 @@ async def print_prompt_estimate(
         f"pregunta {question_tokens} · total {total} tokens",
         file=out,
     )
+    _print_sections(retrieval, out)
     if limit is None:
         print(
             "   Sin comprobar: la ventana de contexto del modelo no está configurada (si el "

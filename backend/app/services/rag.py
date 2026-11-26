@@ -3,11 +3,18 @@
 import logging
 import re
 from collections.abc import Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
 from app.core.runtime_config import ConfigSource, RagConfig
 from app.services.embeddings import Embeddings
 from app.services.passages import contiguous_runs, join_chunks
+from app.services.scope import MAX_SCOPE_DOCUMENTS
+from app.services.sections import (
+    LocatedSection,
+    SectionReference,
+    detect_references,
+    locate,
+)
 from app.services.vectorstore import SearchHit, StoredChunk, VectorStore
 
 logger = logging.getLogger(__name__)
@@ -61,6 +68,8 @@ class ContextSource:
     # BD (el índice solo tiene el nombre del fichero).
     title: str = ""
     url: str | None = None
+    # Apartado citado en la pregunta que se añadió completo («apartado 4.2», #74).
+    section: str | None = None
 
     @property
     def name(self) -> str:
@@ -75,8 +84,13 @@ class ContextSource:
             slides = self.filename.lower().endswith(SLIDE_EXTENSIONS)
             one, many = ("diap.", "diaps.") if slides else ("pág.", "págs.")
             if self.page_end is not None and self.page_end != self.page:
-                return f"{self.name}, {many} {self.page}-{self.page_end}"
-            return f"{self.name}, {one} {self.page}"
+                location = f"{self.name}, {many} {self.page}-{self.page_end}"
+            else:
+                location = f"{self.name}, {one} {self.page}"
+            # Apartado de un PDF (#74) o título de la diapositiva: el último encabezado.
+            if self.heading:
+                return f"{location} — {self.heading.split(' > ')[-1]}"
+            return location
         # La sección no se repite si es el propio título (el primer encabezado de un
         # Markdown suele serlo).
         if self.heading and self.heading != self.name:
@@ -98,6 +112,9 @@ class Retrieval:
     full_document_skipped: bool = False
     # Fragmentos que se habrían usado sin el presupuesto.
     dropped: int = 0
+    # Apartados citados en la pregunta (#74) y las fuentes que se han añadido por ellos.
+    references: list[SectionReference] = field(default_factory=list)
+    located: list[ContextSource] = field(default_factory=list)
 
 
 def sources_chars(sources: Sequence[ContextSource]) -> int:
@@ -180,10 +197,15 @@ class Retriever:
         max_chars: int | None = None,
         *,
         full_document: bool = True,
+        questions: Sequence[str] = (),
     ) -> Retrieval:
         """Como `retrieve`, pero las fuentes ocupan como mucho `max_chars` en el prompt
         (texto y encabezado de cada una; ver `prompt_budget.py`). Si el documento completo
-        no cabe, se buscan sus fragmentos; los de menor puntuación se quedan fuera."""
+        no cabe, se buscan sus fragmentos; los de menor puntuación se quedan fuera.
+
+        En una búsqueda limitada, los apartados que cite la consulta (o `questions`, p. ej.
+        la pregunta sin reformular) van primero, completos si caben (#74).
+        """
         rag = self._config.current.rag
         if not rag.enabled or not query.strip():
             return Retrieval([])
@@ -207,38 +229,95 @@ class Retriever:
                     return Retrieval(full)
                 skipped = True
         min_score = rag.min_score if document_ids is None else rag.scoped_min_score
+        references: list[SectionReference] = []
+        located: list[tuple[str, LocatedSection]] = []
+        if rag.locate_sections and document_ids and len(document_ids) <= MAX_SCOPE_DOCUMENTS:
+            references = detect_references([query, *questions])
+            if references:
+                try:
+                    located = await self._locate(references, document_ids)
+                except Exception:
+                    logger.warning("No se pudieron localizar los apartados", exc_info=True)
         try:
             [vector] = await self._embeddings.embed([query])
             hits = await self._store.search(vector, candidates_limit(rag), document_ids)
         except Exception:
             logger.warning("No se pudo recuperar contexto; se responde sin RAG", exc_info=True)
-            return Retrieval([], full_document_skipped=skipped)
+            if not located:
+                return Retrieval([], full_document_skipped=skipped, references=references)
+            hits = []
 
-        ranked = rank_hits(hits, rag.toc_score_factor)[: rag.top_k]
-        unlimited, used = _select(ranked, min_score, rag.max_context_chars, 0, force_first=True)
-        selected, cap = unlimited, rag.max_context_chars
-        if max_chars is not None:
-            cap = min(rag.max_context_chars, max_chars)
-            selected, used = _select(
-                ranked, min_score, cap, SOURCE_OVERHEAD_CHARS, force_first=False
-            )
-        result = Retrieval([], skipped, len(unlimited) - len(selected))
+        cap = rag.max_context_chars if max_chars is None else min(rag.max_context_chars, max_chars)
+        overhead = 0 if max_chars is None else SOURCE_OVERHEAD_CHARS
+        sections, used = _fit_sections(located, cap, overhead, force_first=max_chars is None)
+        taken = {(hit.document_id, hit.chunk_index) for _, chunks in sections for hit in chunks}
+        ranked = [
+            hit
+            for hit in rank_hits(hits, rag.toc_score_factor)
+            if (hit.document_id, hit.chunk_index) not in taken
+        ][: rag.top_k]
+        unlimited, _ = _select(
+            ranked, min_score, rag.max_context_chars - used, 0, force_first=not sections
+        )
+        selected, similar = _select(
+            ranked,
+            min_score,
+            cap - used,
+            overhead,
+            force_first=max_chars is None and not sections,
+        )
+        located_sources = [
+            replace(_source(number, chunks, chunks[0]), section=reference)
+            for number, (reference, chunks) in enumerate(sections, start=1)
+        ]
+        similar_sources: list[ContextSource] = []
         if rag.neighbor_chunks and selected:
             try:
-                result.sources = await self._with_neighbors(selected, rag, used, cap)
-                return result
+                similar_sources = await self._with_neighbors(
+                    selected, rag, used + similar, cap, taken
+                )
             except Exception:
                 logger.warning("No se pudieron añadir los fragmentos vecinos", exc_info=True)
-        result.sources = [
-            _source(number, [hit], hit) for number, hit in enumerate(selected, start=1)
-        ]
-        return result
+        if not similar_sources:
+            similar_sources = [_source(1, [hit], hit) for hit in selected]
+        first = len(located_sources) + 1
+        return Retrieval(
+            [
+                *located_sources,
+                *(
+                    replace(source, number=number)
+                    for number, source in enumerate(similar_sources, start=first)
+                ),
+            ],
+            skipped,
+            len(unlimited) - len(selected),
+            references=references,
+            located=located_sources,
+        )
+
+    async def _locate(
+        self, references: Sequence[SectionReference], document_ids: Sequence[str]
+    ) -> list[tuple[str, LocatedSection]]:
+        """Los apartados citados, en cada documento de la búsqueda."""
+        located = []
+        for document_id in document_ids:
+            chunks = await self._store.document_chunks(document_id, with_vectors=False)
+            located += [(document_id, section) for section in locate(references, chunks)]
+        return located
 
     async def _with_neighbors(
-        self, selected: list[SearchHit], rag: RagConfig, used: int, max_chars: int
+        self,
+        selected: list[SearchHit],
+        rag: RagConfig,
+        used: int,
+        max_chars: int,
+        exclude: set[tuple[str, int]] | None = None,
     ) -> list[ContextSource]:
         """Añade a cada fragmento sus vecinos (primero los más cercanos y de los fragmentos
-        más relevantes) mientras quepan, y une los contiguos de un documento en un pasaje."""
+        más relevantes) mientras quepan, y une los contiguos de un documento en un pasaje.
+
+        Los de `exclude` (documento e índice) ya van en otra fuente: no se repiten."""
+        exclude = exclude or set()
         included: dict[str, dict[int, SearchHit]] = {}
         for hit in selected:
             included.setdefault(hit.document_id, {})[hit.chunk_index] = hit
@@ -264,6 +343,8 @@ class Retriever:
                     chunks = included[hit.document_id]
                     neighbor = available[hit.document_id].get(index)
                     if neighbor is None or index in chunks:
+                        continue
+                    if (hit.document_id, index) in exclude:
                         continue
                     if used + len(neighbor.text) > max_chars:
                         continue
@@ -320,6 +401,44 @@ async def full_document_sources(
         )
         for number, (first, text) in enumerate(parts, start=1)
     ]
+
+
+def _fit_sections(
+    located: Sequence[tuple[str, LocatedSection]],
+    max_chars: int,
+    overhead: int,
+    *,
+    force_first: bool,
+) -> tuple[list[tuple[str, list[SearchHit]]], int]:
+    """Los apartados localizados que caben en `max_chars`: de cada uno, los fragmentos desde
+    su principio que quepan. Sin presupuesto (`force_first`), el primer fragmento del primero
+    se usa aunque supere el máximo de contexto."""
+    fitted: list[tuple[str, list[SearchHit]]] = []
+    used = 0
+    for document_id, section in located:
+        chunks: list[SearchHit] = []
+        cost = overhead
+        for chunk in section.chunks:
+            size = len(chunk.text)
+            if used + cost + size > max_chars and (chunks or fitted or not force_first):
+                break
+            cost += size
+            chunks.append(
+                SearchHit(
+                    document_id=document_id,
+                    filename=chunk.filename,
+                    chunk_index=chunk.chunk_index,
+                    text=chunk.text,
+                    page=chunk.page,
+                    heading=chunk.heading,
+                    score=1.0,
+                    toc=chunk.toc,
+                )
+            )
+        if chunks:
+            fitted.append((section.reference.text, chunks))
+            used += cost
+    return fitted, used
 
 
 def _source(number: int, chunks: Sequence[SearchHit], top: SearchHit) -> ContextSource:

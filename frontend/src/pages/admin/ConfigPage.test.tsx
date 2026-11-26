@@ -54,6 +54,7 @@ function appConfig(): AppConfig {
           repeated_line_min_ratio: 0.5,
           clean_toc_leaders: true,
           context_prefix: true,
+          pdf_headings: true,
         },
         {
           reindex_fields: [
@@ -63,6 +64,7 @@ function appConfig(): AppConfig {
             'repeated_line_min_ratio',
             'clean_toc_leaders',
             'context_prefix',
+            'pdf_headings',
           ],
         },
       ),
@@ -79,6 +81,7 @@ function appConfig(): AppConfig {
           detect_document_names: true,
           neighbor_chunks: 0,
           full_document_max_chars: 0,
+          locate_sections: true,
         },
         { updated_by: 'ana', updated_at: '2026-11-20T12:30:00Z' },
       ),
@@ -193,7 +196,7 @@ describe('ConfigPage', () => {
     const rag = await section('Recuperación')
     expect(rag.getByLabelText('Usar los documentos para responder')).toBeChecked()
     expect(rag.getByText(/Guardado por ana/)).toBeInTheDocument()
-    expect((await section('Indexación')).getAllByText(/tendrás que reindexar/).length).toBe(6)
+    expect((await section('Indexación')).getAllByText(/tendrás que reindexar/).length).toBe(7)
     expect(document.title).toMatch(/^Configuración/)
   })
 
@@ -238,6 +241,7 @@ describe('ConfigPage', () => {
           detect_document_names: true,
           neighbor_chunks: 0,
           full_document_max_chars: 0,
+          locate_sections: true,
         },
       },
     ])

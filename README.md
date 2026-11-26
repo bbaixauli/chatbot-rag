@@ -254,6 +254,12 @@ Si la búsqueda se limita a **un solo documento** y este cabe en el límite conf
 NOR-013»). Está desactivado por defecto: el límite debe caber en la ventana de contexto del
 modelo de chat.
 
+Si la pregunta cita un **apartado** («¿qué dice el apartado 4.2 del NOR-013?», «el capítulo V»,
+«la sección de altas de usuarios») y la búsqueda está limitada a unos documentos, se envía el
+apartado completo, aunque ocupe varias páginas, además de los fragmentos más parecidos. En los
+PDF, los apartados numerados se detectan al indexar, y las fuentes indican el apartado además
+de la página. Ver la [guía de despliegue](docs/despliegue.md#apartados-citados-en-la-pregunta).
+
 Si se indica la **ventana de contexto** del modelo (*Configuración → Modelo de lenguaje*), el
 prompt se ajusta a ella antes de enviarlo, para que el servidor no lo recorte sin avisar: el
 documento completo pasa a fragmentos y se quitan el historial antiguo y los fragmentos menos

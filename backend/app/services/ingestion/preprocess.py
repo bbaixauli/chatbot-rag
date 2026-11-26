@@ -13,6 +13,8 @@ Lo que se extrae de los documentos no siempre es buen material para buscar:
   documento y la sección (el texto guardado y mostrado no cambia).
 - Los fragmentos de índice se marcan para que la búsqueda les reste peso (ver
   `rank_hits` en `services/rag.py`).
+- Las páginas de los PDF se dividen en sus apartados numerados, que pasan a ser la sección
+  de cada fragmento (#74, ver `ingestion/headings.py`).
 """
 
 import math
@@ -23,7 +25,9 @@ from dataclasses import replace
 from pathlib import Path
 
 from app.core.runtime_config import IndexingConfig
+from app.db.models import DocumentKind
 from app.services.ingestion.chunker import Chunk, chunk_sections
+from app.services.ingestion.headings import split_by_headings
 from app.services.ingestion.parsers import Section
 
 # Sube si cambia el preprocesado: los documentos indexados antes quedan desactualizados.
@@ -109,10 +113,18 @@ def document_title(filename: str) -> str:
     return _SPACES.sub(" ", Path(filename).stem.replace("_", " ")).strip() or filename
 
 
-def build_chunks(sections: Sequence[Section], indexing: IndexingConfig) -> list[Chunk]:
-    """Fragmentos que se indexan: texto preparado, troceado y con la marca de índice."""
+def build_chunks(
+    sections: Sequence[Section], indexing: IndexingConfig, kind: str | None = None
+) -> list[Chunk]:
+    """Fragmentos que se indexan: texto preparado, troceado y con la marca de índice.
+
+    `kind` es el tipo de documento: los apartados solo se buscan en los PDF.
+    """
     if indexing.strip_repeated_lines:
         sections = strip_repeated_lines(sections, indexing.repeated_line_min_ratio)
+    if detects_headings(indexing, kind):
+        toc_pages = {n for n, section in enumerate(sections) if looks_like_toc(section.text)}
+        sections = split_by_headings(sections, toc_pages)
     chunks = []
     for chunk in chunk_sections(
         list(sections), indexing.chunk_size_chars, indexing.chunk_overlap_chars
@@ -171,8 +183,17 @@ def embedding_texts(
     return [embedding_text(c.text, document, c.heading, indexing, category, file) for c in chunks]
 
 
-def preprocessing_signature(indexing: IndexingConfig) -> str:
-    """Resumen del preprocesado vigente, que se guarda con cada documento indexado."""
+def detects_headings(indexing: IndexingConfig, kind: str | None) -> bool:
+    """Si se buscan los apartados del documento al indexarlo (solo PDF, #74)."""
+    return indexing.pdf_headings and kind == DocumentKind.PDF.value
+
+
+def preprocessing_signature(indexing: IndexingConfig, kind: str | None = None) -> str:
+    """Resumen del preprocesado vigente, que se guarda con cada documento indexado.
+
+    Depende del tipo de documento (`kind`) en lo que solo se aplica a algunos: así, cambiar
+    la detección de apartados solo deja desactualizados los PDF.
+    """
     parts = [f"v{PREPROCESSING_VERSION}"]
     if indexing.strip_repeated_lines:
         parts.append(f"lineas={indexing.repeated_line_min_ratio:g}")
@@ -180,4 +201,6 @@ def preprocessing_signature(indexing: IndexingConfig) -> str:
         parts.append("relleno")
     if indexing.context_prefix:
         parts.append("contexto")
+    if detects_headings(indexing, kind):
+        parts.append("apartados")
     return ";".join(parts)

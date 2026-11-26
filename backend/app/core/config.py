@@ -155,6 +155,9 @@ class Settings(BaseSettings):
     indexing_clean_toc_leaders: bool = True
     # Antepone «Documento: <título>» y la sección al texto con el que se calcula el vector.
     indexing_context_prefix: bool = True
+    # Detecta en los PDF los encabezados numerados («4.2 Altas») y los guarda como sección
+    # de los fragmentos (#74).
+    indexing_pdf_headings: bool = True
 
     # --- Valores iniciales: documentos web (#78). Tiempo máximo de cada descarga y
     # dominios de los que se pueden añadir documentos (separados por comas; cada uno admite
@@ -213,6 +216,9 @@ class Settings(BaseSettings):
     # envía el documento completo en lugar de fragmentos (0 = nunca). Debe caber en la
     # ventana de contexto del modelo de chat (unos 4 caracteres por token en español).
     rag_full_document_max_chars: int = Field(default=0, ge=0)
+    # Si la pregunta cita un apartado («el apartado 4.2», «la sección de altas») y la búsqueda
+    # está limitada a unos documentos, se añade el apartado completo (#74).
+    rag_locate_sections: bool = True
 
     # --- Valores iniciales (#42): conversación
     chat_history_max_messages: int = Field(default=20, ge=0)
