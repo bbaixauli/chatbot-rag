@@ -36,7 +36,7 @@ from app.services.audit import (
     start_run,
 )
 from app.services.audit_rules import malicious_intent, mask, sensitive_information
-from app.services.llm import ChatMessage, LLMError, OpenAICompatibleClient
+from app.services.llm import ChatMessage, LLMError, OpenAICompatibleClient, TokenUsage
 
 MADRID = ZoneInfo("Europe/Madrid")
 ADMIN = {"username": "admin", "password": "secreto"}
@@ -65,7 +65,9 @@ class Reviewer:
         self.by_question = by_question or {}
         self.questions: list[str] = []
 
-    async def stream_chat(self, messages: Sequence[ChatMessage]) -> AsyncIterator[str]:
+    async def stream_chat(
+        self, messages: Sequence[ChatMessage], *, usage: TokenUsage | None = None
+    ) -> AsyncIterator[str]:
         content = messages[-1].content
         question = content.split("<pregunta>\n", 1)[1].split("\n</pregunta>", 1)[0]
         self.questions.append(question)

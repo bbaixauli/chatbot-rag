@@ -32,6 +32,8 @@ function appConfig(): AppConfig {
         temperature: 0.2,
         timeout_seconds: 120,
         max_retries: 2,
+        context_window_tokens: 0,
+        response_reserve_tokens: 1024,
       }),
       embeddings: group(
         {

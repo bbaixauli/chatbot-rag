@@ -683,6 +683,18 @@ function LogRow({ entry }: { entry: AuditEntry }) {
             <dd className="break-words">{documents || '—'}</dd>
             <dt className="font-semibold">{t.audit.meta.userAgent}</dt>
             <dd className="break-words">{entry.user_agent ?? '—'}</dd>
+            <dt className="font-semibold">{t.audit.meta.promptSize}</dt>
+            <dd>
+              {entry.prompt_tokens_estimated == null
+                ? '—'
+                : t.audit.promptTokens(entry.prompt_tokens_estimated, entry.prompt_tokens)}
+            </dd>
+            {entry.prompt_trim && (
+              <>
+                <dt className="font-semibold">{t.audit.meta.promptTrim}</dt>
+                <dd>{t.audit.trim(entry.prompt_trim)}</dd>
+              </>
+            )}
             {entry.error_detail && (
               <>
                 <dt className="font-semibold">{t.audit.meta.error}</dt>

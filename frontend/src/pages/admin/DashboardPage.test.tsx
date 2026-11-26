@@ -33,6 +33,7 @@ function summary(overrides: Partial<DashboardSummary> = {}): DashboardSummary {
     no_info: 1,
     errors: 1,
     without_sources: 2,
+    trimmed: 1,
     avg_response_ms: 1500,
     median_response_ms: 1200,
     avg_first_token_ms: 300,
@@ -160,7 +161,9 @@ describe('DashboardPage', () => {
     expect(within(figures).getByText('Mediana 1,2 s · primer fragmento 0,3 s')).toBeVisible()
     expect(value('Respondidas')).toMatch(/^80\s%$/)
     expect(
-      within(figures).getByText(/1 sin información · 1 con error · 2 sin documentación/),
+      within(figures).getByText(
+        /1 sin información · 1 con error · 2 sin documentación encontrada · 1 con el prompt recortado/,
+      ),
     ).toBeVisible()
   })
 

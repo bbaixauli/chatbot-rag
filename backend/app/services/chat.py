@@ -24,13 +24,27 @@ from app.db.models import (
     ScopeSource,
     utcnow,
 )
-from app.services.condense import condense_question
+from app.services.condense import build_condense_messages, condense_question
 from app.services.conversations import ConversationRepository, make_title
 from app.services.dashboard import QuestionRecord, record_question
 from app.services.document_names import detect_documents
-from app.services.llm import ChatMessage, LLMClient, LLMError
+from app.services.llm import ChatMessage, LLMClient, LLMError, TokenUsage
+from app.services.prompt_budget import (
+    PromptTooLargeError,
+    PromptTrim,
+    documents_budget,
+    fit_recent,
+    message_tokens,
+    messages_tokens,
+    server_trimmed,
+)
 from app.services.prompts import PromptRepository
-from app.services.rag import ContextSource, Retriever, build_system_prompt, extract_citations
+from app.services.rag import (
+    ContextSource,
+    Retriever,
+    build_system_prompt,
+    extract_citations,
+)
 from app.services.scope import (
     ScopeDocument,
     document_refs,
@@ -43,6 +57,11 @@ logger = logging.getLogger(__name__)
 
 def _elapsed_ms(started: float) -> int:
     return round((time.perf_counter() - started) * 1000)
+
+
+TOO_LARGE_MESSAGE = (
+    "La pregunta es demasiado larga para el modelo configurado. Acórtala o avisa al administrador."
+)
 
 
 class ConversationNotFoundError(Exception):
@@ -234,8 +253,9 @@ class ChatService:
                 "user_message_id": prepared.user_message_id,
             },
         )
-        sources: list[ContextSource] = []
         scope_payload: dict[str, Any] | None = None
+        query: str | None = None
+        scope_ids: list[str] = []
         if self._retriever:
             query = await self._search_query(prepared)
             record.search_query = query
@@ -254,19 +274,27 @@ class ChatService:
                     "source": origin.value,
                 }
                 yield sse_event("scope", scope_payload)
-            sources = await self._with_titles(
-                await self._retriever.retrieve(query, scope_ids or None)
+        trim = PromptTrim()
+        try:
+            prompt, sources = await self._fit_prompt(prepared, query, scope_ids, trim)
+        except PromptTooLargeError as exc:
+            record.status = QuestionStatus.ERROR
+            record.error_detail = str(exc)
+            logger.warning(
+                "Prompt demasiado grande en la conversación %s: %s",
+                prepared.conversation_id,
+                exc,
+                extra={"conversation_id": prepared.conversation_id},
             )
-        prompt = [
-            ChatMessage(
-                role="system", content=build_system_prompt(prepared.system_prompt, sources)
-            ),
-            *prepared.history,
-        ]
+            yield sse_event("error", {"detail": TOO_LARGE_MESSAGE})
+            return
         record.sources_retrieved = len(sources)
+        record.prompt_tokens_estimated = messages_tokens(prompt)
+        record.prompt_trim = trim.payload
+        usage = TokenUsage()
         parts: list[str] = []
         try:
-            async for delta in self._llm.stream_chat(prompt):
+            async for delta in self._llm.stream_chat(prompt, usage=usage):
                 if not parts:
                     record.first_token_ms = _elapsed_ms(prepared.started)
                 parts.append(delta)
@@ -284,6 +312,7 @@ class ChatService:
             yield sse_event("error", {"detail": exc.user_message})
             return
 
+        self._check_server_count(prepared, record, trim, usage)
         answer = "".join(parts).strip()
         if not answer:
             record.status = QuestionStatus.ERROR
@@ -362,6 +391,89 @@ class ChatService:
             for s in sources
         ]
 
+    async def _fit_prompt(
+        self,
+        prepared: PreparedChat,
+        query: str | None,
+        scope_ids: list[str],
+        trim: PromptTrim,
+    ) -> tuple[list[ChatMessage], list[ContextSource]]:
+        """Prompt (sistema con la documentación, historial y pregunta) y fuentes, dentro de
+        la ventana del modelo si está configurada (ver `services/prompt_budget.py`)."""
+        limit = self._config.llm.prompt_max_tokens
+        if limit is None:
+            sources: list[ContextSource] = []
+            if self._retriever is not None and query is not None:
+                sources = await self._with_titles(
+                    await self._retriever.retrieve(query, scope_ids or None)
+                )
+            system = ChatMessage("system", build_system_prompt(prepared.system_prompt, sources))
+            return [system, *prepared.history], sources
+
+        *previous, question = prepared.history
+        minimal = message_tokens(ChatMessage("system", prepared.system_prompt))
+        minimal += message_tokens(question)
+        if minimal > limit:
+            raise PromptTooLargeError(minimal, limit)
+        # 1-3: el último intercambio se conserva mientras quede sitio para él; la
+        # documentación ocupa lo que quede, y el historial más antiguo, lo que sobre.
+        last, older = previous[-2:], previous[:-2]
+        if minimal + messages_tokens(last) > limit:
+            trim.history += len(last)  # 4
+            last = []
+        sources = []
+        if self._retriever is not None and query is not None:
+            retrieval = await self._retriever.retrieve_within(
+                query, scope_ids or None, documents_budget(limit, minimal + messages_tokens(last))
+            )
+            trim.full_document = retrieval.full_document_skipped
+            trim.sources = retrieval.dropped
+            sources = await self._with_titles(retrieval.sources)
+
+        def fixed(sources: list[ContextSource]) -> tuple[ChatMessage, int]:
+            system = ChatMessage("system", build_system_prompt(prepared.system_prompt, sources))
+            return system, message_tokens(system) + message_tokens(question) + messages_tokens(last)
+
+        system, used = fixed(sources)
+        # Por si los encabezados de las fuentes ocupan más de lo previsto.
+        while sources and used > limit:
+            sources = [replace(s, number=n) for n, s in enumerate(sources[:-1], start=1)]
+            trim.sources += 1
+            system, used = fixed(sources)
+        kept, dropped = fit_recent(older, limit - used)
+        trim.history += dropped
+        prompt = [system, *kept, *last, question]
+        if trim.payload:
+            logger.warning(
+                "Prompt ajustado a la ventana del modelo en la conversación %s: unos %d tokens "
+                "de %d; recortes: %s",
+                prepared.conversation_id,
+                messages_tokens(prompt),
+                limit,
+                trim.payload,
+                extra={"conversation_id": prepared.conversation_id},
+            )
+        return prompt, sources
+
+    def _check_server_count(
+        self, prepared: PreparedChat, record: QuestionRecord, trim: PromptTrim, usage: TokenUsage
+    ) -> None:
+        """Guarda los tokens que contó el servidor y avisa si parece que recortó el prompt."""
+        record.prompt_tokens = usage.prompt_tokens
+        estimated = record.prompt_tokens_estimated or 0
+        if not server_trimmed(estimated, usage.prompt_tokens):
+            return
+        trim.server = True
+        record.prompt_trim = trim.payload
+        logger.warning(
+            "El servidor del modelo ha contado %s tokens en un prompt de unos %d: "
+            "probablemente lo ha recortado. Revisa la ventana de contexto del modelo "
+            "(Configuración → Modelo de lenguaje).",
+            usage.prompt_tokens,
+            estimated,
+            extra={"conversation_id": prepared.conversation_id},
+        )
+
     async def _detect_scope(self, question: str, query: str) -> list[ScopeDocument]:
         """Documentos que nombra la pregunta, si la detección está activada."""
         rag = self._config.rag
@@ -381,4 +493,8 @@ class ChatService:
             return prepared.question
         # El historial incluye la pregunta actual como último mensaje.
         previous = prepared.history[:-1][-rag.condense_history_messages :]
+        limit = self._config.llm.prompt_max_tokens
+        if limit is not None:
+            base = messages_tokens(build_condense_messages([], prepared.question))
+            previous, _ = fit_recent(previous, limit - base)
         return await condense_question(self._llm, previous, prepared.question)

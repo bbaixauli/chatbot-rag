@@ -34,7 +34,7 @@ if TEST_DATABASE_URL:
 
 from app.db.base import Base  # noqa: E402
 from app.main import create_app  # noqa: E402
-from app.services.llm import ChatMessage, LLMError  # noqa: E402
+from app.services.llm import ChatMessage, LLMError, TokenUsage  # noqa: E402
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
@@ -72,9 +72,15 @@ class ScriptedLLM:
         self.fail = fail
         self.error = LLMError("caído")
         self.calls: list[list[ChatMessage]] = []
+        # Tokens que «cuenta el servidor» (#73), si se quiere simular.
+        self.prompt_tokens: int | None = None
 
-    async def stream_chat(self, messages: Sequence[ChatMessage]) -> AsyncIterator[str]:
+    async def stream_chat(
+        self, messages: Sequence[ChatMessage], *, usage: TokenUsage | None = None
+    ) -> AsyncIterator[str]:
         self.calls.append(list(messages))
+        if usage is not None:
+            usage.prompt_tokens = self.prompt_tokens
         for chunk in self.chunks:
             yield chunk
         if self.fail:

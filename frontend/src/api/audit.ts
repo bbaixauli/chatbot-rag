@@ -54,6 +54,18 @@ export interface AuditEntry {
       }[]
     | null
   error_detail: string | null
+  /** Tamaño del prompt y recortes para caber en la ventana del modelo (#73). */
+  prompt_tokens_estimated?: number | null
+  prompt_tokens?: number | null
+  prompt_trim?: PromptTrim | null
+}
+
+/** Lo que se quitó del prompt para que cupiera en la ventana del modelo. */
+export interface PromptTrim {
+  full_document?: boolean
+  sources?: number
+  history?: number
+  server?: boolean
 }
 
 export interface AuditAlert {

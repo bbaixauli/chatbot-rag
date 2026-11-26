@@ -19,6 +19,8 @@ export interface DashboardSummary {
   no_info: number
   errors: number
   without_sources: number
+  /** Preguntas con el prompt recortado para caber en la ventana del modelo. */
+  trimmed: number
   avg_response_ms: number | null
   median_response_ms: number | null
   avg_first_token_ms: number | null

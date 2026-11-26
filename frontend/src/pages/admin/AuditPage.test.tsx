@@ -285,6 +285,27 @@ describe('AuditPage', () => {
     )
   })
 
+  it('muestra el tamaño del prompt y sus recortes', async () => {
+    const entry = {
+      ...alert(1).entry,
+      prompt_tokens_estimated: 7100,
+      prompt_tokens: 4096,
+      prompt_trim: { full_document: true, history: 4, server: true },
+    }
+    api(both, {
+      'GET /admin/audit/log*': () => jsonResponse({ total: 1, page: 1, size: 25, items: [entry] }),
+    })
+    renderApp('/admin/audit?vista=log')
+    const table = await screen.findByRole('table', { name: 'Registro completo' })
+
+    expect(within(table).getByText('unos 7100 tokens (el servidor contó 4096)')).toBeInTheDocument()
+    expect(
+      within(table).getByText(
+        'documento completo sustituido por fragmentos; 4 mensajes del historial; recortado por el servidor',
+      ),
+    ).toBeInTheDocument()
+  })
+
   it('informa si no puede cargar', async () => {
     api(both, { 'GET /admin/audit/alerts*': () => jsonResponse({}, 500) })
     renderApp('/admin/audit')

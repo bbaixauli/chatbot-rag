@@ -47,6 +47,8 @@ interface GroupSpec {
 
 const remoteProvider = (state: FormState) => state.values.provider === 'openai'
 const ldapMode = (state: FormState) => state.values.auth_mode === 'ldap'
+const withWindow = (state: FormState) =>
+  !['', '0'].includes(String(state.values.context_window_tokens ?? '').trim())
 const dailyAudit = (state: FormState) => state.values.schedule === 'daily'
 const auditWithModel = (state: FormState) => state.values.use_llm === true
 const auditEmail = (state: FormState) => state.values.notify_enabled === true
@@ -66,6 +68,14 @@ const GROUPS: GroupSpec[] = [
       { name: 'temperature', kind: 'number', min: 0, max: 2, step: 0.1 },
       { name: 'timeout_seconds', kind: 'number', min: 1, step: 1 },
       { name: 'max_retries', kind: 'number', min: 0, integer: true },
+      { name: 'context_window_tokens', kind: 'number', min: 0, integer: true },
+      {
+        name: 'response_reserve_tokens',
+        kind: 'number',
+        min: 0,
+        integer: true,
+        visible: withWindow,
+      },
     ],
   },
   {

@@ -15,6 +15,7 @@ from app.services.llm import (
     FakeLLMClient,
     LLMError,
     OpenAICompatibleClient,
+    TokenUsage,
     build_llm_client,
 )
 
@@ -140,3 +141,72 @@ async def test_sdk_errors_get_user_friendly_messages(error: Exception, expected:
 
     assert expected in info.value.user_message
     assert type(error).__name__ in str(info.value)
+
+
+# --- Tokens que cuenta el servidor (#73) ---------------------------------------------------
+
+
+def _usage_chunk(prompt: int, completion: int) -> ChatCompletionChunk:
+    return ChatCompletionChunk.model_validate(
+        {
+            "id": "c1",
+            "object": "chat.completion.chunk",
+            "created": 0,
+            "model": "modelo-x",
+            "choices": [],
+            "usage": {
+                "prompt_tokens": prompt,
+                "completion_tokens": completion,
+                "total_tokens": prompt + completion,
+            },
+        }
+    )
+
+
+async def test_the_server_token_count_is_requested_and_read() -> None:
+    completions = FakeCompletions([_chunk("Hola"), _usage_chunk(1200, 3)])
+    client = OpenAICompatibleClient(_settings(), _client(completions))
+    usage = TokenUsage()
+
+    deltas = [d async for d in client.stream_chat([ChatMessage("user", "hola")], usage=usage)]
+
+    assert deltas == ["Hola"]
+    assert completions.kwargs["stream_options"] == {"include_usage": True}
+    assert (usage.prompt_tokens, usage.completion_tokens) == (1200, 3)
+
+
+class StrictCompletions(FakeCompletions):
+    """Servidor que no admite `stream_options`."""
+
+    def __init__(self) -> None:
+        super().__init__([_chunk("Hola")])
+        self.calls: list[dict[str, Any]] = []
+
+    async def create(self, **kwargs: Any) -> AsyncIterator[ChatCompletionChunk]:
+        self.calls.append(kwargs)
+        if "stream_options" in kwargs:
+            raise _status_error(openai.BadRequestError, 400, "Unknown field: stream_options")
+        return await super().create(**kwargs)
+
+
+async def test_servers_without_stream_options_answer_without_the_count() -> None:
+    completions = StrictCompletions()
+    client = OpenAICompatibleClient(_settings(), _client(completions))
+    usage = TokenUsage()
+
+    for _ in range(2):
+        answer = [d async for d in client.stream_chat([ChatMessage("user", "h")], usage=usage)]
+        assert answer == ["Hola"]
+
+    assert usage.prompt_tokens is None
+    # Solo se intenta una vez: después se pide siempre sin el recuento.
+    assert ["stream_options" in call for call in completions.calls] == [True, False, False]
+
+
+async def test_other_bad_requests_are_not_retried() -> None:
+    error = _status_error(openai.BadRequestError, 400, "invalid temperature")
+    completions = FakeCompletions([], error=error)
+    client = OpenAICompatibleClient(_settings(), _client(completions))
+
+    with pytest.raises(LLMError, match="invalid temperature"):
+        _ = [d async for d in client.stream_chat([ChatMessage("user", "h")], usage=TokenUsage())]

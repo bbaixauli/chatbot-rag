@@ -6,7 +6,7 @@ from httpx import AsyncClient
 
 from app.core.config import Settings
 from app.services.condense import build_condense_messages, condense_question
-from app.services.llm import ChatMessage, FakeLLMClient
+from app.services.llm import ChatMessage, FakeLLMClient, TokenUsage
 from tests.conftest import ScriptedLLM, parse_sse, set_config
 from tests.factories import MARKDOWN
 
@@ -81,7 +81,9 @@ class RecordingLLM(FakeLLMClient):
         super().__init__(delay_seconds=0)
         self.systems: list[str] = []
 
-    async def stream_chat(self, messages: Sequence[ChatMessage]) -> AsyncIterator[str]:
+    async def stream_chat(
+        self, messages: Sequence[ChatMessage], *, usage: TokenUsage | None = None
+    ) -> AsyncIterator[str]:
         self.systems.append(messages[0].content)
         async for part in super().stream_chat(messages):
             yield part

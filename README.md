@@ -254,6 +254,12 @@ Si la búsqueda se limita a **un solo documento** y este cabe en el límite conf
 NOR-013»). Está desactivado por defecto: el límite debe caber en la ventana de contexto del
 modelo de chat.
 
+Si se indica la **ventana de contexto** del modelo (*Configuración → Modelo de lenguaje*), el
+prompt se ajusta a ella antes de enviarlo, para que el servidor no lo recorte sin avisar: el
+documento completo pasa a fragmentos y se quitan el historial antiguo y los fragmentos menos
+parecidos. Los ajustes quedan en el log, la auditoría y el cuadro de mando. Ver la
+[guía de despliegue](docs/despliegue.md#ventana-de-contexto-del-modelo).
+
 Antes de indexar se limpia el texto: se quitan de los PDF los encabezados y pies que se repiten
 en todas las páginas (sellos de firma electrónica, «Página 3 de 27»…), se quitan los puntos de
 relleno de los índices y cada fragmento se busca con el título del documento y su sección

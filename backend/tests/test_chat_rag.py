@@ -201,7 +201,7 @@ async def test_document_deleted_while_answering_keeps_the_answer(
     document_id = await index(app, "guia.md", MARKDOWN.encode())
 
     class DeletingLLM:
-        async def stream_chat(self, messages: Any) -> Any:
+        async def stream_chat(self, messages: Any, usage: Any = None) -> Any:
             yield "Vacaciones"
             await app.state.documents.delete(document_id)
             yield " [1]."

@@ -119,6 +119,10 @@ class EntryOut(BaseModel):
     search_query: str | None
     cited_documents: list[dict[str, Any]] | None
     error_detail: str | None
+    # Tamaño del prompt y lo que se quitó para que cupiera (#73).
+    prompt_tokens_estimated: int | None = None
+    prompt_tokens: int | None = None
+    prompt_trim: dict[str, Any] | None = None
 
 
 class AlertOut(BaseModel):
@@ -174,6 +178,9 @@ def _entry(row: QuestionLog, settings: Settings) -> EntryOut:
         search_query=row.search_query,
         cited_documents=row.cited_documents,
         error_detail=row.error_detail,
+        prompt_tokens_estimated=row.prompt_tokens_estimated,
+        prompt_tokens=row.prompt_tokens,
+        prompt_trim=row.prompt_trim,
     )
 
 
@@ -398,6 +405,9 @@ LOG_HEADERS = [
     "Consulta de búsqueda",
     "Documentos",
     "Error",
+    "Tokens del prompt (estimados)",
+    "Tokens del prompt (servidor)",
+    "Recortes del prompt",
 ]
 
 
@@ -423,6 +433,9 @@ def _log_row(row: QuestionLog, settings: Settings, *, as_text: bool) -> list[Any
         safe(row.search_query),
         safe(documents),
         safe(row.error_detail),
+        row.prompt_tokens_estimated if row.prompt_tokens_estimated is not None else "",
+        row.prompt_tokens if row.prompt_tokens is not None else "",
+        dashboard.trim_label(row.prompt_trim),
     ]
 
 

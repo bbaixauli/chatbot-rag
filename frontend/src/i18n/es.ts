@@ -1,3 +1,5 @@
+import type { PromptTrim } from '../api/audit'
+
 // Textos de la interfaz centralizados para facilitar una futura traducción.
 export const t = {
   appName: 'Chatbot RAG',
@@ -192,10 +194,15 @@ export const t = {
           temperature: 'Temperatura',
           timeout_seconds: 'Tiempo máximo de espera (segundos)',
           max_retries: 'Reintentos',
+          context_window_tokens: 'Ventana de contexto (tokens)',
+          response_reserve_tokens: 'Reserva para la respuesta (tokens)',
         },
         hints: {
           base_url: 'Por ejemplo, http://servidor-ia:4000/v1',
           temperature: 'De 0 (respuestas más previsibles) a 2 (más creativas).',
+          context_window_tokens:
+            'La configurada en el servidor del modelo: num_ctx en Ollama, --max-model-len en vLLM, max_input_tokens en LiteLLM. Si el prompt no cabe, se ajusta antes de enviarlo (el documento completo pasa a fragmentos y se quitan el historial antiguo y los fragmentos menos parecidos). 0: no se comprueba, y algunos servidores recortan el prompt sin avisar.',
+          response_reserve_tokens: 'Parte de la ventana que se deja libre para la respuesta.',
         },
       },
       embeddings: {
@@ -259,7 +266,7 @@ export const t = {
           min_score: 'Similitud mínima para usar un fragmento; depende del modelo de embeddings.',
           max_context_chars: 'Protege la ventana de contexto del modelo.',
           full_document_max_chars:
-            'Si se busca en un solo documento y cabe, se envía entero (0 = nunca). Debe caber en la ventana de contexto del modelo: unos 4 caracteres por token.',
+            'Si se busca en un solo documento y cabe, se envía entero (0 = nunca). Debe caber en la ventana de contexto del modelo (unos 3,5 caracteres por token); si no cabe, se envían sus fragmentos.',
           neighbor_chunks:
             'Anteriores y posteriores a cada fragmento recuperado, dentro del máximo de contexto. Útil si la respuesta queda partida entre fragmentos.',
           condense_question: 'Cuesta una llamada extra al modelo cuando hay historial.',
@@ -630,7 +637,22 @@ export const t = {
       documents: 'Documentos mostrados',
       userAgent: 'Navegador',
       error: 'Motivo del error',
+      promptSize: 'Tamaño del prompt',
+      promptTrim: 'Recortes del prompt',
     },
+    promptTokens: (estimated: number, counted: number | null | undefined) =>
+      `unos ${estimated} tokens` + (counted == null ? '' : ` (el servidor contó ${counted})`),
+    trim: (trim: PromptTrim) =>
+      [
+        trim.full_document ? 'documento completo sustituido por fragmentos' : '',
+        trim.sources ? `${trim.sources} ${trim.sources === 1 ? 'fragmento' : 'fragmentos'}` : '',
+        trim.history
+          ? `${trim.history} ${trim.history === 1 ? 'mensaje' : 'mensajes'} del historial`
+          : '',
+        trim.server ? 'recortado por el servidor' : '',
+      ]
+        .filter(Boolean)
+        .join('; '),
   },
   dashboard: {
     title: 'Cuadro de mando',
@@ -657,8 +679,9 @@ export const t = {
     responseDetail: (median: string, firstToken: string) =>
       `Mediana ${median} · primer fragmento ${firstToken}`,
     answered: 'Respondidas',
-    answeredDetail: (noInfo: string, errors: string, withoutSources: string) =>
-      `${noInfo} sin información · ${errors} con error · ${withoutSources} sin documentación encontrada`,
+    answeredDetail: (noInfo: string, errors: string, withoutSources: string, trimmed: string) =>
+      `${noInfo} sin información · ${errors} con error · ${withoutSources} sin documentación encontrada` +
+      (trimmed === '0' ? '' : ` · ${trimmed} con el prompt recortado`),
     activity: 'Actividad diaria',
     activityTable: 'Actividad diaria por día',
     showTable: 'Ver como tabla',

@@ -13,6 +13,9 @@ from app.services.vectorstore import SearchHit, StoredChunk, VectorStore
 logger = logging.getLogger(__name__)
 
 SNIPPET_CHARS = 300
+# Lo que ocupa en el prompt cada fuente además de su texto («[n] Fuente: <etiqueta>»), para
+# ajustarse a la ventana del modelo (#73).
+SOURCE_OVERHEAD_CHARS = 120
 # Presentaciones: sus «páginas» son diapositivas (#76).
 SLIDE_EXTENSIONS = (".pptx", ".odp")
 
@@ -86,6 +89,47 @@ class ContextSource:
         return text if len(text) <= SNIPPET_CHARS else text[: SNIPPET_CHARS - 1].rstrip() + "…"
 
 
+@dataclass(slots=True)
+class Retrieval:
+    """Fuentes recuperadas y lo que se dejó fuera por no caber en el presupuesto (#73)."""
+
+    sources: list[ContextSource]
+    # El documento completo no cabía: se buscaron sus fragmentos.
+    full_document_skipped: bool = False
+    # Fragmentos que se habrían usado sin el presupuesto.
+    dropped: int = 0
+
+
+def sources_chars(sources: Sequence[ContextSource]) -> int:
+    """Caracteres que ocupan las fuentes en el prompt (texto y encabezado de cada una)."""
+    return sum(len(source.text) + SOURCE_OVERHEAD_CHARS for source in sources)
+
+
+def _select(
+    hits: Sequence[SearchHit],
+    min_score: float,
+    max_chars: int,
+    overhead: int,
+    *,
+    force_first: bool,
+) -> tuple[list[SearchHit], int]:
+    """Los fragmentos (ya ordenados) por encima del umbral que caben en `max_chars`.
+
+    Sin presupuesto (`force_first`), el primero se usa aunque supere el máximo de contexto.
+    """
+    selected: list[SearchHit] = []
+    used = 0
+    for hit in hits:
+        if hit.score < min_score:
+            break
+        cost = len(hit.text) + overhead
+        if used + cost > max_chars and (selected or not force_first):
+            break
+        used += cost
+        selected.append(hit)
+    return selected, used
+
+
 def candidates_limit(rag: RagConfig) -> int:
     """Fragmentos que se piden al índice: si se resta peso a los de índice, más de top-k,
     para que los que estaban justo detrás puedan ocupar su lugar."""
@@ -127,10 +171,29 @@ class Retriever:
         está la respuesta. Si falla la búsqueda (p. ej. el servicio de embeddings no
         responde) se devuelve una lista vacía: el chat sigue funcionando sin documentación.
         """
+        return (await self.retrieve_within(query, document_ids)).sources
+
+    async def retrieve_within(
+        self,
+        query: str,
+        document_ids: Sequence[str] | None = None,
+        max_chars: int | None = None,
+        *,
+        full_document: bool = True,
+    ) -> Retrieval:
+        """Como `retrieve`, pero las fuentes ocupan como mucho `max_chars` en el prompt
+        (texto y encabezado de cada una; ver `prompt_budget.py`). Si el documento completo
+        no cabe, se buscan sus fragmentos; los de menor puntuación se quedan fuera."""
         rag = self._config.current.rag
         if not rag.enabled or not query.strip():
-            return []
-        if document_ids is not None and len(document_ids) == 1 and rag.full_document_max_chars:
+            return Retrieval([])
+        skipped = False
+        if (
+            full_document
+            and document_ids is not None
+            and len(document_ids) == 1
+            and rag.full_document_max_chars
+        ):
             try:
                 full = await full_document_sources(
                     self._store, document_ids[0], rag.full_document_max_chars
@@ -139,33 +202,40 @@ class Retriever:
                 logger.warning("No se pudo leer el documento completo", exc_info=True)
                 full = None
             if full:
-                return full
+                needed = sources_chars(full) + len(FULL_DOCUMENT_NOTE)
+                if max_chars is None or needed <= max_chars:
+                    return Retrieval(full)
+                skipped = True
         min_score = rag.min_score if document_ids is None else rag.scoped_min_score
         try:
             [vector] = await self._embeddings.embed([query])
             hits = await self._store.search(vector, candidates_limit(rag), document_ids)
         except Exception:
             logger.warning("No se pudo recuperar contexto; se responde sin RAG", exc_info=True)
-            return []
+            return Retrieval([], full_document_skipped=skipped)
 
-        selected: list[SearchHit] = []
-        used = 0
-        for hit in rank_hits(hits, rag.toc_score_factor)[: rag.top_k]:
-            if hit.score < min_score:
-                break
-            if used + len(hit.text) > rag.max_context_chars and selected:
-                break
-            used += len(hit.text)
-            selected.append(hit)
+        ranked = rank_hits(hits, rag.toc_score_factor)[: rag.top_k]
+        unlimited, used = _select(ranked, min_score, rag.max_context_chars, 0, force_first=True)
+        selected, cap = unlimited, rag.max_context_chars
+        if max_chars is not None:
+            cap = min(rag.max_context_chars, max_chars)
+            selected, used = _select(
+                ranked, min_score, cap, SOURCE_OVERHEAD_CHARS, force_first=False
+            )
+        result = Retrieval([], skipped, len(unlimited) - len(selected))
         if rag.neighbor_chunks and selected:
             try:
-                return await self._with_neighbors(selected, rag, used)
+                result.sources = await self._with_neighbors(selected, rag, used, cap)
+                return result
             except Exception:
                 logger.warning("No se pudieron añadir los fragmentos vecinos", exc_info=True)
-        return [_source(number, [hit], hit) for number, hit in enumerate(selected, start=1)]
+        result.sources = [
+            _source(number, [hit], hit) for number, hit in enumerate(selected, start=1)
+        ]
+        return result
 
     async def _with_neighbors(
-        self, selected: list[SearchHit], rag: RagConfig, used: int
+        self, selected: list[SearchHit], rag: RagConfig, used: int, max_chars: int
     ) -> list[ContextSource]:
         """Añade a cada fragmento sus vecinos (primero los más cercanos y de los fragmentos
         más relevantes) mientras quepan, y une los contiguos de un documento en un pasaje."""
@@ -195,7 +265,7 @@ class Retriever:
                     neighbor = available[hit.document_id].get(index)
                     if neighbor is None or index in chunks:
                         continue
-                    if used + len(neighbor.text) > rag.max_context_chars:
+                    if used + len(neighbor.text) > max_chars:
                         continue
                     used += len(neighbor.text)
                     chunks[index] = neighbor
