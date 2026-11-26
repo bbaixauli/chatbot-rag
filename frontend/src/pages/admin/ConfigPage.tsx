@@ -218,6 +218,13 @@ const GROUPS: GroupSpec[] = [
       },
     ],
   },
+  {
+    name: 'tls',
+    fields: [
+      { name: 'ca_certs', kind: 'textarea', optional: true },
+      { name: 'strict_x509', kind: 'boolean' },
+    ],
+  },
 ]
 
 interface FormState {

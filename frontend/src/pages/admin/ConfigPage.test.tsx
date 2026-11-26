@@ -132,6 +132,7 @@ function appConfig(): AppConfig {
         refresh_interval_hours: 24,
         not_found_limit: 3,
       }),
+      tls: group({ ca_certs: null, strict_x509: true }),
     },
     providers: { llm: ['openai', 'fake'], embeddings: ['openai', 'local', 'fake'] },
   }
@@ -242,6 +243,23 @@ describe('ConfigPage', () => {
     ])
     expect(rag.getByLabelText('Fragmentos por pregunta (top-k)')).toHaveValue(8)
     expect(save).toBeDisabled()
+  })
+
+  it('guarda los certificados de confianza y la comprobación estricta', async () => {
+    const { sent } = configApi()
+    renderApp('/admin/config')
+    const tls = await section('Certificados')
+    const strict = tls.getByLabelText('Comprobación X.509 estricta')
+    expect(strict).toBeChecked()
+    expect(tls.getByText(/Authority Key Identifier/)).toBeInTheDocument()
+
+    const pem = '-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----'
+    await userEvent.type(tls.getByLabelText('Certificados de confianza (PEM)'), pem)
+    await userEvent.click(strict)
+    await userEvent.click(tls.getByRole('button', { name: 'Guardar' }))
+
+    expect(await tls.findByText('Cambios guardados.')).toBeInTheDocument()
+    expect(sent).toEqual([{ group: 'tls', body: { ca_certs: pem, strict_x509: false } }])
   })
 
   it('valida los campos antes de enviar', async () => {

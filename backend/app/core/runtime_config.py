@@ -12,9 +12,10 @@ el prefijo del grupo (`llm.model` ↔ `CHATBOT_LLM_MODEL`).
 
 from typing import Any, ClassVar, Literal, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 
 from app.core.config import Settings
+from app.core.tls import parse_certificates
 
 # Los nombres de modelo se guardan en columnas de 255 caracteres (registro de preguntas,
 # documentos, auditoría).
@@ -313,8 +314,29 @@ class WebConfig(ConfigGroup):
         ]
 
 
+class TlsConfig(ConfigGroup):
+    """Conexiones HTTPS salientes (#89): documentos web, modelo de lenguaje y embeddings."""
+
+    SETTINGS_PREFIX = "tls_"
+    ADMIN_ONLY_FIELDS = ("ca_certs",)
+
+    # Certificados (PEM, uno o varios) de CA propias, que se suman a las públicas.
+    ca_certs: str | None = None
+    # Comprobación X.509 estricta (RFC 5280): ver `core/tls.py`.
+    strict_x509: bool
+
+    @field_validator("ca_certs")
+    @classmethod
+    def _check_certificates(cls, value: str | None) -> str | None:
+        text = (value or "").strip()
+        if not text:
+            return None
+        parse_certificates(text)
+        return text
+
+
 GroupName = Literal[
-    "llm", "embeddings", "indexing", "rag", "chat", "limits", "users", "audit", "web"
+    "llm", "embeddings", "indexing", "rag", "chat", "limits", "users", "audit", "web", "tls"
 ]
 
 GROUPS: dict[str, type[ConfigGroup]] = {
@@ -327,6 +349,7 @@ GROUPS: dict[str, type[ConfigGroup]] = {
     "users": UsersConfig,
     "audit": AuditConfig,
     "web": WebConfig,
+    "tls": TlsConfig,
 }
 
 
@@ -344,6 +367,7 @@ class RuntimeConfig(BaseModel):
     users: UsersConfig
     audit: AuditConfig
     web: WebConfig
+    tls: TlsConfig
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "RuntimeConfig":
