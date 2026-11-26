@@ -1,6 +1,7 @@
 """Endpoints de administración de documentos del RAG."""
 
 import asyncio
+import logging
 from datetime import datetime
 from pathlib import PurePosixPath
 from typing import Annotated, Literal
@@ -16,6 +17,8 @@ from app.core.auth import AdminDep, CurrentUserDep
 from app.db.models import Category, Document, DocumentKind, DocumentStatus
 from app.services.documents import DocumentService, UploadError, is_archive
 from app.services.web import MAX_URL_LENGTH
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin/documents", tags=["documents"])
 
@@ -215,6 +218,13 @@ async def add_urls(body: UrlsIn, admin: AdminDep, service: DocumentsDep) -> list
                 )
             except UploadError as exc:
                 return UploadResultOut(filename=url, error=str(exc))
+            except Exception:
+                # Un fallo imprevisto con una dirección no debe perder el resultado de las
+                # demás, que ya se han dado de alta.
+                logger.exception("Error inesperado al añadir %s", url)
+                return UploadResultOut(
+                    filename=url, error="Error inesperado al añadir la dirección"
+                )
         return UploadResultOut(
             filename=url,
             document=DocumentOut.model_validate(result.document),

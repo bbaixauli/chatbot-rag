@@ -15,7 +15,7 @@ from app.core.config import Settings
 from app.core.runtime_config import WebConfig
 from app.db.models import Document
 from app.services.web import WebError, WebFetcher, check_url
-from tests.conftest import ScriptedLLM, parse_sse, set_config
+from tests.conftest import ScriptedLLM, parse_sse, race_after_sha256_check, set_config
 from tests.factories import pdf_bytes
 from tests.office_factories import make_docx
 from tests.web_server import Handler, Server
@@ -229,6 +229,52 @@ async def test_already_added_urls_and_contents_are_duplicates(
     assert [str(r.url) for r in server.requests[requests:]] == ["https://intranet/copia"]
     # El mismo contenido desde otra dirección: el documento que ya existía.
     assert (copy["duplicate"], copy["document"]["id"]) == (True, first["document"]["id"])
+
+
+async def test_simultaneous_urls_with_the_same_content_are_duplicates(
+    app: FastAPI, admin: AsyncClient, server: Server, settings: Settings
+) -> None:
+    # Dos direcciones del mismo lote con el mismo contenido: la otra se guarda mientras se
+    # da de alta esta, después de comprobar que no había duplicado (#72).
+    server.page("https://intranet/a", PAGE, "text/html")
+    server.page("https://intranet/copia", PAGE, "text/html")
+    copies: list[Any] = []
+
+    async def rival() -> None:
+        copies.append(await app.state.documents.add_url("https://intranet/copia", "admin"))
+
+    race_after_sha256_check(app, rival)
+
+    [result] = await add(admin, "https://intranet/a")
+
+    [copy] = copies
+    assert (result["duplicate"], result["document"]["id"]) == (True, copy.document.id)
+    listed = (await admin.get("/api/v1/admin/documents")).json()
+    assert [d["source_url"] for d in listed] == ["https://intranet/copia"]
+    # No quedan ficheros temporales de la subida descartada.
+    assert sorted(p.name for p in settings.uploads_dir.iterdir()) == [
+        Path(app.state.documents.file_path(copy.document)).name
+    ]
+
+
+async def test_unexpected_errors_do_not_lose_the_other_results(
+    app: FastAPI, admin: AsyncClient, server: Server, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    server.page("https://intranet/a", PAGE, "text/html")
+    service = app.state.documents
+    add_url = service.add_url
+
+    async def failing(url: str, *args: Any, **kwargs: Any) -> Any:
+        if url.endswith("/rota"):
+            raise RuntimeError("fallo imprevisto")
+        return await add_url(url, *args, **kwargs)
+
+    monkeypatch.setattr(service, "add_url", failing)
+
+    results = await add(admin, "https://intranet/a", "https://intranet/rota")
+
+    assert errors(results) == [None, "Error inesperado al añadir la dirección"]
+    assert results[0]["document"]["title"] == "Política de gastos"
 
 
 async def test_reindexing_does_not_download_again(
