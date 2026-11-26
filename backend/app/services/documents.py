@@ -11,6 +11,7 @@ from pathlib import Path, PurePosixPath
 from typing import Protocol
 
 from sqlalchemy import ColumnElement, and_, func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import Settings
@@ -375,7 +376,6 @@ class DocumentService:
                     document.source_error = f"El contenido nuevo es el mismo que el de «{same}»"
                     await session.commit()
                     return
-                temp.replace(self.file_path(document))
                 document.sha256 = digest
                 document.size_bytes = len(body)
                 document.status = DocumentStatus.PENDING.value
@@ -386,12 +386,37 @@ class DocumentService:
                 document.source_not_found = 0
                 document.source_etag = download.etag
                 document.source_last_modified = download.last_modified
+                try:
+                    # Antes de sustituir el fichero: si otro documento ha recibido el mismo
+                    # contenido entre la consulta y aquí, se conserva la versión anterior.
+                    await session.flush()
+                except IntegrityError:
+                    await session.rollback()
+                    await self._duplicate_content(document_id, digest, now)
+                    return
+                temp.replace(self.file_path(document))
                 await session.commit()
                 requested_at = document.updated_at
         finally:
             temp.unlink(missing_ok=True)
         logger.info("Documento web actualizado: %s", download.url)
         await self._schedule(document_id, requested_at)
+
+    async def _duplicate_content(self, document_id: str, digest: str, checked_at: datetime) -> None:
+        """Anota que el contenido nuevo de un documento web ya es el de otro documento
+        (guardado a la vez que se comprobaba este)."""
+        async with self._sessionmaker() as session:
+            document = await session.get(Document, document_id)
+            if document is None:
+                return
+            same = await session.scalar(select(Document.title).where(Document.sha256 == digest))
+            document.source_checked_at = checked_at
+            document.source_error = (
+                f"El contenido nuevo es el mismo que el de «{same}»"
+                if same
+                else "El contenido nuevo es el mismo que el de otro documento"
+            )
+            await session.commit()
 
     async def _save(
         self,
@@ -439,7 +464,18 @@ class DocumentService:
                     source_changed_at=utcnow() if source else None,
                 )
                 session.add(document)
-                await session.flush()
+                try:
+                    await session.flush()
+                except IntegrityError:
+                    # Otra subida simultánea con el mismo contenido (p. ej. dos direcciones
+                    # del mismo lote, #72) se ha guardado entre la consulta y el alta.
+                    await session.rollback()
+                    existing = await session.scalar(
+                        select(Document).where(Document.sha256 == digest)
+                    )
+                    if existing is None:
+                        raise
+                    return UploadResult(existing, duplicate=True)
                 temp.replace(self.file_path(document))
                 await session.commit()
         finally:

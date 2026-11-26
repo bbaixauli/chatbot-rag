@@ -9,7 +9,7 @@ necesitan PostgreSQL (`@pytest.mark.postgres_only`) solo se ejecutan en ese caso
 import asyncio
 import json
 import os
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -17,7 +17,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import pool, text
-from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import Settings
 
@@ -88,6 +88,33 @@ def parse_sse(body: str) -> list[tuple[str, dict[str, Any]]]:
         lines = dict(line.split(": ", 1) for line in block.splitlines())
         events.append((lines["event"], json.loads(lines["data"])))
     return events
+
+
+def race_after_sha256_check(app: FastAPI, rival: Callable[[], Awaitable[object]]) -> None:
+    """Simula dos operaciones simultáneas con el mismo contenido (#72): la primera vez que
+    el servicio de documentos busca por `sha256`, ejecuta `rival` antes de devolver el
+    resultado, de modo que la comprobación no ve lo que `rival` guarda."""
+    service = app.state.documents
+    original: async_sessionmaker[AsyncSession] = service._sessionmaker
+    pending = True
+
+    def make_session() -> AsyncSession:
+        session = original()
+        scalar = session.scalar
+
+        async def racing_scalar(statement: Any, *args: Any, **kwargs: Any) -> Any:
+            nonlocal pending
+            result = await scalar(statement, *args, **kwargs)
+            # Solo la consulta que filtra por `sha256` (no las que lo devuelven).
+            if pending and "documents.sha256 = :" in str(statement):
+                pending = False
+                await rival()
+            return result
+
+        session.scalar = racing_scalar  # type: ignore[method-assign]
+        return session
+
+    service._sessionmaker = make_session
 
 
 async def set_config(app: FastAPI, group: str, **changes: Any) -> None:

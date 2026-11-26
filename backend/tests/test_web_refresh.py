@@ -15,7 +15,7 @@ from app.db.models import Document, DocumentStatus, utcnow
 from app.services.tasks import REFRESH_DOCUMENT
 from app.services.web import WebFetcher
 from app.services.web_refresh import schedule_due, scheduler_loop
-from tests.conftest import set_config
+from tests.conftest import race_after_sha256_check, set_config
 from tests.web_server import Server
 
 URL = "https://intranet/gastos"
@@ -207,6 +207,32 @@ async def test_conflicts_keep_the_previous_version(app: FastAPI, server: Server)
         "El tipo del documento ha cambiado (web → pdf)"
     )
     assert "53,34" in await stored_text(app, document_id)
+
+
+async def test_simultaneous_changes_to_the_same_content_keep_the_previous_version(
+    app: FastAPI, server: Server
+) -> None:
+    # Dos páginas cambian al mismo contenido y se comprueban a la vez: la otra se actualiza
+    # después de que esta compruebe que nadie más tenía ese contenido (#72).
+    other_url = "https://intranet/otra"
+    document_id = await add(app, server)
+    other_id = await add(app, server, other_url, "Texto distinto de la otra página de la intranet.")
+    before = await document(app, document_id)
+    server.page(URL, page(NEW), "text/html")
+    server.page(other_url, page(NEW), "text/html")
+
+    async def rival() -> None:
+        await app.state.documents.refresh(other_id)
+
+    race_after_sha256_check(app, rival)
+
+    await refresh(app, document_id)
+
+    same = await document(app, document_id)
+    assert same.sha256 == before.sha256
+    assert same.source_error == "El contenido nuevo es el mismo que el de «Política de gastos»"
+    assert "53,34" in await stored_text(app, document_id)
+    assert "60 euros" in await stored_text(app, other_id)
 
 
 async def test_documents_being_indexed_or_uploaded_are_skipped(
