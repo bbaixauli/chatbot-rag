@@ -442,3 +442,28 @@ def test_cli_query_detects_named_documents(
     output = capsys.readouterr().out
     assert "Documentos nombrados en la pregunta: NOR-013 Control de acceso.md" in output
     assert "guia.md" not in output.split("El chat usaría")[0]
+
+
+def test_cli_query_shows_the_prompt_size(
+    settings: Settings, capsys: pytest.CaptureFixture[str]
+) -> None:
+    asyncio.run(_prepare(settings))
+
+    assert main(["query", "días de vacaciones"], settings) == 0
+    output = capsys.readouterr().out
+    assert "Tamaño estimado del prompt (pregunta nueva, sin historial):" in output
+    assert "Sin comprobar: la ventana de contexto del modelo no está configurada" in output
+
+
+def test_cli_query_compares_the_prompt_with_the_window(
+    settings: Settings, capsys: pytest.CaptureFixture[str]
+) -> None:
+    settings.llm_context_window_tokens = 200
+    settings.llm_response_reserve_tokens = 100
+    settings.rag_min_score = 0
+    asyncio.run(_prepare(settings))
+
+    assert main(["query", "días de vacaciones"], settings) == 0
+    output = capsys.readouterr().out
+    assert "Límite: 100 tokens (ventana de 200 menos 100 para la respuesta)" in output
+    assert "fragmentos no caben y se quedarían fuera" in output

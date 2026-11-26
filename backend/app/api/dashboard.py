@@ -40,6 +40,8 @@ class SummaryOut(BaseModel):
     no_info: int
     errors: int
     without_sources: int
+    # Prompt recortado para caber en la ventana del modelo (#73).
+    trimmed: int
     avg_response_ms: int | None
     median_response_ms: int | None
     avg_first_token_ms: int | None
@@ -117,6 +119,7 @@ async def get_summary(
         no_info=stats.no_info,
         errors=stats.errors,
         without_sources=stats.without_sources,
+        trimmed=stats.trimmed,
         avg_response_ms=stats.avg_response_ms,
         median_response_ms=stats.median_response_ms,
         avg_first_token_ms=stats.avg_first_token_ms,

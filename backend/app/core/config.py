@@ -62,6 +62,11 @@ class Settings(BaseSettings):
     llm_temperature: float = Field(default=0.2, ge=0, le=2)
     llm_timeout_seconds: float = Field(default=120, gt=0)
     llm_max_retries: int = Field(default=2, ge=0)
+    # Ventana de contexto del modelo de chat en el servidor (num_ctx en Ollama,
+    # --max-model-len en vLLM) y lo que se reserva de ella para la respuesta (#73). Con la
+    # ventana, el prompt se ajusta a ella; con 0 no se comprueba.
+    llm_context_window_tokens: int = Field(default=0, ge=0)
+    llm_response_reserve_tokens: int = Field(default=1024, ge=0)
 
     # Administración. Sin contraseña configurada, la administración queda deshabilitada.
     admin_username: str = "admin"

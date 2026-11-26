@@ -72,6 +72,29 @@ class LlmConfig(ConfigGroup):
     temperature: float = Field(ge=0, le=2)
     timeout_seconds: float = Field(gt=0)
     max_retries: int = Field(ge=0)
+    # Ventana de contexto del modelo, tal como está configurada en el servidor (#73); 0: no
+    # se comprueba el tamaño del prompt. Ver `services/prompt_budget.py`.
+    context_window_tokens: int = Field(ge=0)
+    # Parte de la ventana que se deja para la respuesta.
+    response_reserve_tokens: int = Field(ge=0)
+
+    @property
+    def prompt_max_tokens(self) -> int | None:
+        """Tokens que puede ocupar el prompt, o `None` si no se comprueba."""
+        if not self.context_window_tokens:
+            return None
+        return self.context_window_tokens - self.response_reserve_tokens
+
+    @model_validator(mode="after")
+    def _check_window(self) -> "LlmConfig":
+        if (
+            self.context_window_tokens
+            and self.response_reserve_tokens >= self.context_window_tokens
+        ):
+            raise ValueError(
+                "El espacio reservado para la respuesta debe ser menor que la ventana de contexto"
+            )
+        return self
 
 
 class EmbeddingConfig(ConfigGroup):

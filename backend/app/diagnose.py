@@ -31,7 +31,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import Settings, get_settings
-from app.core.runtime_config import RuntimeConfig
+from app.core.runtime_config import RuntimeConfig, StaticConfig
 from app.db.models import Document, DocumentKind, DocumentStatus
 from app.db.session import build_engine, build_sessionmaker
 from app.services.backends import build_vector_store, close_vector_store
@@ -47,7 +47,16 @@ from app.services.ingestion.preprocess import (
     looks_like_toc,
     preprocessing_signature,
 )
-from app.services.rag import candidates_limit, full_document_sources, rank_hits
+from app.services.llm import ChatMessage
+from app.services.prompt_budget import documents_budget, message_tokens
+from app.services.prompts import PromptRepository
+from app.services.rag import (
+    Retriever,
+    build_system_prompt,
+    candidates_limit,
+    full_document_sources,
+    rank_hits,
+)
 from app.services.runtime_config import load_runtime_config
 from app.services.scope import indexed_documents
 from app.services.vectorstore import SearchHit, StoredChunk, VectorStore, VectorStoreError
@@ -543,6 +552,54 @@ def print_query_report(
             _print_hit(item, out, reason=False)
 
 
+async def print_prompt_estimate(
+    question: str,
+    config: RuntimeConfig,
+    settings: Settings,
+    sessionmaker: async_sessionmaker[AsyncSession],
+    retriever: Retriever,
+    scope_ids: Sequence[str] | None,
+    out: TextIO,
+) -> None:
+    """Tamaño del prompt que enviaría el chat para la pregunta, sin historial (#73)."""
+    async with sessionmaker() as session:
+        base_prompt = await PromptRepository(session, settings.default_system_prompt).current()
+    system_tokens = message_tokens(ChatMessage("system", base_prompt.content))
+    question_tokens = message_tokens(ChatMessage("user", question))
+    limit = config.llm.prompt_max_tokens
+    budget = None if limit is None else documents_budget(limit, system_tokens + question_tokens)
+    retrieval = await retriever.retrieve_within(question, scope_ids, budget)
+    system = ChatMessage("system", build_system_prompt(base_prompt.content, retrieval.sources))
+    total = message_tokens(system) + question_tokens
+    print("Tamaño estimado del prompt (pregunta nueva, sin historial):", file=out)
+    print(
+        f"   prompt de sistema {system_tokens} · documentación "
+        f"{message_tokens(system) - system_tokens} ({len(retrieval.sources)} fuentes) · "
+        f"pregunta {question_tokens} · total {total} tokens",
+        file=out,
+    )
+    if limit is None:
+        print(
+            "   Sin comprobar: la ventana de contexto del modelo no está configurada (si el "
+            "prompt no cabe, el servidor puede recortarlo sin avisar).\n",
+            file=out,
+        )
+        return
+    llm = config.llm
+    print(
+        f"   Límite: {limit} tokens (ventana de {llm.context_window_tokens} menos "
+        f"{llm.response_reserve_tokens} para la respuesta)",
+        file=out,
+    )
+    if system_tokens + question_tokens > limit:
+        print("   Ni el prompt de sistema y la pregunta caben: el chat no la enviaría.", file=out)
+    if retrieval.full_document_skipped:
+        print("   El documento completo no cabe: el chat enviaría fragmentos.", file=out)
+    if retrieval.dropped:
+        print(f"   {retrieval.dropped} fragmentos no caben y se quedarían fuera.", file=out)
+    print(file=out)
+
+
 async def run(args: argparse.Namespace, settings: Settings, out: TextIO) -> int:
     config = await load_runtime_config(settings)
     engine = build_engine(settings.resolved_database_url)
@@ -588,6 +645,15 @@ async def run(args: argparse.Namespace, settings: Settings, out: TextIO) -> int:
                         f"fragmentos.\n",
                         file=out,
                     )
+            await print_prompt_estimate(
+                args.question,
+                config,
+                settings,
+                build_sessionmaker(engine),
+                Retriever(embeddings, store, StaticConfig(config)),
+                scope_ids,
+                out,
+            )
             hits = await diagnose_query(
                 args.question,
                 config,

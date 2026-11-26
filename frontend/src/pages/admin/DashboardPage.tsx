@@ -211,6 +211,7 @@ function Figures({ summary }: { summary: DashboardSummary }) {
             formatNumber(summary.no_info),
             formatNumber(summary.errors),
             formatNumber(summary.without_sources),
+            formatNumber(summary.trimmed),
           )}
         />
       </dl>

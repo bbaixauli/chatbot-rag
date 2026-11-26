@@ -328,10 +328,51 @@ no cita ninguna parte, el documento aparece una sola vez como fuente. Si no cabe
 fragmentos más parecidos de ese documento, como siempre.
 
 Este límite sustituye al máximo de contexto en ese caso, así que debe caber en la **ventana de
-contexto del modelo de chat** (en español, unos 4 caracteres por token), junto con el prompt
-de sistema y el historial: por ejemplo, 60000 caracteres son unos 15000 tokens. Cada pregunta
-sobre un documento completo es más lenta y consume más tokens. `app.diagnose query` indica si
-se enviaría el documento completo y su tamaño.
+contexto del modelo de chat** (en español, unos 3,5 caracteres por token), junto con el
+prompt de sistema y el historial: por ejemplo, 60000 caracteres son unos 17000 tokens. Cada
+pregunta sobre un documento completo es más lenta y consume más tokens. `app.diagnose query`
+indica si se enviaría el documento completo y su tamaño. Con la ventana de contexto
+configurada (ver abajo), si no cabe se envían sus fragmentos.
+
+#### Ventana de contexto del modelo
+
+El prompt que recibe el modelo de chat (prompt de sistema con la documentación, historial y
+pregunta) tiene que caber en su **ventana de contexto**, junto con la respuesta. Algunos
+servidores **recortan sin avisar** el prompt que no cabe, y lo hacen por el principio, que es
+donde va la documentación: el modelo responde que no tiene la información aunque se le haya
+enviado (pasa con Ollama y su `num_ctx` por defecto, de 2048 o 4096 tokens).
+
+En *Configuración → Modelo de lenguaje*, indica en **«Ventana de contexto (tokens)»**
+(`CHATBOT_LLM_CONTEXT_WINDOW_TOKENS`, 0 por defecto: sin comprobar) la ventana que tiene el
+modelo **en el servidor**:
+
+| Servidor | Dónde se configura |
+|---|---|
+| Ollama | `num_ctx` (en el `Modelfile`, la variable `OLLAMA_CONTEXT_LENGTH` o las opciones del modelo) |
+| vLLM | `--max-model-len` |
+| LiteLLM | `max_input_tokens` en `model_info` (lo que admita el servidor de detrás) |
+
+De ella se reserva **«Reserva para la respuesta»** (`CHATBOT_LLM_RESPONSE_RESERVE_TOKENS`,
+1024). El tamaño del prompt se estima (unos 3,5 caracteres por token, sin el tokenizador del
+modelo) y, si no cabe, se ajusta **antes** de enviarlo, en este orden:
+
+1. Si iba el **documento completo**, se envían sus fragmentos más parecidos.
+2. Se quita el **historial antiguo**, conservando el último intercambio.
+3. Se quitan los **fragmentos** de menor puntuación.
+4. Se quita el resto del historial.
+5. Si ni el prompt de sistema y la pregunta caben, no se envía: el chat responde que la
+   pregunta es demasiado larga para el modelo configurado.
+
+Cada ajuste queda en el log («Prompt ajustado a la ventana del modelo…») y en el registro de
+preguntas: la **auditoría** muestra el tamaño del prompt y lo que se quitó, y el **cuadro de
+mando** cuenta las preguntas con el prompt recortado. Al guardar, la administración avisa si
+«Documento completo hasta» no cabe en la ventana.
+
+Además, se pide al servidor que devuelva cuántos tokens ha contado (`usage`). Si cuenta
+bastantes menos de los estimados, lo más probable es que haya recortado el prompt: queda en el
+log («probablemente lo ha recortado») y en la auditoría como «recortado por el servidor».
+Esta comprobación funciona aunque la ventana no esté configurada. `app.diagnose query` muestra
+el tamaño estimado del prompt, por partes, frente al límite.
 
 Para consultarla o, si una configuración deja la aplicación inservible, volver a los valores de
 `.env`:
@@ -815,6 +856,7 @@ aceptar una falsificada). También se ejecuta en el CI.
 | `backend` no llega a *healthy* | Revisa `docker compose logs backend`: variables mal escritas, migración fallida, falta `CHATBOT_SESSION_SECRET` (o es corta) o `CHATBOT_ADMIN_PASSWORD` es la de ejemplo |
 | La respuesta del chat aparece de golpe al final | Un proxy intermedio almacena en búfer el SSE (`proxy_buffering off`) |
 | `413 Request Entity Too Large` al subir | Aumenta `CHATBOT_MAX_BODY_SIZE` (y `client_max_body_size` en el proxy externo) |
+| El modelo dice que no tiene la información aunque el documento se envía | El servidor recorta el prompt: configura la [ventana de contexto](#ventana-de-contexto-del-modelo) y revisa el log («probablemente lo ha recortado») |
 | «No se pudo conectar con el modelo» | El contenedor no alcanza `CHATBOT_LLM_BASE_URL`. Si el servidor de IA está en el mismo equipo, usa su IP o `host.docker.internal`, no `localhost` |
 | Las sesiones de administración se pierden al reiniciar (fuera de Docker) | Falta `CHATBOT_SESSION_SECRET` |
 | Todos los usuarios reciben `429` a la vez | Hay un proxy delante sin configurar `real_ip` (ver HTTPS) |

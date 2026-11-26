@@ -2,9 +2,10 @@
 
 import asyncio
 import json
+import logging
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
-from typing import Literal, Protocol, cast
+from typing import Any, Literal, Protocol, cast
 
 import openai
 from openai import AsyncOpenAI
@@ -20,6 +21,8 @@ class ChatMessage:
     role: Literal["system", "user", "assistant"]
     content: str
 
+
+logger = logging.getLogger(__name__)
 
 NO_API_KEY = "not-needed"
 DEFAULT_USER_MESSAGE = "El modelo no está disponible. Inténtalo de nuevo."
@@ -58,11 +61,22 @@ def user_message_for(exc: openai.OpenAIError) -> str:
     return DEFAULT_USER_MESSAGE
 
 
+@dataclass(slots=True)
+class TokenUsage:
+    """Tokens que ha contado el servidor (si los devuelve; ver `stream_options`)."""
+
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+
+
 class LLMClient(Protocol):
     """Cliente de un modelo de chat con respuesta en streaming."""
 
-    def stream_chat(self, messages: Sequence[ChatMessage]) -> AsyncIterator[str]:
-        """Devuelve los fragmentos de texto de la respuesta según se generan."""
+    def stream_chat(
+        self, messages: Sequence[ChatMessage], *, usage: TokenUsage | None = None
+    ) -> AsyncIterator[str]:
+        """Devuelve los fragmentos de texto de la respuesta según se generan. Si se pasa
+        `usage`, al terminar tiene los tokens que contó el servidor (si los devuelve)."""
         ...
 
 
@@ -72,6 +86,8 @@ class OpenAICompatibleClient:
     def __init__(self, config: LlmConfig, client: AsyncOpenAI | None = None) -> None:
         self._model = config.model
         self._temperature = config.temperature
+        # Se pide el recuento de tokens (#73) salvo que el servidor no admita la opción.
+        self._usage_supported = True
         self._client = client or AsyncOpenAI(
             base_url=config.base_url,
             api_key=api_key_value(config),
@@ -79,21 +95,43 @@ class OpenAICompatibleClient:
             max_retries=config.max_retries,
         )
 
-    async def stream_chat(self, messages: Sequence[ChatMessage]) -> AsyncIterator[str]:
+    async def _create(self, payload: list[ChatCompletionMessageParam], usage: bool) -> Any:
+        if not usage:
+            return await self._client.chat.completions.create(
+                model=self._model, temperature=self._temperature, messages=payload, stream=True
+            )
+        return await self._client.chat.completions.create(
+            model=self._model,
+            temperature=self._temperature,
+            messages=payload,
+            stream=True,
+            stream_options={"include_usage": True},
+        )
+
+    async def stream_chat(
+        self, messages: Sequence[ChatMessage], *, usage: TokenUsage | None = None
+    ) -> AsyncIterator[str]:
         payload = cast(
             list[ChatCompletionMessageParam],
             [{"role": m.role, "content": m.content} for m in messages],
         )
         try:
-            stream = await self._client.chat.completions.create(
-                model=self._model,
-                temperature=self._temperature,
-                messages=payload,
-                stream=True,
-            )
+            ask_usage = usage is not None and self._usage_supported
+            try:
+                stream = await self._create(payload, ask_usage)
+            except openai.BadRequestError as exc:
+                if not ask_usage or "stream_options" not in str(exc):
+                    raise
+                # Servidor que no admite `stream_options`: se pide sin el recuento.
+                logger.info("El servidor del modelo no admite stream_options; sin recuento")
+                self._usage_supported = False
+                stream = await self._create(payload, False)
             async for chunk in stream:
                 if chunk.choices and (delta := chunk.choices[0].delta.content):
                     yield delta
+                if usage is not None and chunk.usage is not None:
+                    usage.prompt_tokens = chunk.usage.prompt_tokens
+                    usage.completion_tokens = chunk.usage.completion_tokens
         except openai.OpenAIError as exc:
             raise LLMError(
                 f"Error del modelo de lenguaje ({type(exc).__name__}): {exc}",
@@ -111,7 +149,9 @@ class FakeLLMClient:
     def __init__(self, delay_seconds: float = 0.01) -> None:
         self._delay = delay_seconds
 
-    async def stream_chat(self, messages: Sequence[ChatMessage]) -> AsyncIterator[str]:
+    async def stream_chat(
+        self, messages: Sequence[ChatMessage], *, usage: TokenUsage | None = None
+    ) -> AsyncIterator[str]:
         question = next((m.content for m in reversed(messages) if m.role == "user"), "")
         system = next((m.content for m in messages if m.role == "system"), "")
         if system.startswith("Eres el auditor de seguridad"):
@@ -182,5 +222,7 @@ class ConfigurableLLM:
             self._config = config
         return self._client
 
-    def stream_chat(self, messages: Sequence[ChatMessage]) -> AsyncIterator[str]:
-        return self._current().stream_chat(messages)
+    def stream_chat(
+        self, messages: Sequence[ChatMessage], *, usage: TokenUsage | None = None
+    ) -> AsyncIterator[str]:
+        return self._current().stream_chat(messages, usage=usage)

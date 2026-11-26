@@ -29,11 +29,19 @@ from app.core.ldap_auth import (
     DirectoryUnavailableError,
     InvalidCredentialsError,
 )
-from app.core.runtime_config import GROUPS, ConfigGroup, EmbeddingConfig, LlmConfig, UsersConfig
+from app.core.runtime_config import (
+    GROUPS,
+    ConfigGroup,
+    EmbeddingConfig,
+    LlmConfig,
+    RuntimeConfig,
+    UsersConfig,
+)
 from app.services.documents import DocumentService
 from app.services.embeddings import Embeddings, build_embeddings
 from app.services.llm import ChatMessage as LLMMessage
 from app.services.llm import LLMError, build_llm_client
+from app.services.prompt_budget import chars_to_tokens
 from app.services.runtime_config import ConfigStore
 
 router = APIRouter(prefix="/admin/config", tags=["admin"])
@@ -219,6 +227,8 @@ async def update_config(
             )
     if isinstance(candidate, UsersConfig) and isinstance(current, UsersConfig):
         warnings += await _check_users_change(request, settings, current, candidate, changed)
+    if group in ("llm", "rag"):
+        warnings += _window_warnings(store.current.replace_group(group, candidate))
     if changed:
         await store.save(group, candidate, admin.username)
         logger.info(
@@ -233,6 +243,19 @@ async def update_config(
         requires_reindex=requires_reindex,
         warnings=warnings,
     )
+
+
+def _window_warnings(config: RuntimeConfig) -> list[str]:
+    """Avisa si el documento completo no cabe en la ventana del modelo (#73)."""
+    limit = config.llm.prompt_max_tokens
+    full = config.rag.full_document_max_chars
+    if limit is None or not full or chars_to_tokens(full) <= limit:
+        return []
+    return [
+        f"«Documento completo hasta» ({full} caracteres, unos {chars_to_tokens(full)} tokens) "
+        f"no cabe en la ventana del modelo ({limit} tokens para el prompt): los documentos más "
+        "largos se enviarán por fragmentos. Reduce ese valor o amplía la ventana."
+    ]
 
 
 @router.post("/{group}/test", response_model=TestOut)

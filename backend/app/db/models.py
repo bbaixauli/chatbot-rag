@@ -283,6 +283,11 @@ class QuestionLog(Base):
     # Búsqueda limitada a unos documentos (#58): cuáles y por qué (`ScopeSource`).
     scope_document_ids: Mapped[list[str] | None] = mapped_column(JSON)
     scope_source: Mapped[str | None] = mapped_column(String(16))
+    # Tamaño del prompt (#73): estimado y el que contó el servidor (si lo devuelve), y lo que
+    # se quitó para que cupiera en la ventana del modelo (ver `PromptTrim`).
+    prompt_tokens_estimated: Mapped[int | None] = mapped_column(Integer)
+    prompt_tokens: Mapped[int | None] = mapped_column(Integer)
+    prompt_trim: Mapped[dict[str, Any] | None] = mapped_column(JSON)
 
 
 class AuditRunStatus(StrEnum):

@@ -184,6 +184,10 @@ class QuestionRecord:
     # Búsqueda limitada a unos documentos (#58) y su origen (`ScopeSource`).
     scope_document_ids: list[str] | None = None
     scope_source: str | None = None
+    # Tamaño del prompt y recortes (#73).
+    prompt_tokens_estimated: int | None = None
+    prompt_tokens: int | None = None
+    prompt_trim: dict[str, Any] | None = None
 
 
 async def record_question(
@@ -222,6 +226,9 @@ async def record_question(
                     error_detail=record.error_detail,
                     scope_document_ids=record.scope_document_ids,
                     scope_source=record.scope_source,
+                    prompt_tokens_estimated=record.prompt_tokens_estimated,
+                    prompt_tokens=record.prompt_tokens,
+                    prompt_trim=record.prompt_trim,
                 )
             )
             await session.commit()
@@ -286,11 +293,29 @@ class Summary:
     avg_response_ms: int | None
     median_response_ms: int | None
     avg_first_token_ms: int | None
+    # Preguntas cuyo prompt se recortó para caber en la ventana del modelo (#73).
+    trimmed: int = 0
     days: list[DayStats] = field(default_factory=list)
 
     @property
     def answered_ratio(self) -> float | None:
         return self.answered / self.questions if self.questions else None
+
+
+def trim_label(trim: dict[str, Any] | None) -> str:
+    """Qué se quitó del prompt (#73), en palabras."""
+    if not trim:
+        return ""
+    parts: list[str] = []
+    if trim.get("full_document"):
+        parts.append("documento completo sustituido por fragmentos")
+    if sources := trim.get("sources"):
+        parts.append(f"{sources} {'fragmento' if sources == 1 else 'fragmentos'}")
+    if history := trim.get("history"):
+        parts.append(f"{history} {'mensaje' if history == 1 else 'mensajes'} del historial")
+    if trim.get("server"):
+        parts.append("recortado por el servidor")
+    return "; ".join(parts)
 
 
 def _in_range(rng: DateRange) -> Any:
@@ -310,6 +335,7 @@ async def summary(session: AsyncSession, rng: DateRange) -> Summary:
                 QuestionLog.response_ms,
                 QuestionLog.first_token_ms,
                 QuestionLog.sources_retrieved,
+                QuestionLog.prompt_trim,
             ).where(_in_range(rng))
         )
     ).all()
@@ -319,7 +345,7 @@ async def summary(session: AsyncSession, rng: DateRange) -> Summary:
     }
     sessions: set[str] = set()
     users: set[str] = set()
-    answered = no_info = errors = without_sources = 0
+    answered = no_info = errors = without_sources = trimmed = 0
     times: list[int] = []
     first_tokens: list[int] = []
     for row in rows:
@@ -331,6 +357,8 @@ async def summary(session: AsyncSession, rng: DateRange) -> Summary:
         if row.user_id:
             users.add(row.user_id)
             day_users.add(row.user_id)
+        if row.prompt_trim:
+            trimmed += 1
         if row.status != QuestionStatus.OK.value:
             errors += 1
             continue
@@ -352,6 +380,7 @@ async def summary(session: AsyncSession, rng: DateRange) -> Summary:
         no_info=no_info,
         errors=errors,
         without_sources=without_sources,
+        trimmed=trimmed,
         avg_response_ms=round(statistics.fmean(times)) if times else None,
         median_response_ms=round(statistics.median(times)) if times else None,
         avg_first_token_ms=round(statistics.fmean(first_tokens)) if first_tokens else None,
