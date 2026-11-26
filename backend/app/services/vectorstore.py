@@ -9,6 +9,7 @@ from typing import Any, Protocol, cast
 import chromadb
 import numpy as np
 import numpy.typing as npt
+from chromadb.api.client import Client
 from chromadb.config import Settings as ChromaSettings
 
 from app.services.ingestion.chunker import Chunk
@@ -134,6 +135,16 @@ class ChromaVectorStore:
         self._collection = self._client.get_or_create_collection(
             collection, metadata={"hnsw:space": "cosine"}, embedding_function=None
         )
+        self._closed = False
+
+    async def close(self) -> None:
+        """Libera el índice (Chroma comparte un sistema por ruta dentro del proceso: si no
+        se cierra, otro cliente en la misma ruta lo reutiliza aunque se hayan borrado sus
+        ficheros, p. ej. al restaurar una copia)."""
+        if not self._closed:
+            self._closed = True
+            # `ClientAPI` no declara `close`, pero el cliente que devuelve Chroma la tiene.
+            await asyncio.to_thread(cast(Client, self._client).close)
 
     async def reset(self) -> None:
         # Se recrea la colección: la nueva no tiene fijada la dimensión de los vectores.

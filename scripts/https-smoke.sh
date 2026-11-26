@@ -117,9 +117,15 @@ step "El backend recibe la IP real del cliente y no la falsificada"
 caddy_ip=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' \
   "$(compose ps -q caddy)")
 https -o /dev/null -H 'X-Forwarded-For: 203.0.113.7' "$BASE/api/v1/conversations"
-logs=$(compose logs --no-color backend)
-client=$(echo "$logs" | grep '"path": "/api/v1/conversations"' | tail -1 \
-  | sed -n 's/.*"client": "\([^"]*\)".*/\1/p')
+# El log de acceso se escribe después de enviar la respuesta: se espera a que aparezca. Con
+# pipefail, un grep sin resultados terminaría el script sin mensaje (de ahí el `|| true`).
+client=""
+for _ in $(seq 1 15); do
+  client=$(compose logs --no-color backend | { grep '"path": "/api/v1/conversations"' || true; } \
+    | tail -1 | sed -n 's/.*"client": "\([^"]*\)".*/\1/p')
+  [ -n "$client" ] && break
+  sleep 1
+done
 echo "    IP del cliente: ${client:-?} (Caddy: $caddy_ip)"
 [ -n "$client" ] || fail "no se encontró la petición en el log"
 [ "$client" != "203.0.113.7" ] || fail "se aceptó la IP falsificada"

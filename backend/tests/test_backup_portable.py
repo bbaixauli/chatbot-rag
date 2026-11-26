@@ -27,6 +27,7 @@ from app.core.config import Settings
 from app.db import portable
 from app.db.base import Base
 from app.main import create_app
+from app.services.backends import close_vector_store
 from tests.factories import MARKDOWN
 
 pytestmark = pytest.mark.postgres_only
@@ -124,7 +125,9 @@ async def test_round_trip_restores_the_data_and_continues_the_ids(
 
     # Cambios posteriores a la copia: desaparecen al restaurar.
     await _chat(client, "Posterior a la copia")
+    # La restauración se hace con la aplicación parada: sin conexiones ni índice abiertos.
     await app.state.engine.dispose()
+    await close_vector_store(app.state.vector_store)
 
     assert await restore_portable_backup(settings, archive, force=True) == 1
 
