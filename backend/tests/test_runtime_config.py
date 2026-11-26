@@ -1,8 +1,10 @@
 """Configuración editable desde la administración (#42)."""
 
+import asyncio
 import io
 import logging
 import re
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -395,17 +397,31 @@ async def test_secrets_are_kept_replaced_or_cleared(app: FastAPI, admin: AsyncCl
     assert app.state.config.current.llm.api_key is None
 
 
-async def test_reindex_warning_and_blocking(app: FastAPI, admin: AsyncClient) -> None:
+async def test_reindex_warning_and_blocking(
+    app: FastAPI, admin: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
     # Sin documentos no hace falta reindexar nada.
     empty = await admin.put(f"{URL}/indexing", json={"chunk_size_chars": 1500})
     assert empty.json()["requires_reindex"] is True
     assert empty.json()["warnings"] == []
 
+    # La indexación se retiene hasta comprobar el bloqueo (con los embeddings simulados
+    # podría terminar antes de la petición, #87).
+    release = asyncio.Event()
+    embed = app.state.embeddings.embed
+
+    async def held_embed(texts: Sequence[str]) -> list[list[float]]:
+        await release.wait()
+        result: list[list[float]] = await embed(texts)
+        return result
+
+    monkeypatch.setattr(app.state.embeddings, "embed", held_embed)
     await app.state.documents.upload("guia.md", Reader(MARKDOWN.encode()), "admin")
     # Mientras se indexa no se puede cambiar el troceado ni el modelo.
     busy = await admin.put(f"{URL}/embeddings", json={"model": "otro"})
     assert busy.status_code == 409
     assert "pendientes de indexar" in busy.json()["detail"]
+    release.set()
     await app.state.tasks.drain()
 
     response = await admin.put(f"{URL}/indexing", json={"chunk_size_chars": 800})
