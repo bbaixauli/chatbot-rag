@@ -162,6 +162,12 @@ class Settings(BaseSettings):
     web_refresh_interval_hours: int = Field(default=24, ge=1, le=720)
     web_not_found_limit: int = Field(default=3, ge=1, le=100)
 
+    # --- Valor inicial: conexiones HTTPS salientes (#89; documentos web, modelo de lenguaje y
+    # embeddings). Exige que los certificados cumplan el RFC 5280 (p. ej. que tengan
+    # Authority Key Identifier). Los certificados de confianza propios solo se configuran en
+    # la administración.
+    tls_strict_x509: bool = True
+
     # Escalado (requiere `uv sync --extra escalado`). Por defecto, ChromaDB embebido y
     # tareas en el proceso de la API. Con `arq`, la indexación la hacen workers aparte
     # (`arq app.worker.WorkerSettings`) que leen la cola de Redis.

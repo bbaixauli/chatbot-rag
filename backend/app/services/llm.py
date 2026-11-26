@@ -10,7 +10,8 @@ import openai
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionMessageParam
 
-from app.core.runtime_config import ConfigSource, LlmConfig
+from app.core.runtime_config import ConfigSource, LlmConfig, TlsConfig
+from app.core.tls import describe_certificate_error, ssl_context
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,6 +24,8 @@ class ChatMessage:
 
 NO_API_KEY = "not-needed"
 DEFAULT_USER_MESSAGE = "El modelo no está disponible. Inténtalo de nuevo."
+# Sin configuración de certificados: solo las CA públicas y la comprobación estricta (#89).
+DEFAULT_TLS = TlsConfig(ca_certs=None, strict_x509=True)
 
 
 class LLMError(Exception):
@@ -69,14 +72,22 @@ class LLMClient(Protocol):
 class OpenAICompatibleClient:
     """Cliente para cualquier servidor compatible con la API de OpenAI."""
 
-    def __init__(self, config: LlmConfig, client: AsyncOpenAI | None = None) -> None:
+    def __init__(
+        self,
+        config: LlmConfig,
+        client: AsyncOpenAI | None = None,
+        *,
+        tls: TlsConfig = DEFAULT_TLS,
+    ) -> None:
         self._model = config.model
         self._temperature = config.temperature
+        self._strict_x509 = tls.strict_x509
         self._client = client or AsyncOpenAI(
             base_url=config.base_url,
             api_key=api_key_value(config),
             timeout=config.timeout_seconds,
             max_retries=config.max_retries,
+            http_client=http_client(tls),
         )
 
     async def stream_chat(self, messages: Sequence[ChatMessage]) -> AsyncIterator[str]:
@@ -95,8 +106,9 @@ class OpenAICompatibleClient:
                 if chunk.choices and (delta := chunk.choices[0].delta.content):
                     yield delta
         except openai.OpenAIError as exc:
+            detail = describe_certificate_error(exc, self._strict_x509) or str(exc)
             raise LLMError(
-                f"Error del modelo de lenguaje ({type(exc).__name__}): {exc}",
+                f"Error del modelo de lenguaje ({type(exc).__name__}): {detail}",
                 user_message_for(exc),
             ) from exc
 
@@ -157,11 +169,16 @@ def api_key_value(config: LlmConfig) -> str:
     return config.api_key.get_secret_value() if config.api_key else NO_API_KEY
 
 
-def build_llm_client(config: LlmConfig) -> LLMClient:
+def http_client(tls: TlsConfig) -> openai.DefaultAsyncHttpxClient:
+    """Cliente HTTP del SDK de OpenAI con los certificados de confianza configurados."""
+    return openai.DefaultAsyncHttpxClient(verify=ssl_context(tls.ca_certs, tls.strict_x509))
+
+
+def build_llm_client(config: LlmConfig, tls: TlsConfig = DEFAULT_TLS) -> LLMClient:
     """Crea el cliente configurado."""
     if config.provider == "fake":
         return FakeLLMClient()
-    return OpenAICompatibleClient(config)
+    return OpenAICompatibleClient(config, tls=tls)
 
 
 class ConfigurableLLM:
@@ -172,13 +189,14 @@ class ConfigurableLLM:
 
     def __init__(self, source: ConfigSource) -> None:
         self._source = source
-        self._config: LlmConfig | None = None
+        self._config: tuple[LlmConfig, TlsConfig] | None = None
         self._client: LLMClient | None = None
 
     def _current(self) -> LLMClient:
-        config = self._source.current.llm
+        current = self._source.current
+        config = (current.llm, current.tls)
         if self._client is None or config != self._config:
-            self._client = build_llm_client(config)
+            self._client = build_llm_client(*config)
             self._config = config
         return self._client
 

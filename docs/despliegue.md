@@ -228,6 +228,7 @@ lenguaje y los embeddings):
 | Límites de peticiones | `CHATBOT_RATE_LIMIT_*` |
 | Usuarios | `CHATBOT_AUTH_MODE`, `CHATBOT_LDAP_*` (salvo `CHATBOT_LDAP_CA_CERT_FILE`) |
 | Documentos web | `CHATBOT_WEB_TIMEOUT_SECONDS` (30), `CHATBOT_WEB_ALLOWED_DOMAINS` (dominios separados por comas, con sus subdominios; vacío: cualquiera), `CHATBOT_WEB_REFRESH_ENABLED` (`true`), `CHATBOT_WEB_REFRESH_INTERVAL_HOURS` (24), `CHATBOT_WEB_NOT_FOUND_LIMIT` (3) |
+| Certificados | `CHATBOT_TLS_STRICT_X509` (`true`); los certificados de confianza solo se configuran en la administración (ver [Certificados de una CA propia](#certificados-de-una-ca-propia)) |
 
 En el **primer arranque** se copian de `.env` a la base de datos; a partir de ahí esas
 variables **se ignoran** (si alguna no coincide con lo guardado, el log lo avisa:
@@ -254,6 +255,30 @@ cola (`CHATBOT_VECTOR_STORE`, `CHATBOT_QDRANT_*`, `CHATBOT_TASK_RUNNER`, `CHATBO
   backend, sin ellos). Todos esos contenedores tienen que poder resolver y alcanzar las
   direcciones (proxy de salida, DNS interno). Como pueden llegar a servicios internos, conviene
   limitar los **dominios permitidos** a los de la intranet o las webs de la organización.
+
+#### Certificados de una CA propia
+
+Las conexiones HTTPS con los servidores de los **documentos web**, del **modelo de lenguaje** y
+de los **embeddings** solo confían en las CA públicas (las del paquete `certifi`, no las del
+sistema): **instalar la CA de la organización en el contenedor no sirve**. Si alguno de esos
+servidores usa un certificado de una CA propia, pega su certificado (PEM, uno o varios, con las
+líneas `BEGIN`/`END CERTIFICATE`) en *Administración → Configuración → Certificados →
+Certificados de confianza*. Se suman a las CA públicas y se aplican sin reiniciar (también en
+**Probar conexión**). El directorio LDAP tiene su propio certificado, en *Usuarios*.
+
+La **comprobación X.509 estricta** (activada por defecto) exige que los certificados cumplan el
+RFC 5280. Algunas CA corporativas emiten certificados que no la superan, sobre todo porque les
+falta el *Authority Key Identifier*. El error lo indica («no supera la comprobación X.509
+estricta (Missing Authority Key Identifier)»), y entonces se puede desactivar en el mismo grupo.
+Desactivarla **no** desactiva la verificación: se siguen comprobando la CA, la caducidad y el
+nombre del servidor. No hay ninguna opción para dejar de verificar los certificados.
+
+Para ver qué identificadores de clave tiene el certificado de un servidor:
+
+```bash
+openssl s_client -connect intranet.ejemplo.org:443 </dev/null 2>/dev/null \
+  | openssl x509 -noout -text | grep -A1 "Key Identifier"
+```
 
 #### Limpieza del texto antes de indexar
 
@@ -816,6 +841,7 @@ aceptar una falsificada). También se ejecuta en el CI.
 | La respuesta del chat aparece de golpe al final | Un proxy intermedio almacena en búfer el SSE (`proxy_buffering off`) |
 | `413 Request Entity Too Large` al subir | Aumenta `CHATBOT_MAX_BODY_SIZE` (y `client_max_body_size` en el proxy externo) |
 | «No se pudo conectar con el modelo» | El contenedor no alcanza `CHATBOT_LLM_BASE_URL`. Si el servidor de IA está en el mismo equipo, usa su IP o `host.docker.internal`, no `localhost` |
+| «El certificado del servidor no es de una CA de confianza» o «no supera la comprobación X.509 estricta» | El servidor (web, modelo o embeddings) usa una CA propia: ver [Certificados de una CA propia](#certificados-de-una-ca-propia) |
 | Las sesiones de administración se pierden al reiniciar (fuera de Docker) | Falta `CHATBOT_SESSION_SECRET` |
 | Todos los usuarios reciben `429` a la vez | Hay un proxy delante sin configurar `real_ip` (ver HTTPS) |
 | El modelo dice que los documentos no contienen la respuesta | Revisa el índice y la recuperación con `app.diagnose` (abajo) |

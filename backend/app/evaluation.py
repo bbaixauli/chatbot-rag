@@ -535,7 +535,7 @@ async def main_async(
     sizes = args.chunk_sizes or [config.indexing.chunk_size_chars]
     overlaps = args.overlaps if args.overlaps is not None else [config.indexing.chunk_overlap_chars]
     configs = [ChunkConfig(s, min(o, s // 2)) for s in sizes for o in overlaps]
-    llm = build_llm_client(config.llm) if args.condensar else None
+    llm = build_llm_client(config.llm, config.tls) if args.condensar else None
 
     report = await run_evaluation(
         cases,

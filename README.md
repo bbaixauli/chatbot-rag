@@ -75,7 +75,7 @@ probar la interfaz sin servidor de IA, usa `CHATBOT_LLM_PROVIDER=fake`.
 ### Configuración
 
 La configuración de funcionamiento (modelo de lenguaje, embeddings, troceado, recuperación,
-conversación y límites de peticiones) se guarda en la base de datos y se edita en
+conversación, límites de peticiones y certificados) se guarda en la base de datos y se edita en
 *Administración → Configuración*, sin reiniciar. Cada grupo se guarda por separado; los del
 modelo de lenguaje y los embeddings tienen **Probar conexión** (prueba los valores del
 formulario sin guardarlos), y si un cambio obliga a reindexar se ofrece hacerlo en el momento. Las variables `CHATBOT_*` correspondientes solo se usan en el
@@ -159,6 +159,13 @@ destino de cada redirección. En *Configuración → Documentos web* se fija el 
 opcionalmente, los **dominios permitidos** (cada uno con sus subdominios). Ten en cuenta que el
 servidor descarga desde su propia red: puede acceder a páginas internas que el administrador no
 vea desde fuera.
+
+Si las páginas, el modelo de lenguaje o los embeddings están en servidores con certificados de
+una **CA propia**, su certificado se añade en *Configuración → Certificados* (instalarlo en el
+contenedor no sirve). La **comprobación X.509 estricta** está activada por defecto y se puede
+desactivar si los certificados de la organización no la superan (p. ej. les falta el *Authority
+Key Identifier*); la CA, la caducidad y el nombre se siguen comprobando. Ver la
+[guía de despliegue](docs/despliegue.md#certificados-de-una-ca-propia).
 
 Los documentos web se **actualizan solos**: la API comprueba cada pocos minutos cuáles llevan más
 de la frecuencia configurada sin comprobarse (24 horas por defecto) y encola su comprobación, que
@@ -359,7 +366,7 @@ Documentación interactiva en http://localhost:8000/docs. Endpoints principales:
 | PUT/DELETE | `/api/v1/admin/appearance/logo` | Subir o quitar el logo (admin) |
 | GET/PUT | `/api/v1/admin/access` | Acceso anónimo (con LDAP) o sesiones privadas (sin LDAP) (admin) |
 | GET | `/api/v1/admin/config` | Configuración de la aplicación por grupos, sin secretos (admin) |
-| PUT | `/api/v1/admin/config/{grupo}` | Cambia un grupo (`llm`, `embeddings`, `indexing`, `rag`, `chat`, `limits`, `users`, `audit`, `web`); avisa si hay que reindexar (admin) |
+| PUT | `/api/v1/admin/config/{grupo}` | Cambia un grupo (`llm`, `embeddings`, `indexing`, `rag`, `chat`, `limits`, `users`, `audit`, `web`, `tls`); avisa si hay que reindexar (admin) |
 | POST | `/api/v1/admin/config/{llm,embeddings}/test` | Prueba la conexión con los valores enviados, sin guardarlos (admin) |
 | GET/PUT | `/api/v1/admin/prompt` | Prompt de sistema vigente / guardar nueva versión (admin) |
 | GET | `/api/v1/admin/prompt/versions` | Historial de versiones (admin) |

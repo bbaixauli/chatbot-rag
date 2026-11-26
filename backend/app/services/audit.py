@@ -140,7 +140,7 @@ def build_reviewer(config: RuntimeConfig) -> LLMClient:
     update: dict[str, Any] = {"temperature": 0.0}
     if config.audit.llm_model:
         update["model"] = config.audit.llm_model
-    return build_llm_client(config.llm.model_copy(update=update))
+    return build_llm_client(config.llm.model_copy(update=update), config.tls)
 
 
 async def review_with_model(llm: LLMClient, question: str, answer: str | None) -> list[Finding]:

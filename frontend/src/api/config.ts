@@ -2,7 +2,7 @@ import { apiGet, apiRequest } from './client'
 
 /** Grupos de la configuración editable (ver backend/app/core/runtime_config.py). */
 export type ConfigGroupName =
-  'llm' | 'embeddings' | 'indexing' | 'rag' | 'chat' | 'limits' | 'users' | 'audit' | 'web'
+  'llm' | 'embeddings' | 'indexing' | 'rag' | 'chat' | 'limits' | 'users' | 'audit' | 'web' | 'tls'
 
 /** Estado de un secreto: la API nunca devuelve su valor. */
 export interface SecretState {
