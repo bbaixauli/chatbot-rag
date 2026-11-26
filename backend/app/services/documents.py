@@ -235,7 +235,7 @@ class DocumentService:
             return UploadResult(existing, duplicate=True)
         max_bytes = config.indexing.upload_max_mb * 1024 * 1024
         try:
-            download = await self.fetcher.fetch(url, config.web, max_bytes)
+            download = await self.fetcher.fetch(url, config.web, max_bytes, tls=config.tls)
             kind, name, body, title = await _content(download)
         except WebError as exc:
             raise UploadError(str(exc)) from exc
@@ -288,7 +288,9 @@ class DocumentService:
             headers["If-Modified-Since"] = document.source_last_modified
         max_bytes = config.indexing.upload_max_mb * 1024 * 1024
         try:
-            download = await self.fetcher.fetch(document.source_url, config.web, max_bytes, headers)
+            download = await self.fetcher.fetch(
+                document.source_url, config.web, max_bytes, headers, tls=config.tls
+            )
             if download.not_modified:
                 await self._checked(document_id, download)
                 return

@@ -11,7 +11,8 @@ import openai
 from openai import AsyncOpenAI
 
 from app.core.runtime_config import ConfigSource, EmbeddingConfig, RuntimeConfig
-from app.services.llm import api_key_value
+from app.core.tls import describe_certificate_error
+from app.services.llm import api_key_value, http_client
 
 
 class EmbeddingError(Exception):
@@ -41,11 +42,13 @@ class OpenAICompatibleEmbeddings:
         api_key = (
             embeddings.api_key.get_secret_value() if embeddings.api_key else api_key_value(llm)
         )
+        self._strict_x509 = config.tls.strict_x509
         self._client = client or AsyncOpenAI(
             base_url=embeddings.base_url or llm.base_url,
             api_key=api_key,
             timeout=llm.timeout_seconds,
             max_retries=llm.max_retries,
+            http_client=http_client(config.tls),
         )
 
     async def embed(self, texts: Sequence[str]) -> list[list[float]]:
@@ -57,7 +60,8 @@ class OpenAICompatibleEmbeddings:
                 ordered = sorted(response.data, key=lambda item: item.index)
                 vectors.extend(item.embedding for item in ordered)
         except openai.OpenAIError as exc:
-            raise EmbeddingError(f"Error del servicio de embeddings: {exc}") from exc
+            detail = describe_certificate_error(exc, self._strict_x509) or str(exc)
+            raise EmbeddingError(f"Error del servicio de embeddings: {detail}") from exc
         if len(vectors) != len(texts):
             raise EmbeddingError(
                 "El servicio de embeddings devolvió un número de vectores distinto"
@@ -135,7 +139,14 @@ def _connection(config: RuntimeConfig) -> tuple[object, ...]:
     if config.embeddings.provider != "openai":
         return (config.embeddings,)
     llm = config.llm
-    return (config.embeddings, llm.base_url, llm.api_key, llm.timeout_seconds, llm.max_retries)
+    return (
+        config.embeddings,
+        llm.base_url,
+        llm.api_key,
+        llm.timeout_seconds,
+        llm.max_retries,
+        config.tls,
+    )
 
 
 class ConfigurableEmbeddings:

@@ -30,7 +30,8 @@ with warnings.catch_warnings():
     warnings.filterwarnings("ignore", message="SOCKS support in urllib3")
     import trafilatura
 
-from app.core.runtime_config import WebConfig
+from app.core.runtime_config import TlsConfig, WebConfig
+from app.core.tls import describe_certificate_error, ssl_context
 from app.db.models import DocumentKind
 from app.services.ingestion.parsers import kind_for_filename, parse_html
 from app.services.ingestion.titles import clean_title, html_title
@@ -125,27 +126,38 @@ class WebFetcher:
         config: WebConfig,
         max_bytes: int,
         headers: dict[str, str] | None = None,
+        *,
+        tls: TlsConfig,
     ) -> Download:
         """Descarga `url` (comprobada con `check_url`) siguiendo las redirecciones.
 
         Con las cabeceras condicionales (`If-None-Match`, `If-Modified-Since`), una
-        respuesta 304 devuelve `not_modified`.
+        respuesta 304 devuelve `not_modified`. Los certificados se comprueban según `tls`.
         """
         try:
             async with asyncio.timeout(config.timeout_seconds):
-                return await self._fetch(url, config, max_bytes, headers or {})
+                return await self._fetch(url, config, max_bytes, headers or {}, tls)
         except TimeoutError as exc:
             raise WebError(
                 f"El servidor no respondió a tiempo ({config.timeout_seconds} s)"
             ) from exc
         except httpx.HTTPError as exc:
+            certificate = describe_certificate_error(exc, tls.strict_x509)
+            if certificate:
+                raise WebError(certificate) from exc
             raise WebError(f"No se pudo conectar con el servidor: {_describe(exc)}") from exc
 
     async def _fetch(
-        self, url: str, config: WebConfig, max_bytes: int, headers: dict[str, str]
+        self,
+        url: str,
+        config: WebConfig,
+        max_bytes: int,
+        headers: dict[str, str],
+        tls: TlsConfig,
     ) -> Download:
         async with httpx.AsyncClient(
             transport=self._transport,
+            verify=ssl_context(tls.ca_certs, tls.strict_x509),
             follow_redirects=False,
             headers={"User-Agent": USER_AGENT, **headers},
             timeout=config.timeout_seconds,

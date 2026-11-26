@@ -385,6 +385,21 @@ export const t = {
             'Separados por comas; cada uno admite también sus subdominios (empresa.es incluye intranet.empresa.es). Vacío: cualquiera.',
         },
       },
+      tls: {
+        title: 'Certificados',
+        description:
+          'Conexiones HTTPS con los servidores de los documentos web, del modelo de lenguaje y de los embeddings. El directorio LDAP tiene su propio certificado en Usuarios.',
+        fields: {
+          ca_certs: 'Certificados de confianza (PEM)',
+          strict_x509: 'Comprobación X.509 estricta',
+        },
+        hints: {
+          ca_certs:
+            'Certificados de las CA propias de la organización (uno o varios, con sus líneas BEGIN y END CERTIFICATE). Se suman a las CA públicas.',
+          strict_x509:
+            'Exige que los certificados cumplan el RFC 5280. Desactívala si los de la organización no la superan (p. ej. les falta el Authority Key Identifier): se siguen comprobando la CA, la caducidad y el nombre del servidor.',
+        },
+      },
     },
   },
   documents: {

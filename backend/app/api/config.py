@@ -29,7 +29,14 @@ from app.core.ldap_auth import (
     DirectoryUnavailableError,
     InvalidCredentialsError,
 )
-from app.core.runtime_config import GROUPS, ConfigGroup, EmbeddingConfig, LlmConfig, UsersConfig
+from app.core.runtime_config import (
+    GROUPS,
+    ConfigGroup,
+    EmbeddingConfig,
+    LlmConfig,
+    TlsConfig,
+    UsersConfig,
+)
 from app.services.documents import DocumentService
 from app.services.embeddings import Embeddings, build_embeddings
 from app.services.llm import ChatMessage as LLMMessage
@@ -253,7 +260,7 @@ async def check_connection(
     try:
         async with asyncio.timeout(TEST_TIMEOUT_SECONDS):
             if isinstance(candidate, LlmConfig):
-                return await _check_llm(candidate)
+                return await _check_llm(candidate, store.current.tls)
             if isinstance(candidate, UsersConfig):
                 return await _check_directory(request, candidate, *test_user)
             config = store.current.replace_group(group, candidate)
@@ -265,8 +272,8 @@ async def check_connection(
         return TestOut(ok=False, detail=str(exc) or type(exc).__name__)
 
 
-async def _check_llm(config: LlmConfig) -> TestOut:
-    client = build_llm_client(config)
+async def _check_llm(config: LlmConfig, tls: TlsConfig) -> TestOut:
+    client = build_llm_client(config, tls)
     parts: list[str] = []
     try:
         async for delta in client.stream_chat(
