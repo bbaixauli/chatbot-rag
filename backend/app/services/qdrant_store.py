@@ -186,13 +186,21 @@ class QdrantVectorStore:
                 ]
             )
         )
+        # Sin limitar, también exacta si el índice es pequeño (#112). Para el umbral basta el
+        # recuento aproximado, más barato en colecciones grandes.
+        total = (
+            (await self._client.count(self._collection, exact=False)).count
+            if document_ids is None
+            else None
+        )
+        exact = exact_search(document_ids, total)
         result = await self._client.query_points(
             self._collection,
             query=list(embedding),
             limit=limit,
             with_payload=True,
             query_filter=query_filter,
-            search_params=models.SearchParams(exact=True) if exact_search(document_ids) else None,
+            search_params=models.SearchParams(exact=True) if exact else None,
         )
         return [_hit(point.payload or {}, point.score) for point in result.points]
 

@@ -4,10 +4,16 @@ from pathlib import Path
 
 import pytest
 
+from app.services import vectorstore
 from app.services.embeddings import FakeEmbeddings
 from app.services.ingestion.chunker import Chunk
 from app.services.tasks import InProcessTaskRunner
-from app.services.vectorstore import ChromaVectorStore, cosine_scores
+from app.services.vectorstore import (
+    EXACT_SEARCH_MAX_CHUNKS,
+    ChromaVectorStore,
+    cosine_scores,
+    exact_search,
+)
 
 
 async def test_chroma_add_search_and_delete(tmp_path: Path) -> None:
@@ -179,6 +185,92 @@ async def test_chroma_search_limited_to_documents_is_exact() -> None:
     assert await store.search(query, 10, document_ids=[]) == []
     assert await store.search(query, 10, document_ids=["no-existe"]) == []
     store.drop()
+
+
+WORDS = [
+    "vacaciones",
+    "días",
+    "solicitud",
+    "teletrabajo",
+    "gastos",
+    "dietas",
+    "kilometraje",
+    "horario",
+    "oficina",
+    "horas",
+    "extra",
+    "compensación",
+    "permiso",
+    "baja",
+    "alta",
+    "usuario",
+    "cuenta",
+    "acceso",
+    "bloqueo",
+    "intentos",
+    "guía",
+    "manual",
+]
+
+
+async def _filled_store(path: Path) -> tuple[ChromaVectorStore, list[str], list[list[float]]]:
+    """Índice con varios documentos y fragmentos de textos variados (como los de los tests
+    que fallaban de forma intermitente, #112)."""
+    store = ChromaVectorStore(path)
+    embeddings = FakeEmbeddings()
+    texts: list[str] = []
+    vectors: list[list[float]] = []
+    for doc in range(6):
+        chunk_texts = [
+            " ".join(WORDS[(doc * 7 + i * 3 + k) % len(WORDS)] for k in range(3 + i % 5))
+            for i in range(5)
+        ]
+        chunk_vectors = await embeddings.embed(chunk_texts)
+        chunks = [Chunk(i, text, None, None) for i, text in enumerate(chunk_texts)]
+        await store.add(f"d{doc}", f"d{doc}.md", chunks, chunk_vectors)
+        texts += chunk_texts
+        vectors += chunk_vectors
+    return store, texts, vectors
+
+
+def test_exact_search_thresholds() -> None:
+    assert not exact_search(None)
+    assert exact_search(None, EXACT_SEARCH_MAX_CHUNKS)
+    assert not exact_search(None, EXACT_SEARCH_MAX_CHUNKS + 1)
+    # Limitada a unos documentos, manda el número de documentos.
+    assert exact_search(["a"], EXACT_SEARCH_MAX_CHUNKS + 1)
+
+
+async def test_unlimited_search_in_a_small_index_is_exact(tmp_path: Path) -> None:
+    store, _, vectors = await _filled_store(tmp_path / "chroma")
+    total = await store.count()
+    embeddings = FakeEmbeddings()
+
+    for query_text in ("vacaciones días", "horario oficina horas", "Hola, mundo", "acceso"):
+        [query] = await embeddings.embed([query_text])
+        expected = sorted(cosine_scores(query, vectors), reverse=True)
+        # Todo el índice (lo que pide `diagnose query --document`) y el top-k del chat.
+        for limit in (total, 5):
+            hits = await store.search(query, limit)
+            assert len(hits) == limit
+            assert [hit.score for hit in hits] == pytest.approx(expected[:limit], abs=1e-6)
+    await store.close()
+
+
+async def test_large_index_uses_the_approximate_search(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, _, _ = await _filled_store(tmp_path / "chroma")
+    monkeypatch.setattr(vectorstore, "EXACT_SEARCH_MAX_CHUNKS", 3)
+
+    async def unexpected(*args: object) -> None:
+        raise AssertionError("no debería compararse con todos los fragmentos")
+
+    monkeypatch.setattr(store, "_search_documents", unexpected)
+    [query] = await FakeEmbeddings().embed(["vacaciones días"])
+
+    assert len(await store.search(query, 5)) == 5
+    await store.close()
 
 
 def test_cosine_scores() -> None:

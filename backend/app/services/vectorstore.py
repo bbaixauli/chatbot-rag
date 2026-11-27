@@ -48,11 +48,19 @@ class StoredChunk:
 # documento de 40 fragmentos) y se usa el índice con un filtro, que con tantos fragmentos ya
 # no se salta resultados.
 EXACT_SEARCH_MAX_DOCUMENTS = 50
+# Hasta cuántos fragmentos se compara con todos una búsqueda sin limitar (#112). El índice
+# aproximado de Chroma puede devolver menos resultados de los pedidos o saltarse alguno, y con
+# pocos fragmentos comparar con todos cuesta lo mismo que la búsqueda limitada a 50
+# documentos de 40 fragmentos (unos 0,26 s).
+EXACT_SEARCH_MAX_CHUNKS = 2000
 
 
-def exact_search(document_ids: Sequence[str] | None) -> bool:
-    """Si una búsqueda se hace comparando todos los fragmentos (ver arriba)."""
-    return document_ids is not None and len(document_ids) <= EXACT_SEARCH_MAX_DOCUMENTS
+def exact_search(document_ids: Sequence[str] | None, total: int | None = None) -> bool:
+    """Si una búsqueda se hace comparando todos los fragmentos: limitada a pocos documentos,
+    o sin limitar en un índice de como mucho `EXACT_SEARCH_MAX_CHUNKS` fragmentos (`total`)."""
+    if document_ids is not None:
+        return len(document_ids) <= EXACT_SEARCH_MAX_DOCUMENTS
+    return total is not None and total <= EXACT_SEARCH_MAX_CHUNKS
 
 
 class VectorStoreError(Exception):
@@ -224,6 +232,8 @@ class ChromaVectorStore:
         total = await self.count()
         if total == 0 or limit <= 0:
             return []
+        if exact_search(document_ids, total):
+            return await self._search_documents(embedding, limit, None)
         where: Any = None if document_ids is None else {"document_id": {"$in": list(document_ids)}}
         result = await asyncio.to_thread(
             self._collection.query,
@@ -241,16 +251,16 @@ class ChromaVectorStore:
         ]
 
     async def _search_documents(
-        self, embedding: Sequence[float], limit: int, document_ids: Sequence[str]
+        self, embedding: Sequence[float], limit: int, document_ids: Sequence[str] | None
     ) -> list[SearchHit]:
-        """Búsqueda exacta entre los fragmentos de unos documentos.
+        """Búsqueda exacta entre los fragmentos de unos documentos (o de todos, con `None`).
 
-        El filtro de Chroma combinado con el índice HNSW puede saltarse resultados cuando
-        quedan pocos fragmentos: se comparan todos.
+        El índice HNSW de Chroma, sobre todo con un filtro, puede saltarse resultados o
+        devolver menos de los pedidos: se comparan todos.
         """
-        if not document_ids or limit <= 0:
+        if (document_ids is not None and not document_ids) or limit <= 0:
             return []
-        where: Any = {"document_id": {"$in": list(document_ids)}}
+        where: Any = None if document_ids is None else {"document_id": {"$in": list(document_ids)}}
         result = await asyncio.to_thread(
             self._collection.get, where=where, include=["documents", "metadatas", "embeddings"]
         )

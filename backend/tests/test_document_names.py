@@ -131,7 +131,10 @@ async def test_chat_limits_the_search_to_the_named_document(
     }
     sources = next(data["sources"] for kind, data in events if kind == "sources")
     assert {s["document_id"] for s in sources} == {norma}
-    # No se guarda en la conversación: la siguiente pregunta busca en todos.
+    # No se guarda en la conversación: la siguiente pregunta busca en todos. Sin reformularla:
+    # el modelo de prueba la convertiría en «Hola, mundo», que solo encuentra la guía por una
+    # coincidencia del hashing de los embeddings simulados (#112).
+    await set_config(app, "rag", condense_question=False)
     conversation_id = events[0][1]["id"]
     follow_up = await _ask(
         client, message="¿Cuántos días de vacaciones tengo?", conversation_id=conversation_id

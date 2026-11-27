@@ -345,6 +345,12 @@ en lugar de comparar la pregunta con todos sus fragmentos (unos 5 ms por documen
 índice con un filtro. La auditoría muestra dónde se buscó cada pregunta (categorías o
 documentos) y la exportación lo incluye en la columna «Búsqueda limitada a».
 
+Las búsquedas **sin limitar** también comparan la pregunta con todos los fragmentos mientras
+el índice tenga como mucho 2.000 (unos 50 documentos de 40 fragmentos; unos 0,26 s). El índice
+aproximado de Chroma puede saltarse algún fragmento o devolver menos de los pedidos, y con
+pocos fragmentos la búsqueda exacta no es más lenta. Con índices mayores se usa el índice
+aproximado. Con Qdrant se aplica el mismo criterio. No hace falta reindexar.
+
 Con **«Buscar solo en los documentos que nombre la pregunta»** (`CHATBOT_RAG_DETECT_DOCUMENT_NAMES`,
 activado por defecto), la búsqueda se limita a los documentos que la pregunta nombra:
 
