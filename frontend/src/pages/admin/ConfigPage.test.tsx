@@ -34,6 +34,7 @@ function appConfig(): AppConfig {
         max_retries: 2,
         context_window_tokens: 0,
         response_reserve_tokens: 1024,
+        chars_per_token: 0,
       }),
       embeddings: group(
         {
@@ -286,6 +287,25 @@ describe('ConfigPage', () => {
 
     expect(await tls.findByText('Cambios guardados.')).toBeInTheDocument()
     expect(sent).toEqual([{ group: 'tls', body: { ca_certs: pem, strict_x509: false } }])
+  })
+
+  it('caracteres por token, automáticos o fijos, con la ventana configurada', async () => {
+    const { sent } = configApi()
+    renderApp('/admin/config')
+    const llm = await section('Modelo de lenguaje')
+    const label = 'Caracteres por token (0 = automático)'
+    expect(llm.queryByLabelText(label)).toBeNull()
+
+    await userEvent.clear(llm.getByLabelText('Ventana de contexto (tokens)'))
+    await userEvent.type(llm.getByLabelText('Ventana de contexto (tokens)'), '8192')
+    const chars = llm.getByLabelText(label)
+    expect(chars).toHaveValue(0)
+    await userEvent.clear(chars)
+    await userEvent.type(chars, '2.8')
+    await userEvent.click(llm.getByRole('button', { name: 'Guardar' }))
+
+    expect(await llm.findByText('Cambios guardados.')).toBeInTheDocument()
+    expect(sent[0].body).toMatchObject({ context_window_tokens: 8192, chars_per_token: 2.8 })
   })
 
   it('valida los campos antes de enviar', async () => {

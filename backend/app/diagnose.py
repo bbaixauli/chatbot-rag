@@ -51,7 +51,7 @@ from app.services.ingestion.preprocess import (
     preprocessing_signature,
 )
 from app.services.llm import ChatMessage
-from app.services.prompt_budget import CHARS_PER_TOKEN, documents_budget, message_tokens
+from app.services.prompt_budget import CHARS_PER_TOKEN
 from app.services.prompts import PromptRepository
 from app.services.rag import (
     Retrieval,
@@ -65,7 +65,15 @@ from app.services.rag import (
 from app.services.runtime_config import load_runtime_config
 from app.services.scope import indexed_documents
 from app.services.sections import document_headings
-from app.services.token_estimates import ModelEstimate, model_estimates
+from app.services.token_estimates import (
+    CALIBRATION_DAYS,
+    CALIBRATION_MIN_SAMPLES,
+    Calibration,
+    ModelEstimate,
+    TokenCalibration,
+    calibrate,
+    model_estimates,
+)
 from app.services.vectorstore import SearchHit, StoredChunk, VectorStore, VectorStoreError
 
 # Por debajo de esta similitud, el vector guardado no es el que calcula ahora el servicio.
@@ -599,17 +607,21 @@ async def print_prompt_estimate(
     apartados citados en ella que se añadirían completos (#74)."""
     async with sessionmaker() as session:
         base_prompt = await PromptRepository(session, settings.default_system_prompt).current()
-    system_tokens = message_tokens(ChatMessage("system", base_prompt.content))
-    question_tokens = message_tokens(ChatMessage("user", question))
+    # Con los mismos caracteres por token que el chat (#102).
+    tokens = await TokenCalibration(sessionmaker).estimator(config.llm)
+    system_tokens = tokens.message_tokens(ChatMessage("system", base_prompt.content))
+    question_tokens = tokens.message_tokens(ChatMessage("user", question))
     limit = config.llm.prompt_max_tokens
-    budget = None if limit is None else documents_budget(limit, system_tokens + question_tokens)
+    budget = (
+        None if limit is None else tokens.documents_budget(limit, system_tokens + question_tokens)
+    )
     retrieval = await retriever.retrieve_within(question, scope_ids or None, budget)
     system = ChatMessage("system", build_system_prompt(base_prompt.content, retrieval.sources))
-    total = message_tokens(system) + question_tokens
+    total = tokens.message_tokens(system) + question_tokens
     print("Tamaño estimado del prompt (pregunta nueva, sin historial):", file=out)
     print(
         f"   prompt de sistema {system_tokens} · documentación "
-        f"{message_tokens(system) - system_tokens} ({len(retrieval.sources)} fuentes) · "
+        f"{tokens.message_tokens(system) - system_tokens} ({len(retrieval.sources)} fuentes) · "
         f"pregunta {question_tokens} · total {total} tokens",
         file=out,
     )
@@ -645,14 +657,26 @@ def _share(count: int, total: int) -> str:
 
 
 def print_token_estimates(
-    estimates: Sequence[ModelEstimate], days: int, limit: int | None, out: TextIO
+    estimates: Sequence[ModelEstimate],
+    days: int,
+    limit: int | None,
+    out: TextIO,
+    *,
+    fixed: float = 0,
+    calibrations: dict[str, Calibration] | None = None,
 ) -> None:
-    """Informe de la precisión de la estimación de tokens por modelo (#100)."""
-    print(
-        f"Precisión de la estimación de tokens del prompt (últimos {days} días; "
-        f"{_decimal(CHARS_PER_TOKEN)} caracteres por token):",
-        file=out,
-    )
+    """Informe de la precisión de la estimación de tokens por modelo (#100) y de su
+    calibración (#102). `fixed`: caracteres por token de la configuración (0: automáticos)."""
+    print(f"Precisión de la estimación de tokens del prompt (últimos {days} días):", file=out)
+    if fixed:
+        print(f"Caracteres por token: {_decimal(fixed)} (fijados en la configuración)", file=out)
+    else:
+        print(
+            "Caracteres por token: automáticos, calibrados para cada modelo con las preguntas "
+            f"de los últimos {CALIBRATION_DAYS} días ({_decimal(CHARS_PER_TOKEN)} hasta tener "
+            f"{CALIBRATION_MIN_SAMPLES})",
+            file=out,
+        )
     if not estimates:
         print("   No hay preguntas con el tamaño del prompt estimado en ese periodo.", file=out)
         return
@@ -701,6 +725,25 @@ def print_token_estimates(
                 f"95 % harían falta {chars} caracteres por token.",
                 file=out,
             )
+        calibration = (calibrations or {}).get(estimate.model)
+        if calibration is not None and not fixed:
+            _print_calibration(calibration, out)
+
+
+def _print_calibration(calibration: Calibration, out: TextIO) -> None:
+    if calibration.calibrated:
+        print(
+            f"   Calibración automática: {_decimal(calibration.chars_per_token)} caracteres por "
+            f"token ({calibration.samples} preguntas)",
+            file=out,
+        )
+    else:
+        print(
+            f"   Calibración automática: aún no hay preguntas suficientes "
+            f"({calibration.samples} de {CALIBRATION_MIN_SAMPLES}); se usan "
+            f"{_decimal(CHARS_PER_TOKEN)} caracteres por token",
+            file=out,
+        )
 
 
 async def run_tokens(args: argparse.Namespace, settings: Settings, out: TextIO) -> int:
@@ -708,12 +751,27 @@ async def run_tokens(args: argparse.Namespace, settings: Settings, out: TextIO) 
     config = await load_runtime_config(settings)
     engine = build_engine(settings.resolved_database_url)
     try:
-        since = datetime.now(UTC) - timedelta(days=args.days)
+        now = datetime.now(UTC)
         async with build_sessionmaker(engine)() as session:
-            estimates = await model_estimates(session, since, config.llm.prompt_max_tokens)
+            estimates = await model_estimates(
+                session, now - timedelta(days=args.days), config.llm.prompt_max_tokens
+            )
+            calibrations = {
+                estimate.model: await calibrate(
+                    session, estimate.model, now - timedelta(days=CALIBRATION_DAYS)
+                )
+                for estimate in estimates
+            }
     finally:
         await engine.dispose()
-    print_token_estimates(estimates, args.days, config.llm.prompt_max_tokens, out)
+    print_token_estimates(
+        estimates,
+        args.days,
+        config.llm.prompt_max_tokens,
+        out,
+        fixed=config.llm.chars_per_token,
+        calibrations=calibrations,
+    )
     return 2 if any(estimate.safe is False for estimate in estimates) else 0
 
 

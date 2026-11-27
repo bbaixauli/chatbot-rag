@@ -33,10 +33,7 @@ from app.services.prompt_budget import (
     WINDOW_FULL_RATIO,
     PromptTooLargeError,
     PromptTrim,
-    documents_budget,
-    fit_recent,
-    message_tokens,
-    messages_tokens,
+    TokenEstimator,
     server_trimmed,
     underestimated,
 )
@@ -55,6 +52,7 @@ from app.services.scope import (
     indexed_documents,
     resolve_scope,
 )
+from app.services.token_estimates import TokenCalibration
 
 logger = logging.getLogger(__name__)
 
@@ -169,14 +167,18 @@ class ChatService:
         settings: Settings,
         config: RuntimeConfig,
         retriever: Retriever | None = None,
+        calibration: TokenCalibration | None = None,
     ) -> None:
         """`config` es la configuración vigente al recibir la pregunta: se usa la misma de
-        principio a fin aunque se cambie en la administración mientras tanto."""
+        principio a fin aunque se cambie en la administración mientras tanto. `calibration`
+        da los caracteres por token con los que se estima el prompt (#102); sin ella, 3,5."""
         self._sessionmaker = sessionmaker
         self._llm = llm
         self._settings = settings
         self._config = config
         self._retriever = retriever
+        self._calibration = calibration
+        self._tokens = TokenEstimator()
 
     async def prepare(
         self,
@@ -261,6 +263,9 @@ class ChatService:
             await asyncio.shield(record_question(self._sessionmaker, record))
 
     async def _stream(self, prepared: PreparedChat, record: QuestionRecord) -> AsyncIterator[str]:
+        if self._calibration is not None:
+            self._tokens = await self._calibration.estimator(self._config.llm)
+        record.prompt_chars_per_token = self._tokens.chars_per_token
         yield sse_event(
             "conversation",
             {
@@ -316,7 +321,7 @@ class ChatService:
         if retrieval_failed:
             # Antes de la respuesta, para que se vea mientras se genera (#95).
             yield sse_event("retrieval_failed", {"detail": RETRIEVAL_FAILED_MESSAGE})
-        record.prompt_tokens_estimated = messages_tokens(prompt)
+        record.prompt_tokens_estimated = self._tokens.messages_tokens(prompt)
         record.prompt_trim = trim.payload
         usage = TokenUsage()
         parts: list[str] = []
@@ -448,14 +453,14 @@ class ChatService:
             return [system, *prepared.history], sources, failed
 
         *previous, question = prepared.history
-        minimal = message_tokens(ChatMessage("system", prepared.system_prompt))
-        minimal += message_tokens(question)
+        minimal = self._tokens.message_tokens(ChatMessage("system", prepared.system_prompt))
+        minimal += self._tokens.message_tokens(question)
         if minimal > limit:
             raise PromptTooLargeError(minimal, limit)
         # 1-3: el último intercambio se conserva mientras quede sitio para él; la
         # documentación ocupa lo que quede, y el historial más antiguo, lo que sobre.
         last, older = previous[-2:], previous[:-2]
-        if minimal + messages_tokens(last) > limit:
+        if minimal + self._tokens.messages_tokens(last) > limit:
             trim.history += len(last)  # 4
             last = []
         sources = []
@@ -463,7 +468,7 @@ class ChatService:
             retrieval = await self._retriever.retrieve_within(
                 query,
                 scope_ids or None,
-                documents_budget(limit, minimal + messages_tokens(last)),
+                self._tokens.documents_budget(limit, minimal + self._tokens.messages_tokens(last)),
                 questions=[prepared.question],
             )
             self._log_sections(prepared, retrieval)
@@ -478,7 +483,9 @@ class ChatService:
                 "system",
                 build_system_prompt(prepared.system_prompt, sources, no_sources_note=note),
             )
-            return system, message_tokens(system) + message_tokens(question) + messages_tokens(last)
+            return system, self._tokens.message_tokens(system) + self._tokens.message_tokens(
+                question
+            ) + self._tokens.messages_tokens(last)
 
         system, used = fixed(sources, note)
         if note and used > limit:
@@ -489,7 +496,7 @@ class ChatService:
             sources = [replace(s, number=n) for n, s in enumerate(sources[:-1], start=1)]
             trim.sources += 1
             system, used = fixed(sources, False)
-        kept, dropped = fit_recent(older, limit - used)
+        kept, dropped = self._tokens.fit_recent(older, limit - used)
         trim.history += dropped
         prompt = [system, *kept, *last, question]
         if trim.payload:
@@ -497,7 +504,7 @@ class ChatService:
                 "Prompt ajustado a la ventana del modelo en la conversación %s: unos %d tokens "
                 "de %d; recortes: %s",
                 prepared.conversation_id,
-                messages_tokens(prompt),
+                self._tokens.messages_tokens(prompt),
                 limit,
                 trim.payload,
                 extra={"conversation_id": prepared.conversation_id},
@@ -592,6 +599,6 @@ class ChatService:
         previous = prepared.history[:-1][-rag.condense_history_messages :]
         limit = self._config.llm.prompt_max_tokens
         if limit is not None:
-            base = messages_tokens(build_condense_messages([], prepared.question))
-            previous, _ = fit_recent(previous, limit - base)
+            base = self._tokens.messages_tokens(build_condense_messages([], prepared.question))
+            previous, _ = self._tokens.fit_recent(previous, limit - base)
         return await condense_question(self._llm, previous, prepared.question)

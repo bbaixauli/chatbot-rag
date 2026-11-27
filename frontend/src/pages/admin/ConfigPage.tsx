@@ -76,6 +76,14 @@ const GROUPS: GroupSpec[] = [
         integer: true,
         visible: withWindow,
       },
+      {
+        name: 'chars_per_token',
+        kind: 'number',
+        min: 0,
+        max: 8,
+        step: 0.1,
+        visible: withWindow,
+      },
     ],
   },
   {

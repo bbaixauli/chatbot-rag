@@ -435,8 +435,9 @@ modelo **en el servidor**:
 | LiteLLM | `max_input_tokens` en `model_info` (lo que admita el servidor de detrás) |
 
 De ella se reserva **«Reserva para la respuesta»** (`CHATBOT_LLM_RESPONSE_RESERVE_TOKENS`,
-1024). El tamaño del prompt se estima (unos 3,5 caracteres por token, sin el tokenizador del
-modelo) y, si no cabe, se ajusta **antes** de enviarlo, en este orden:
+1024). El tamaño del prompt se estima sin el tokenizador del modelo, a partir de los
+caracteres (ver [Caracteres por token](#caracteres-por-token) más abajo), y, si no cabe, se
+ajusta **antes** de enviarlo, en este orden:
 
 1. Si iba el **documento completo**, se envían sus fragmentos más parecidos.
 2. Se quita el **historial antiguo**, conservando el último intercambio.
@@ -474,8 +475,26 @@ con lo que contó el servidor en las preguntas de los últimos 30 días (`--days
 periodo), por modelo: la mediana y el percentil 95 de la relación real / estimado, cuántas
 preguntas superaron lo estimado y el límite actual, y cuántos caracteres por token cubrirían el
 95 % de los prompts. Si el percentil 95 pasa de 1, la estimación se queda corta en más del 5 %
-de los prompts y el servidor podría recortarlos: deja más reserva para la respuesta o una
-ventana algo menor de la real. Termina con código 2 en ese caso.
+de los prompts y el servidor podría recortarlos. Termina con código 2 en ese caso.
+
+#### Caracteres por token
+
+**«Caracteres por token (0 = automático)»** (*Configuración → Modelo de lenguaje*, visible con
+la ventana configurada; `CHATBOT_LLM_CHARS_PER_TOKEN`, 0 por defecto) decide cómo se pasan
+caracteres a tokens:
+
+- **0, automático:** se calibra para cada modelo con lo que contó el servidor en las preguntas
+  de los últimos 30 días. Se toma el valor con el que la estimación habría cubierto el 95 % de
+  los prompts, entre 2,5 y 5, sin contar los que el servidor probablemente recortó. Mientras
+  no haya 30 preguntas con recuento, se usan 3,5 (algo conservador en español). La
+  calibración se recalcula como mucho una vez por hora; al cambiar de modelo empieza de
+  nuevo. Necesita que el servidor devuelva el recuento de tokens (`usage`).
+- **Un valor fijo (de 1 a 8):** sustituye a la calibración, por ejemplo si el servidor no
+  devuelve el recuento o si se quiere más margen. `app.diagnose tokens` muestra cuál cubriría
+  el 95 % de los prompts y la calibración vigente de cada modelo.
+
+Cada pregunta guarda los caracteres por token con los que se estimó, así que el informe y la
+calibración siguen siendo correctos aunque el valor cambie.
 
 Para consultarla o, si una configuración deja la aplicación inservible, volver a los valores de
 `.env`:

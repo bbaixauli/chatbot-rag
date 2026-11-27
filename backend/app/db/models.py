@@ -298,6 +298,9 @@ class QuestionLog(Base):
     prompt_tokens_estimated: Mapped[int | None] = mapped_column(Integer)
     prompt_tokens: Mapped[int | None] = mapped_column(Integer)
     prompt_trim: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    # Caracteres por token con los que se estimó el prompt (#102); nulo: 3,5 (preguntas
+    # anteriores a la calibración).
+    prompt_chars_per_token: Mapped[float | None] = mapped_column(Float)
 
 
 class AuditRunStatus(StrEnum):

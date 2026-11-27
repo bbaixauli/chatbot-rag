@@ -67,6 +67,9 @@ class Settings(BaseSettings):
     # ventana, el prompt se ajusta a ella; con 0 no se comprueba.
     llm_context_window_tokens: int = Field(default=0, ge=0)
     llm_response_reserve_tokens: int = Field(default=1024, ge=0)
+    # Caracteres por token para estimar el tamaño del prompt (#102). 0 = automático: se
+    # calibra para el modelo con lo que cuenta el servidor (3,5 mientras no hay muestras).
+    llm_chars_per_token: float = Field(default=0, ge=0, le=8)
 
     # Administración. Sin contraseña configurada, la administración queda deshabilitada.
     admin_username: str = "admin"

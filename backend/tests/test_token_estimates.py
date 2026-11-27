@@ -117,6 +117,9 @@ def test_cli(settings: Settings, capsys: pytest.CaptureFixture[str]) -> None:
     assert "3 preguntas con recuento del servidor, 0 sin recuento" in output
     assert "mediana 0,80 · p95 0,80 · máx. 0,80" in output
     assert "La estimación es segura" in output
+    # Calibración automática (#102): con 3 preguntas aún no hay suficientes.
+    assert "Caracteres por token: automáticos" in output
+    assert "aún no hay preguntas suficientes (3 de 30)" in output
     # Sin ventana de contexto configurada no se compara con el límite.
     assert "límite actual" not in output
 
@@ -152,3 +155,24 @@ def test_cli_with_context_window(settings: Settings, capsys: pytest.CaptureFixtu
     output = capsys.readouterr().out
     assert "Real por encima del límite actual (1976 tokens): 1 (33,33 %)" in output
     assert "Recortes detectados por el servidor: 1" in output
+
+
+def test_cli_shows_the_calibration(settings: Settings, capsys: pytest.CaptureFixture[str]) -> None:
+    asyncio.run(_insert(settings, *(row("modelo", 1000, 1250) for _ in range(30))))
+
+    main(["tokens"], settings)
+
+    output = capsys.readouterr().out
+    assert "Calibración automática: 2,80 caracteres por token (30 preguntas)" in output
+
+
+def test_cli_with_a_fixed_value(settings: Settings, capsys: pytest.CaptureFixture[str]) -> None:
+    # Valor inicial de la configuración (se copia a la BD en el primer arranque).
+    settings.llm_chars_per_token = 3.0
+    asyncio.run(_insert(settings, row("modelo", 1000, 1250)))
+
+    main(["tokens"], settings)
+
+    output = capsys.readouterr().out
+    assert "Caracteres por token: 3,00 (fijados en la configuración)" in output
+    assert "Calibración automática" not in output

@@ -11,8 +11,10 @@ de enviarlo, en este orden:
 4. Se quita el resto del historial.
 5. Si ni el prompt de sistema y la pregunta caben, no se envía (`PromptTooLargeError`).
 
-La estimación es conservadora y no depende del tokenizador de cada modelo: unos 3,5 caracteres
-por token en español, más un coste fijo por mensaje (la plantilla del chat).
+La estimación no depende del tokenizador de cada modelo: caracteres entre caracteres por token,
+más un coste fijo por mensaje (la plantilla del chat). Los caracteres por token son 3,5 (algo
+conservador en español), un valor fijo de la configuración o el calibrado para el modelo con
+el recuento del servidor (#102, ver `token_estimates.py`).
 """
 
 import math
@@ -36,46 +38,59 @@ SERVER_TRIM_RATIO = 0.6
 WINDOW_FULL_RATIO = 0.98
 
 
-def chars_to_tokens(chars: int) -> int:
-    return math.ceil(chars / CHARS_PER_TOKEN)
+@dataclass(frozen=True, slots=True)
+class TokenEstimator:
+    """Estima tokens a partir de los caracteres, con unos caracteres por token dados."""
+
+    chars_per_token: float = CHARS_PER_TOKEN
+
+    def chars_to_tokens(self, chars: int) -> int:
+        return math.ceil(chars / self.chars_per_token)
+
+    def estimate_tokens(self, text: str) -> int:
+        return self.chars_to_tokens(len(text))
+
+    def message_tokens(self, message: ChatMessage) -> int:
+        return self.estimate_tokens(message.content) + MESSAGE_OVERHEAD_TOKENS
+
+    def messages_tokens(self, messages: Sequence[ChatMessage]) -> int:
+        return sum(self.message_tokens(message) for message in messages)
+
+    def tokens_to_chars(self, tokens: int) -> int:
+        """Caracteres que caben en `tokens` (0 si no queda sitio)."""
+        return max(0, math.floor(tokens * self.chars_per_token))
+
+    def documents_budget(self, limit: int, used_tokens: int) -> int:
+        """Caracteres que puede ocupar la documentación si el resto del prompt ocupa
+        `used_tokens` (incluye las instrucciones con las que se presenta)."""
+        return self.tokens_to_chars(limit - used_tokens - self.estimate_tokens(RAG_INSTRUCTIONS))
+
+    def fit_recent(
+        self, messages: Sequence[ChatMessage], budget: int
+    ) -> tuple[list[ChatMessage], int]:
+        """Los mensajes más recientes que caben en `budget` tokens, en orden cronológico, y
+        cuántos se quedan fuera (los más antiguos)."""
+        kept: list[ChatMessage] = []
+        used = 0
+        for message in reversed(messages):
+            cost = self.message_tokens(message)
+            if used + cost > budget:
+                break
+            kept.append(message)
+            used += cost
+        kept.reverse()
+        return kept, len(messages) - len(kept)
 
 
-def estimate_tokens(text: str) -> int:
-    return chars_to_tokens(len(text))
-
-
-def message_tokens(message: ChatMessage) -> int:
-    return estimate_tokens(message.content) + MESSAGE_OVERHEAD_TOKENS
-
-
-def messages_tokens(messages: Sequence[ChatMessage]) -> int:
-    return sum(message_tokens(message) for message in messages)
-
-
-def tokens_to_chars(tokens: int) -> int:
-    """Caracteres que caben en `tokens` (0 si no queda sitio)."""
-    return max(0, math.floor(tokens * CHARS_PER_TOKEN))
-
-
-def documents_budget(limit: int, used_tokens: int) -> int:
-    """Caracteres que puede ocupar la documentación si el resto del prompt ocupa
-    `used_tokens` (incluye las instrucciones con las que se presenta)."""
-    return tokens_to_chars(limit - used_tokens - estimate_tokens(RAG_INSTRUCTIONS))
-
-
-def fit_recent(messages: Sequence[ChatMessage], budget: int) -> tuple[list[ChatMessage], int]:
-    """Los mensajes más recientes que caben en `budget` tokens, en orden cronológico, y
-    cuántos se quedan fuera (los más antiguos)."""
-    kept: list[ChatMessage] = []
-    used = 0
-    for message in reversed(messages):
-        cost = message_tokens(message)
-        if used + cost > budget:
-            break
-        kept.append(message)
-        used += cost
-    kept.reverse()
-    return kept, len(messages) - len(kept)
+# Con los caracteres por token por defecto (los avisos de la configuración, `diagnose`).
+DEFAULT_ESTIMATOR = TokenEstimator()
+chars_to_tokens = DEFAULT_ESTIMATOR.chars_to_tokens
+estimate_tokens = DEFAULT_ESTIMATOR.estimate_tokens
+message_tokens = DEFAULT_ESTIMATOR.message_tokens
+messages_tokens = DEFAULT_ESTIMATOR.messages_tokens
+tokens_to_chars = DEFAULT_ESTIMATOR.tokens_to_chars
+documents_budget = DEFAULT_ESTIMATOR.documents_budget
+fit_recent = DEFAULT_ESTIMATOR.fit_recent
 
 
 @dataclass(slots=True)

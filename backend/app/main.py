@@ -26,6 +26,7 @@ from app.services.health import HealthChecker
 from app.services.llm import ConfigurableLLM
 from app.services.rag import Retriever
 from app.services.runtime_config import ConfigStore
+from app.services.token_estimates import TokenCalibration
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.embeddings = ConfigurableEmbeddings(config)
         app.state.vector_store = build_vector_store(settings)
         app.state.retriever = Retriever(app.state.embeddings, app.state.vector_store, config)
+        # Caracteres por token para estimar el prompt, calibrados por modelo (#102).
+        app.state.token_calibration = TokenCalibration(app.state.sessionmaker)
         app.state.health = HealthChecker(app.state.vector_store, app.state.embeddings)
         tasks = await build_task_runner(settings)
         app.state.tasks = tasks

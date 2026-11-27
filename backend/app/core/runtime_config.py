@@ -20,6 +20,9 @@ from app.core.tls import parse_certificates
 # Los nombres de modelo se guardan en columnas de 255 caracteres (registro de preguntas,
 # documentos, auditoría).
 MODEL_NAME_MAX_LENGTH = 255
+# Caracteres por token admitidos para estimar el tamaño del prompt (#102).
+MIN_CHARS_PER_TOKEN = 1.0
+MAX_CHARS_PER_TOKEN = 8.0
 
 
 class ConfigGroup(BaseModel):
@@ -78,6 +81,9 @@ class LlmConfig(ConfigGroup):
     context_window_tokens: int = Field(ge=0)
     # Parte de la ventana que se deja para la respuesta.
     response_reserve_tokens: int = Field(ge=0)
+    # Caracteres por token con los que se estima el tamaño del prompt (#102): 0 = automático
+    # (calibrado con el recuento del servidor, ver `services/token_estimates.py`).
+    chars_per_token: float = Field(ge=0, le=MAX_CHARS_PER_TOKEN)
 
     @property
     def prompt_max_tokens(self) -> int | None:
@@ -94,6 +100,11 @@ class LlmConfig(ConfigGroup):
         ):
             raise ValueError(
                 "El espacio reservado para la respuesta debe ser menor que la ventana de contexto"
+            )
+        if 0 < self.chars_per_token < MIN_CHARS_PER_TOKEN:
+            raise ValueError(
+                f"Los caracteres por token deben ser 0 (automático) o estar entre "
+                f"{MIN_CHARS_PER_TOKEN} y {MAX_CHARS_PER_TOKEN}"
             )
         return self
 

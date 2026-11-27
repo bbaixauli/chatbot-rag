@@ -63,7 +63,12 @@ async def chat(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "El mensaje es demasiado largo")
 
     service = ChatService(
-        request.app.state.sessionmaker, llm, settings, config, request.app.state.retriever
+        request.app.state.sessionmaker,
+        llm,
+        settings,
+        config,
+        request.app.state.retriever,
+        request.app.state.token_calibration,
     )
     try:
         prepared = await service.prepare(

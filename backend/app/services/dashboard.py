@@ -191,6 +191,7 @@ class QuestionRecord:
     prompt_tokens_estimated: int | None = None
     prompt_tokens: int | None = None
     prompt_trim: dict[str, Any] | None = None
+    prompt_chars_per_token: float | None = None
 
 
 async def record_question(
@@ -234,6 +235,7 @@ async def record_question(
                     prompt_tokens_estimated=record.prompt_tokens_estimated,
                     prompt_tokens=record.prompt_tokens,
                     prompt_trim=record.prompt_trim,
+                    prompt_chars_per_token=record.prompt_chars_per_token,
                 )
             )
             await session.commit()
