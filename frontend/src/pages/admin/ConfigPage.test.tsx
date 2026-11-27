@@ -82,6 +82,7 @@ function appConfig(): AppConfig {
           neighbor_chunks: 0,
           full_document_max_chars: 0,
           locate_sections: true,
+          on_retrieval_failure: 'answer',
         },
         { updated_by: 'ana', updated_at: '2026-11-20T12:30:00Z' },
       ),
@@ -242,11 +243,29 @@ describe('ConfigPage', () => {
           neighbor_chunks: 0,
           full_document_max_chars: 0,
           locate_sections: true,
+          on_retrieval_failure: 'answer',
         },
       },
     ])
     expect(rag.getByLabelText('Fragmentos por pregunta (top-k)')).toHaveValue(8)
     expect(save).toBeDisabled()
+  })
+
+  it('elige qué hacer si no se puede consultar la documentación', async () => {
+    const { sent } = configApi()
+    renderApp('/admin/config')
+    const rag = await section('Recuperación')
+    const policy = rag.getByLabelText('Si no se puede consultar la documentación')
+    expect(policy).toHaveValue('answer')
+    expect(
+      rag.getByRole('option', { name: 'Responder sin documentación, con un aviso' }),
+    ).toBeInTheDocument()
+
+    await userEvent.selectOptions(policy, 'refuse')
+    await userEvent.click(rag.getByRole('button', { name: 'Guardar' }))
+
+    expect(await rag.findByText('Cambios guardados.')).toBeInTheDocument()
+    expect(sent[0].body.on_retrieval_failure).toBe('refuse')
   })
 
   it('guarda los certificados de confianza y la comprobación estricta', async () => {

@@ -124,6 +124,7 @@ const GROUPS: GroupSpec[] = [
       { name: 'detect_document_names', kind: 'boolean' },
       { name: 'locate_sections', kind: 'boolean' },
       { name: 'scoped_min_score', kind: 'number', min: 0, max: 1, step: 0.01 },
+      { name: 'on_retrieval_failure', kind: 'select', options: ['answer', 'refuse'] },
     ],
   },
   {

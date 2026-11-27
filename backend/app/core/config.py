@@ -219,6 +219,9 @@ class Settings(BaseSettings):
     # Si la pregunta cita un apartado («el apartado 4.2», «la sección de altas») y la búsqueda
     # está limitada a unos documentos, se añade el apartado completo (#74).
     rag_locate_sections: bool = True
+    # Si falla la búsqueda en la documentación (embeddings o índice): `answer` responde sin ella
+    # y lo avisa; `refuse` no responde y muestra un error (#97).
+    rag_on_retrieval_failure: Literal["answer", "refuse"] = "answer"
 
     # --- Valores iniciales (#42): conversación
     chat_history_max_messages: int = Field(default=20, ge=0)

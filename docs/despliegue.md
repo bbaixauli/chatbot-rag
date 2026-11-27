@@ -788,7 +788,13 @@ Docker rota los logs según su configuración (`/etc/docker/daemon.json`). Por e
 - Si el servidor de IA falla, el chat muestra un mensaje según la causa (tiempo de espera, sin
   conexión, saturado, credenciales, conversación demasiado larga) y el detalle técnico queda en
   el log del backend. La pregunta del usuario se conserva en el historial.
-- Si el servicio de embeddings no responde, el chat sigue funcionando sin documentación.
+- Si el servicio de embeddings o el índice vectorial no responden, por defecto el chat
+  responde sin documentación y lo avisa encima de la respuesta (el modelo responde con lo que
+  sabe por su cuenta). Con **«Si no se puede consultar la documentación»** (*Recuperación*,
+  `CHATBOT_RAG_ON_RETRIEVAL_FAILURE`) en **«No responder y mostrar un error»** (`refuse`), no
+  se llama al modelo: el chat muestra «No se puede consultar la documentación en este momento»
+  y la pregunta queda en el registro como error. Es lo recomendable si una respuesta sin
+  respaldo documental es peor que ninguna.
 - Límite por IP y minuto, configurable en la administración (`0` lo desactiva): chat (20) e
   inicios de sesión (5). Al superarlo, la API responde `429` con la cabecera `Retry-After`.
 

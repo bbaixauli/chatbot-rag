@@ -69,6 +69,14 @@ TOO_LARGE_MESSAGE = (
 RETRIEVAL_FAILED_MESSAGE = (
     "No se ha podido consultar la documentación: esta respuesta puede no basarse en los documentos."
 )
+# Con `rag.on_retrieval_failure = "refuse"` no se responde sin documentación (#97).
+RETRIEVAL_REFUSED_MESSAGE = (
+    "No se puede consultar la documentación en este momento. Inténtalo más tarde o avisa al "
+    "administrador."
+)
+RETRIEVAL_REFUSED_DETAIL = (
+    "No se pudo consultar la documentación y la configuración impide responder sin ella"
+)
 
 
 class ConversationNotFoundError(Exception):
@@ -299,6 +307,12 @@ class ChatService:
             return
         record.sources_retrieved = len(sources)
         record.retrieval_failed = retrieval_failed
+        if retrieval_failed and self._config.rag.on_retrieval_failure == "refuse":
+            # No se llama al modelo: la respuesta no se apoyaría en los documentos (#97).
+            record.status = QuestionStatus.ERROR
+            record.error_detail = RETRIEVAL_REFUSED_DETAIL
+            yield sse_event("error", {"detail": RETRIEVAL_REFUSED_MESSAGE})
+            return
         if retrieval_failed:
             # Antes de la respuesta, para que se vea mientras se genera (#95).
             yield sse_event("retrieval_failed", {"detail": RETRIEVAL_FAILED_MESSAGE})

@@ -383,6 +383,13 @@ async def test_update_validation(admin: AsyncClient) -> None:
     long_model = await admin.put(f"{URL}/llm", json={"model": "m" * 256})
     assert long_model.status_code == 422
     assert "model" in long_model.json()["detail"]
+    # Qué hacer si falla la búsqueda en la documentación (#97): solo los valores admitidos.
+    policy = await admin.put(f"{URL}/rag", json={"on_retrieval_failure": "nunca"})
+    assert policy.status_code == 422
+    assert "on_retrieval_failure" in policy.json()["detail"]
+    refuse = await admin.put(f"{URL}/rag", json={"on_retrieval_failure": "refuse"})
+    assert refuse.status_code == 200
+    assert refuse.json()["config"]["values"]["on_retrieval_failure"] == "refuse"
 
 
 async def test_secrets_are_kept_replaced_or_cleared(app: FastAPI, admin: AsyncClient) -> None:
