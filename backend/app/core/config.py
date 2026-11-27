@@ -225,6 +225,9 @@ class Settings(BaseSettings):
     # Si falla la búsqueda en la documentación (embeddings o índice): `answer` responde sin ella
     # y lo avisa; `refuse` no responde y muestra un error (#97).
     rag_on_retrieval_failure: Literal["answer", "refuse"] = "answer"
+    # Si hay documentos indexados pero no se recupera ninguno para la pregunta, se pide al
+    # modelo que diga que no tiene la información en lugar de suponerla (#96).
+    rag_no_sources_note: bool = True
 
     # --- Valores iniciales (#42): conversación
     chat_history_max_messages: int = Field(default=20, ge=0)

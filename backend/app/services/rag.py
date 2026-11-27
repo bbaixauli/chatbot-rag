@@ -39,6 +39,16 @@ ellos con su número entre corchetes, por ejemplo: «Hay 23 días de vacaciones 
 
 {context}"""
 
+# Hay documentos indexados, pero no se ha recuperado ninguna fuente (nada superó el umbral o
+# falló la búsqueda): sin esto, el modelo respondería con lo que sabe por su cuenta, sin la
+# instrucción de no inventar datos (#96).
+NO_SOURCES_NOTE = """\
+## Documentación de referencia
+
+No se ha encontrado documentación interna para esta pregunta. Si la respuesta depende de \
+documentos, normas o datos internos, di claramente que no dispones de esa información en \
+lugar de suponerla."""
+
 FULL_DOCUMENT_NOTE = """\
 Se ha pedido consultar un documento concreto: a continuación está completo, dividido en \
 partes numeradas (por página o apartado). Cita las partes en las que te apoyes.
@@ -477,10 +487,13 @@ def _source(number: int, chunks: Sequence[SearchHit], top: SearchHit) -> Context
     )
 
 
-def build_system_prompt(base_prompt: str, sources: Sequence[ContextSource]) -> str:
-    """Añade al prompt de sistema la documentación recuperada."""
+def build_system_prompt(
+    base_prompt: str, sources: Sequence[ContextSource], *, no_sources_note: bool = False
+) -> str:
+    """Añade al prompt de sistema la documentación recuperada o, si no hay y se pide
+    `no_sources_note`, la nota de que no se ha encontrado (#96)."""
     if not sources:
-        return base_prompt
+        return f"{base_prompt}\n\n{NO_SOURCES_NOTE}" if no_sources_note else base_prompt
     context = "\n\n".join(f"[{s.number}] Fuente: {s.label}\n{s.text}" for s in sources)
     if all(s.full_document for s in sources):
         context = FULL_DOCUMENT_NOTE + context

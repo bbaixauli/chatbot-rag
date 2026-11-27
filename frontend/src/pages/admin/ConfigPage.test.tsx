@@ -83,6 +83,7 @@ function appConfig(): AppConfig {
           full_document_max_chars: 0,
           locate_sections: true,
           on_retrieval_failure: 'answer',
+          no_sources_note: true,
         },
         { updated_by: 'ana', updated_at: '2026-11-20T12:30:00Z' },
       ),
@@ -245,6 +246,7 @@ describe('ConfigPage', () => {
           full_document_max_chars: 0,
           locate_sections: true,
           on_retrieval_failure: 'answer',
+          no_sources_note: true,
         },
       },
     ])

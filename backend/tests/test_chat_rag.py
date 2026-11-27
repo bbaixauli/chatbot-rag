@@ -10,6 +10,8 @@ from sqlalchemy import select
 from app.core.config import Settings
 from app.db.models import QuestionLog
 from app.services.llm import ChatMessage, FakeLLMClient
+from app.services.prompt_budget import message_tokens
+from app.services.rag import NO_SOURCES_NOTE
 from app.services.vectorstore import VectorStoreError
 from tests.conftest import ScriptedLLM, parse_sse, set_config
 from tests.factories import HTML, MARKDOWN, pdf_bytes
@@ -316,3 +318,79 @@ async def test_refuse_policy_answers_when_the_search_works(
 
     assert events[-1][0] == "done"
     assert len(llm.calls) == 1
+
+
+NOTE = "No se ha encontrado documentación interna"
+
+
+async def test_note_when_documents_exist_but_nothing_is_found(
+    app: FastAPI, client: AsyncClient, llm: ScriptedLLM
+) -> None:
+    await index(app, "guia.md", MARKDOWN.encode())
+    # Ningún fragmento llega a la puntuación mínima.
+    await set_config(app, "rag", min_score=1.0)
+
+    events = await ask(client, "¿Quién ganó la liga de fútbol?")
+
+    assert "sources" not in [kind for kind, _ in events]
+    system = llm.calls[0][0].content
+    assert NOTE in system
+    assert "[1] Fuente:" not in system
+
+    # Se puede desactivar (#96).
+    await set_config(app, "rag", no_sources_note=False)
+    await ask(client, "¿Quién ganó la liga de fútbol?")
+    assert NOTE not in llm.calls[1][0].content
+
+
+async def test_no_note_without_documents_or_with_sources(
+    app: FastAPI, client: AsyncClient, llm: ScriptedLLM
+) -> None:
+    # Sin documentos indexados, el chat es una conversación normal.
+    await ask(client, "¿Quién ganó la liga de fútbol?")
+    assert NOTE not in llm.calls[0][0].content
+
+    await index(app, "guia.md", MARKDOWN.encode())
+    events = await ask(client, "¿Cuántos días de vacaciones tengo al año?")
+    assert "sources" in [kind for kind, _ in events]
+    assert NOTE not in llm.calls[1][0].content
+
+
+async def test_note_when_the_search_fails(
+    app: FastAPI, client: AsyncClient, llm: ScriptedLLM, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await index(app, "guia.md", MARKDOWN.encode())
+
+    async def broken(*args: Any, **kwargs: Any) -> Any:
+        raise VectorStoreError("índice caído")
+
+    # También si el índice no responde ni a cuántos fragmentos tiene.
+    monkeypatch.setattr(app.state.vector_store, "search", broken)
+    monkeypatch.setattr(app.state.vector_store, "count", broken)
+    await ask(client, "¿Cuántos días de vacaciones tengo al año?")
+
+    assert NOTE in llm.calls[0][0].content
+
+
+async def test_note_within_the_prompt_budget(
+    app: FastAPI, client: AsyncClient, llm: ScriptedLLM
+) -> None:
+    await index(app, "guia.md", MARKDOWN.encode())
+    await set_config(app, "rag", min_score=1.0)
+    question = "¿Quién ganó la liga de fútbol?"
+    await ask(client, question)
+    base = llm.calls[0][0].content.split(f"\n\n{NO_SOURCES_NOTE}")[0]
+    minimal = message_tokens(ChatMessage("system", base)) + message_tokens(
+        ChatMessage("user", question)
+    )
+
+    # Con sitio, la nota va en el prompt.
+    await set_config(app, "llm", context_window_tokens=minimal + 1000, response_reserve_tokens=100)
+    await ask(client, question)
+    assert NOTE in llm.calls[1][0].content
+
+    # Si no cabe, se envía sin ella (el prompt mínimo sí cabe).
+    await set_config(app, "llm", context_window_tokens=minimal + 110, response_reserve_tokens=100)
+    events = await ask(client, question)
+    assert events[-1][0] == "done"
+    assert llm.calls[2][0].content == base

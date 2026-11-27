@@ -430,7 +430,7 @@ class ChatService:
         búsqueda en la documentación (#95), dentro de la ventana del modelo si está
         configurada (ver `services/prompt_budget.py`)."""
         limit = self._config.llm.prompt_max_tokens
-        failed = False
+        failed = note = False
         if limit is None:
             sources: list[ContextSource] = []
             if self._retriever is not None and query is not None:
@@ -439,8 +439,12 @@ class ChatService:
                 )
                 self._log_sections(prepared, retrieval)
                 failed = retrieval.failed
+                note = await self._no_sources_note(retrieval)
                 sources = await self._with_titles(retrieval.sources)
-            system = ChatMessage("system", build_system_prompt(prepared.system_prompt, sources))
+            system = ChatMessage(
+                "system",
+                build_system_prompt(prepared.system_prompt, sources, no_sources_note=note),
+            )
             return [system, *prepared.history], sources, failed
 
         *previous, question = prepared.history
@@ -464,20 +468,27 @@ class ChatService:
             )
             self._log_sections(prepared, retrieval)
             failed = retrieval.failed
+            note = await self._no_sources_note(retrieval)
             trim.full_document = retrieval.full_document_skipped
             trim.sources = retrieval.dropped
             sources = await self._with_titles(retrieval.sources)
 
-        def fixed(sources: list[ContextSource]) -> tuple[ChatMessage, int]:
-            system = ChatMessage("system", build_system_prompt(prepared.system_prompt, sources))
+        def fixed(sources: list[ContextSource], note: bool) -> tuple[ChatMessage, int]:
+            system = ChatMessage(
+                "system",
+                build_system_prompt(prepared.system_prompt, sources, no_sources_note=note),
+            )
             return system, message_tokens(system) + message_tokens(question) + messages_tokens(last)
 
-        system, used = fixed(sources)
+        system, used = fixed(sources, note)
+        if note and used > limit:
+            # La nota no es imprescindible: si no cabe, se envía sin ella.
+            system, used = fixed(sources, False)
         # Por si los encabezados de las fuentes ocupan más de lo previsto.
         while sources and used > limit:
             sources = [replace(s, number=n) for n, s in enumerate(sources[:-1], start=1)]
             trim.sources += 1
-            system, used = fixed(sources)
+            system, used = fixed(sources, False)
         kept, dropped = fit_recent(older, limit - used)
         trim.history += dropped
         prompt = [system, *kept, *last, question]
@@ -492,6 +503,17 @@ class ChatService:
                 extra={"conversation_id": prepared.conversation_id},
             )
         return prompt, sources, failed
+
+    async def _no_sources_note(self, retrieval: Retrieval) -> bool:
+        """Si hay que decir al modelo que no se ha encontrado documentación (#96): no se ha
+        recuperado ninguna fuente, pero hay documentos indexados o falló la búsqueda. Sin
+        documentos, el chat es una conversación normal."""
+        rag = self._config.rag
+        if retrieval.sources or not rag.enabled or not rag.no_sources_note:
+            return False
+        if retrieval.failed:
+            return True
+        return self._retriever is not None and not await self._retriever.is_empty()
 
     @staticmethod
     def _log_sections(prepared: PreparedChat, retrieval: Retrieval) -> None:
