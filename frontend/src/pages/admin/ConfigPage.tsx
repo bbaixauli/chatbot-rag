@@ -175,6 +175,7 @@ const GROUPS: GroupSpec[] = [
       { name: 'llm_model', kind: 'text', optional: true, visible: auditWithModel },
       { name: 'llm_history_days', kind: 'number', min: 0, integer: true, visible: auditWithModel },
       { name: 'retention_days', kind: 'number', min: 0, integer: true },
+      { name: 'retrieval_failure_threshold', kind: 'number', min: 0, integer: true },
       { name: 'notify_enabled', kind: 'boolean' },
       {
         name: 'notify_min_severity',

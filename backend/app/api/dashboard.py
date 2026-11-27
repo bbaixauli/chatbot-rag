@@ -26,6 +26,7 @@ class DayOut(BaseModel):
     sessions: int
     users: int
     questions: int
+    retrieval_failed: int
 
 
 class SummaryOut(BaseModel):
@@ -42,6 +43,8 @@ class SummaryOut(BaseModel):
     without_sources: int
     # Prompt recortado para caber en la ventana del modelo (#73).
     trimmed: int
+    # No se pudo consultar la documentación (#99).
+    retrieval_failed: int
     avg_response_ms: int | None
     median_response_ms: int | None
     avg_first_token_ms: int | None
@@ -120,11 +123,18 @@ async def get_summary(
         errors=stats.errors,
         without_sources=stats.without_sources,
         trimmed=stats.trimmed,
+        retrieval_failed=stats.retrieval_failed,
         avg_response_ms=stats.avg_response_ms,
         median_response_ms=stats.median_response_ms,
         avg_first_token_ms=stats.avg_first_token_ms,
         days=[
-            DayOut(day=d.day, sessions=d.sessions, users=d.users, questions=d.questions)
+            DayOut(
+                day=d.day,
+                sessions=d.sessions,
+                users=d.users,
+                questions=d.questions,
+                retrieval_failed=d.retrieval_failed,
+            )
             for d in stats.days
         ],
     )

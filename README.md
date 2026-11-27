@@ -317,7 +317,9 @@ tardar bastante, porque se vuelven a calcular los embeddings de todo el corpus.
 un rango de fechas: sesiones (solo las que preguntan), usuarios, preguntas, tiempo medio y
 mediano de respuesta, porcentaje de preguntas respondidas sin decir que no se tiene la
 información, una gráfica diaria con su tabla equivalente y la tabla de preguntas y respuestas
-con su hora y tiempo, descargable en CSV y Excel. No muestra quién preguntó. Las preguntas se
+con su hora y tiempo, descargable en CSV y Excel. Si en el rango hay preguntas en las que no
+se pudo consultar la documentación (servicio de embeddings o índice caídos), lo avisa encima
+de las cifras; la tabla diaria y las descargas las indican. No muestra quién preguntó. Las preguntas se
 guardan en un registro propio que no se pierde al borrar conversaciones. Las frases que
 indican «sin información» se configuran en la misma página.
 
@@ -325,7 +327,7 @@ indican «sin información» se configuran en la misma página.
 
 *Administración → Auditoría* reúne los avisos del proceso de revisión (posible uso malicioso,
 respuestas inapropiadas e información sensible, detectados por reglas y por un modelo
-revisor), las últimas revisiones y el registro completo de preguntas y respuestas con su
+revisor, y muchas preguntas sin poder consultar la documentación), las últimas revisiones y el registro completo de preguntas y respuestas con su
 usuario, IP y detalles, filtrable y descargable en CSV y Excel. Cada aviso se marca como
 revisado o descartado con una nota. La revisión se programa en *Configuración → Auditoría*
 (cada hora o a diario), se lanza a mano desde la pantalla o con `python -m app.audit run`, y

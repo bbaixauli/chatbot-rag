@@ -802,6 +802,12 @@ mostrados. Un proceso revisa periódicamente lo nuevo desde la última ejecució
   teléfonos, claves) e intentos de manipular al asistente en la pregunta.
 - **Modelo revisor** (activable): clasifica intención maliciosa, respuesta inapropiada e
   información sensible. Solo revisa lo de los últimos `CHATBOT_AUDIT_LLM_HISTORY_DAYS` días.
+- **Preguntas sin documentación**: si entre las preguntas revisadas hay al menos
+  `CHATBOT_AUDIT_RETRIEVAL_FAILURE_THRESHOLD` (10 por defecto; *Configuración → Auditoría*,
+  «Alerta por preguntas sin documentación»; 0 la desactiva) en las que no se pudo consultar la
+  documentación, se crea **una** alerta de gravedad media para toda la revisión, asociada a la
+  última pregunta afectada. No es un problema de esas preguntas, sino del servicio de
+  embeddings o del índice: revisa `/api/v1/health` y el log.
 
 Los avisos se gestionan en *Administración → Auditoría*. La revisión se programa allí (cada hora
 o a diario) y la ejecuta la propia API; también se puede lanzar a mano desde esa pantalla o

@@ -5,6 +5,8 @@ export interface DayStats {
   sessions: number
   users: number
   questions: number
+  /** Preguntas en las que no se pudo consultar la documentación (#99). */
+  retrieval_failed: number
 }
 
 export interface DashboardSummary {
@@ -21,6 +23,8 @@ export interface DashboardSummary {
   without_sources: number
   /** Preguntas con el prompt recortado para caber en la ventana del modelo. */
   trimmed: number
+  /** Preguntas en las que no se pudo consultar la documentación (#99). */
+  retrieval_failed: number
   avg_response_ms: number | null
   median_response_ms: number | null
   avg_first_token_ms: number | null

@@ -356,6 +356,7 @@ export const t = {
           llm_model: 'Modelo revisor',
           llm_history_days: 'Antigüedad máxima para el modelo (días)',
           retention_days: 'Anonimizar pasados (días)',
+          retrieval_failure_threshold: 'Alerta por preguntas sin documentación',
           notify_enabled: 'Avisar por correo',
           notify_min_severity: 'Gravedad mínima para avisar',
           notify_to: 'Destinatarios',
@@ -378,6 +379,8 @@ export const t = {
           retention_days:
             'El usuario pasa a un seudónimo y se borran la IP, el navegador y el nombre; los textos se conservan. 0: nunca.',
           notify_to: 'Una o varias direcciones separadas por comas.',
+          retrieval_failure_threshold:
+            'Si en una revisión hay al menos estas preguntas en las que no se pudo consultar la documentación (embeddings o índice caídos), se crea una alerta. 0: nunca.',
         },
       },
       web: {
@@ -574,6 +577,7 @@ export const t = {
       malicious_user: 'Posible uso malicioso',
       inappropriate_response: 'Respuesta inapropiada',
       sensitive_information: 'Información sensible',
+      retrieval_failure: 'Preguntas sin documentación',
     } as Record<string, string>,
     source: { rule: 'Regla', model: 'Modelo revisor' } as Record<string, string>,
     alertStatus: { new: 'Nuevo', reviewed: 'Revisado', dismissed: 'Descartado' } as Record<
@@ -717,6 +721,9 @@ export const t = {
     chartHelp:
       'Usa las flechas izquierda y derecha para recorrer los días. Los mismos datos están en «Ver como tabla».',
     day: 'Día',
+    retrievalFailedColumn: 'Sin documentación por un fallo',
+    retrievalFailed: (n: string) =>
+      `En ${n} ${n === '1' ? 'pregunta' : 'preguntas'} no se pudo consultar la documentación: falló el servicio de embeddings o el índice vectorial, y se respondieron sin ella o no se respondieron. Revisa el estado del servicio y el log.`,
     questionsTitle: 'Preguntas y respuestas',
     questionsHint: 'De la más reciente a la más antigua. Pulsa una respuesta para verla completa.',
     questionsError: 'No se pudieron cargar las preguntas.',

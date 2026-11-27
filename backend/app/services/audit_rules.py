@@ -17,7 +17,12 @@ from dataclasses import dataclass
 MALICIOUS_USER = "malicious_user"
 INAPPROPRIATE_RESPONSE = "inappropriate_response"
 SENSITIVE_INFORMATION = "sensitive_information"
-CATEGORIES = (MALICIOUS_USER, INAPPROPRIATE_RESPONSE, SENSITIVE_INFORMATION)
+# Lo que se revisa en cada pregunta y respuesta (reglas y modelo revisor).
+REVIEW_CATEGORIES = (MALICIOUS_USER, INAPPROPRIATE_RESPONSE, SENSITIVE_INFORMATION)
+# No es de una pregunta concreta: muchas preguntas de una revisión sin poder consultar la
+# documentación (#99). Ver `audit.retrieval_failure_alert`.
+RETRIEVAL_FAILURE = "retrieval_failure"
+CATEGORIES = (*REVIEW_CATEGORIES, RETRIEVAL_FAILURE)
 SEVERITIES = ("low", "medium", "high")
 
 
