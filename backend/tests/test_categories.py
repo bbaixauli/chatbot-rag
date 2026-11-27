@@ -319,6 +319,7 @@ async def test_questions_can_name_a_document_by_its_title(
                 "title": "Normativa de control de acceso",
             }
         ],
+        "categories": [],
         "source": "detected",
     }
 

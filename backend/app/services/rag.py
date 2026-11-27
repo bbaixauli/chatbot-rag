@@ -147,6 +147,15 @@ def _select(
     return selected, used
 
 
+def min_score_for(rag: RagConfig, document_ids: Sequence[str] | None) -> float:
+    """Puntuación mínima de una búsqueda: la de la búsqueda limitada si se limita a unos
+    pocos documentos (quien pregunta ya ha indicado dónde está la respuesta) y la general si
+    no se limita o se limita a muchos, como una categoría grande (#85)."""
+    if document_ids is None or len(document_ids) > MAX_SCOPE_DOCUMENTS:
+        return rag.min_score
+    return rag.scoped_min_score
+
+
 def candidates_limit(rag: RagConfig) -> int:
     """Fragmentos que se piden al índice: si se resta peso a los de índice, más de top-k,
     para que los que estaban justo detrás puedan ocupar su lugar."""
@@ -184,7 +193,8 @@ class Retriever:
         """Fragmentos por encima del umbral, numerados y dentro del límite de contexto.
 
         Con `document_ids` solo se busca en esos documentos y se usa la puntuación mínima
-        de la búsqueda limitada (`scoped_min_score`): quien pregunta ya ha indicado dónde
+        de la búsqueda limitada (`scoped_min_score`, ver `min_score_for`): quien pregunta ya
+        ha indicado dónde
         está la respuesta. Si falla la búsqueda (p. ej. el servicio de embeddings no
         responde) se devuelve una lista vacía: el chat sigue funcionando sin documentación.
         """
@@ -228,7 +238,7 @@ class Retriever:
                 if max_chars is None or needed <= max_chars:
                     return Retrieval(full)
                 skipped = True
-        min_score = rag.min_score if document_ids is None else rag.scoped_min_score
+        min_score = min_score_for(rag, document_ids)
         references: list[SectionReference] = []
         located: list[tuple[str, LocatedSection]] = []
         if rag.locate_sections and document_ids and len(document_ids) <= MAX_SCOPE_DOCUMENTS:

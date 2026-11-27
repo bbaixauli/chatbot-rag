@@ -126,6 +126,7 @@ async def test_chat_limits_the_search_to_the_named_document(
         "documents": [
             {"id": norma, "filename": "NOR-013 Control de acceso.md", "title": "Control de acceso"}
         ],
+        "categories": [],
         "source": "detected",
     }
     sources = next(data["sources"] for kind, data in events if kind == "sources")
@@ -148,6 +149,7 @@ async def test_selected_documents_take_priority(app: FastAPI, client: AsyncClien
 
     assert _scope(events) == {
         "documents": [{"id": guia, "filename": "guia.md", "title": "Guía de vacaciones"}],
+        "categories": [],
         "source": "selector",
     }
 
@@ -175,5 +177,6 @@ async def test_follow_up_questions_use_the_rewritten_question(
         "documents": [
             {"id": norma, "filename": "NOR-013 Control de acceso.md", "title": "Control de acceso"}
         ],
+        "categories": [],
         "source": "detected",
     }

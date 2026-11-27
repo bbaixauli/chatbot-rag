@@ -306,6 +306,44 @@ describe('AuditPage', () => {
     ).toBeInTheDocument()
   })
 
+  it('muestra dónde se buscó', async () => {
+    const entry = (id: number, searched_in: object | null) => ({
+      ...alert(id).entry,
+      id,
+      question: `Pregunta ${id}`,
+      searched_in,
+    })
+    api(both, {
+      'GET /admin/audit/log*': () =>
+        jsonResponse({
+          total: 3,
+          page: 1,
+          size: 25,
+          items: [
+            entry(1, {
+              source: 'selector',
+              categories: ['Recursos humanos'],
+              documents: [],
+              document_count: 12,
+            }),
+            entry(2, {
+              source: 'detected',
+              categories: [],
+              documents: ['NOR-013'],
+              document_count: 1,
+            }),
+            entry(3, null),
+          ],
+        }),
+    })
+    renderApp('/admin/audit?vista=log')
+    const table = await screen.findByRole('table', { name: 'Registro completo' })
+
+    expect(within(table).getByText('Recursos humanos (12 documentos)')).toBeInTheDocument()
+    expect(within(table).getByText('NOR-013 (nombrados en la pregunta)')).toBeInTheDocument()
+    expect(within(table).getByText('Todos los documentos')).toBeInTheDocument()
+  })
+
   it('informa si no puede cargar', async () => {
     api(both, { 'GET /admin/audit/alerts*': () => jsonResponse({}, 500) })
     renderApp('/admin/audit')

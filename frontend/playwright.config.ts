@@ -51,6 +51,9 @@ export default defineConfig({
   reporter: process.env.CI ? [['html', { open: 'never' }], ['list']] : 'list',
   use: {
     baseURL: `http://127.0.0.1:${WEB_PORT}`,
+    // La del servidor (CHATBOT_TIMEZONE): si no, entre las 23:00 y las 24:00 UTC el «hoy»
+    // del navegador (UTC en la CI) y el del registro de preguntas son días distintos.
+    timezoneId: 'Europe/Madrid',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },

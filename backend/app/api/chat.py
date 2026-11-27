@@ -52,8 +52,9 @@ async def chat(
     búsqueda, si se limita), `token` (fragmento de texto), `sources` (fuentes), `done` (id
     del mensaje guardado) y `error` (detalle legible).
 
-    `document_ids` limita la búsqueda a esos documentos y lo guarda en la conversación
-    (`[]` la quita; sin indicar, se mantiene la guardada).
+    `document_ids` y `category_ids` limitan la búsqueda a esos documentos y a los de esas
+    categorías, y se guardan en la conversación (`[]` quita cada uno; sin indicar, se
+    mantiene el guardado).
     """
     text = body.message.strip()
     if not text:
@@ -77,6 +78,7 @@ async def chat(
                 display_name=user.display_name,
             ),
             document_ids=body.document_ids,
+            category_ids=body.category_ids,
         )
     except ConversationNotFoundError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Conversación no encontrada") from exc

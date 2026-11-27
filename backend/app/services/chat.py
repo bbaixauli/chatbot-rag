@@ -47,6 +47,7 @@ from app.services.rag import (
     extract_citations,
 )
 from app.services.scope import (
+    Scope,
     ScopeDocument,
     document_refs,
     indexed_documents,
@@ -141,8 +142,8 @@ class PreparedChat:
     # Auditoría (#50).
     requester: Requester = field(default_factory=Requester)
     prompt_version_id: int | None = None
-    # Documentos a los que se limita la búsqueda (#58); vacía: todos.
-    scope: list[ScopeDocument] = field(default_factory=list)
+    # Documentos y categorías a los que se limita la búsqueda (#58, #85).
+    scope: Scope = field(default_factory=Scope)
 
 
 class ChatService:
@@ -174,13 +175,14 @@ class ChatService:
         access_kind: AccessKind = AccessKind.SHARED,
         requester: Requester | None = None,
         document_ids: Sequence[str] | None = None,
+        category_ids: Sequence[int] | None = None,
     ) -> PreparedChat:
         """Guarda el mensaje del usuario y prepara el prompt.
 
         Se ejecuta antes de empezar el streaming para poder responder 404 (conversación) o
-        422 (`ScopeError`: algún documento de `document_ids` no existe) si procede.
-        `document_ids` cambia la limitación de la búsqueda de la conversación (ver
-        `resolve_scope`).
+        422 (`ScopeError`: algún documento o categoría no existe) si procede.
+        `document_ids` y `category_ids` cambian la limitación de la búsqueda de la
+        conversación (ver `resolve_scope`).
         """
         started = time.perf_counter()
         async with self._sessionmaker() as session:
@@ -192,7 +194,7 @@ class ChatService:
                 if found is None:
                     raise ConversationNotFoundError(conversation_id)
                 conversation = found
-            scope = await resolve_scope(session, conversation, document_ids)
+            scope = await resolve_scope(session, conversation, document_ids, category_ids)
             user_message = await repo.add_message(conversation, MessageRole.USER, text)
             history = await repo.recent_messages(
                 conversation.id, self._config.chat.history_max_messages + 1
@@ -262,18 +264,17 @@ class ChatService:
             record.search_query = query
             # La limitación elegida en el chat tiene prioridad; si no hay, se busca en los
             # documentos que nombre la pregunta (o su reformulación, en las de seguimiento).
+            # Una categoría sin documentos indexados no limita la búsqueda.
             scope, origin = prepared.scope, ScopeSource.SELECTOR
-            if not scope:
-                scope = await self._detect_scope(prepared.question, query)
+            if not scope.document_ids:
+                scope = Scope.of_documents(await self._detect_scope(prepared.question, query))
                 origin = ScopeSource.DETECTED
-            scope_ids = [document.id for document in scope]
+            scope_ids = scope.document_ids
             if scope_ids:
                 record.scope_document_ids = scope_ids
+                record.scope_category_ids = [c.id for c in scope.categories] or None
                 record.scope_source = origin.value
-                scope_payload = {
-                    "documents": [document.payload for document in scope],
-                    "source": origin.value,
-                }
+                scope_payload = scope.payload(origin.value)
                 yield sse_event("scope", scope_payload)
         trim = PromptTrim()
         try:

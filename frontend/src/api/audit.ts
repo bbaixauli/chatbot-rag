@@ -58,6 +58,17 @@ export interface AuditEntry {
   prompt_tokens_estimated?: number | null
   prompt_tokens?: number | null
   prompt_trim?: PromptTrim | null
+  /** Dónde se buscó, si se limitó la búsqueda (#58, #85). */
+  searched_in?: SearchedIn | null
+}
+
+/** Documentos o categorías a los que se limitó la búsqueda de una pregunta. */
+export interface SearchedIn {
+  source: 'selector' | 'detected'
+  categories: string[]
+  /** Títulos de los documentos (vacío si se eligieron categorías). */
+  documents: string[]
+  document_count: number
 }
 
 /** Lo que se quitó del prompt para que cupiera en la ventana del modelo. */

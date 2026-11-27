@@ -357,6 +357,7 @@ describe('ChatPage', () => {
           message: 'Horario',
           conversation_id: null,
           document_ids: ['d1'],
+          category_ids: [],
         })
         created = true
         return sseResponse([
@@ -417,7 +418,7 @@ describe('ChatPage', () => {
       screen.getByRole('button', { name: 'Buscar también fuera de manual.pdf' }),
     )
 
-    await waitFor(() => expect(sent).toEqual([{ document_ids: [] }]))
+    await waitFor(() => expect(sent).toEqual([{ document_ids: [], category_ids: [] }]))
     expect(
       screen.getByRole('button', { name: /Buscar en: Todos los documentos/ }),
     ).toBeInTheDocument()

@@ -326,6 +326,16 @@ concretos** (*Recuperación*, `CHATBOT_RAG_SCOPED_MIN_SCORE`, 0 por defecto) en 
 general: basta con el top-k. El registro de preguntas guarda a qué documentos se limitó cada
 búsqueda y si fue porque se eligieron en el chat o porque la pregunta los nombraba.
 
+En el chat también se pueden elegir **categorías** enteras, sin el límite de 5 documentos:
+se busca en sus documentos indexados de cada momento (un documento que se añada a la categoría
+entra en las preguntas siguientes) y en los documentos sueltos elegidos. Una categoría que se
+borra se quita de la limitación; si no queda ningún documento, se busca en todos. Cuando la
+búsqueda abarca más de 5 documentos se usa la **puntuación mínima general**, como en una
+búsqueda sin limitar, y la localización de apartados no se aplica. Con más de 50 documentos,
+en lugar de comparar la pregunta con todos sus fragmentos (unos 5 ms por documento) se usa el
+índice con un filtro. La auditoría muestra dónde se buscó cada pregunta (categorías o
+documentos) y la exportación lo incluye en la columna «Búsqueda limitada a».
+
 Con **«Buscar solo en los documentos que nombre la pregunta»** (`CHATBOT_RAG_DETECT_DOCUMENT_NAMES`,
 activado por defecto), la búsqueda se limita a los documentos que la pregunta nombra:
 

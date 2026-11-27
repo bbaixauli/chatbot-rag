@@ -58,7 +58,26 @@ export interface Conversation {
   updated_at: string
   /** Documentos a los que se limita la búsqueda (vacía o ausente: todos). */
   document_ids?: string[]
+  /** Categorías a cuyos documentos se limita la búsqueda (#85). */
+  category_ids?: number[]
 }
+
+/** Dónde buscar: documentos sueltos y categorías (ambos vacíos: en todos). */
+export interface SearchScope {
+  documentIds: string[]
+  categoryIds: number[]
+}
+
+export const ALL_DOCUMENTS: SearchScope = { documentIds: [], categoryIds: [] }
+
+export const isLimited = (scope: SearchScope) =>
+  scope.documentIds.length > 0 || scope.categoryIds.length > 0
+
+/** La limitación guardada en una conversación. */
+export const conversationScope = (conversation?: Conversation): SearchScope => ({
+  documentIds: conversation?.document_ids ?? [],
+  categoryIds: conversation?.category_ids ?? [],
+})
 
 /** Formatos de documento admitidos. */
 export type DocumentKind =
@@ -81,12 +100,15 @@ export interface IndexedDocument {
   title: string
   kind: DocumentKind
   category: string | null
+  category_id?: number | null
 }
 
 /** Documentos a los que se limitó la búsqueda de una respuesta. */
 export interface Scope {
   /** `title`: título actual del documento (las respuestas anteriores a #75 no lo tienen). */
   documents: { id: string; filename: string; title?: string }[]
+  /** Categorías elegidas, con su nombre actual (las respuestas anteriores a #85 no las tienen). */
+  categories?: { id: number; name: string }[]
   /** `selector`: elegidos en el chat; `detected`: nombrados en la pregunta. */
   source: 'selector' | 'detected'
 }
@@ -146,11 +168,11 @@ export const renameConversation = (id: string, title: string) =>
     body: JSON.stringify({ title }),
   })
 
-/** Limita la búsqueda de la conversación a esos documentos (lista vacía: todos). */
-export const updateConversationScope = (id: string, documentIds: string[]) =>
+/** Limita la búsqueda de la conversación a esos documentos y categorías (vacíos: todos). */
+export const updateConversationScope = (id: string, scope: SearchScope) =>
   apiRequest<Conversation>(`/conversations/${id}`, {
     method: 'PATCH',
-    body: JSON.stringify({ document_ids: documentIds }),
+    body: JSON.stringify({ document_ids: scope.documentIds, category_ids: scope.categoryIds }),
   })
 
 export const listIndexedDocuments = () => apiGet<IndexedDocument[]>('/documents')

@@ -217,6 +217,35 @@ test('cambia el título y la categoría y las referencias usan el título nuevo'
   ).toBeVisible()
 })
 
+test('limita la búsqueda del chat a una categoría', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: /Buscar en:/ }).click()
+  const dialog = page.getByRole('dialog', { name: 'Elegir en qué documentos buscar' })
+  await dialog
+    .getByRole('group', { name: 'Categorías' })
+    .getByRole('checkbox', { name: /Recursos humanos/ })
+    .check()
+  // Sus documentos quedan incluidos.
+  await expect(dialog.getByRole('checkbox', { name: /Manual del empleado/ })).toBeChecked()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('button', { name: /Buscar en:/ })).toHaveText(
+    /Buscar en: 1 categoría/,
+  )
+
+  await ask(page, '¿Cuál es el horario de oficina?')
+  const answer = answers(page).last()
+  await expect(answer).toContainText('Buscado solo en: Recursos humanos')
+  await expect(
+    answer.getByRole('link', { name: 'Abrir fuente: [1] Manual del empleado · pág. 2' }),
+  ).toBeVisible()
+
+  // La limitación queda en la conversación.
+  await page.reload()
+  await expect(page.getByRole('list', { name: 'Se busca solo en' })).toContainText(
+    'Recursos humanos',
+  )
+})
+
 test('indexa Word y Excel y cita el apartado del documento de Word', async ({ page }) => {
   await openDocuments(page)
 

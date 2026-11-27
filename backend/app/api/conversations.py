@@ -7,7 +7,7 @@ from app.api.schemas import ConversationCreate, ConversationOut, ConversationUpd
 from app.core.auth import CurrentUserDep
 from app.db.models import Conversation
 from app.services.conversations import DEFAULT_TITLE, ConversationRepository
-from app.services.scope import ScopeError, document_refs, resolve_scope
+from app.services.scope import ScopeError, category_names, document_refs, resolve_scope
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 
@@ -40,7 +40,8 @@ async def create_conversation(
 async def update_conversation(
     conversation_id: str, body: ConversationUpdate, db: DbSession, user: CurrentUserDep
 ) -> Conversation:
-    """Cambia el título o los documentos a los que se limita la búsqueda (`[]`: todos)."""
+    """Cambia el título o los documentos y categorías a los que se limita la búsqueda
+    (`[]`: ninguno)."""
     repo = ConversationRepository(db)
     conversation = await _get_owned(repo, conversation_id, user.id)
     if body.title is not None:
@@ -50,9 +51,9 @@ async def update_conversation(
                 status.HTTP_422_UNPROCESSABLE_CONTENT, "El título no puede estar vacío"
             )
         conversation = await repo.rename(conversation, title)
-    if body.document_ids is not None:
+    if body.document_ids is not None or body.category_ids is not None:
         try:
-            await resolve_scope(db, conversation, body.document_ids)
+            await resolve_scope(db, conversation, body.document_ids, body.category_ids)
         except ScopeError as exc:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
     await db.commit()
@@ -86,8 +87,14 @@ async def list_messages(
             ref = refs.get(source.document_id or "")
             source.title = ref.title if ref else source.filename
             source.url = ref.url if ref else None
+    categories = await category_names(
+        db, [c.id for m in messages if m.scope for c in m.scope.categories]
+    )
+    for message in messages:
         if message.scope:
             for document in message.scope.documents:
                 ref = refs.get(document.id)
                 document.title = ref.title if ref else document.title or document.filename
+            for category in message.scope.categories:
+                category.name = categories.get(category.id, category.name)
     return messages

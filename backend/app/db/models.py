@@ -58,6 +58,8 @@ class Conversation(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     # Documentos a los que se limita la búsqueda (elegidos en el chat, #58); nulo: todos.
     document_ids: Mapped[list[str] | None] = mapped_column(JSON)
+    # Categorías elegidas (#85): se busca en sus documentos actuales; nulo: ninguna.
+    category_ids: Mapped[list[int] | None] = mapped_column(JSON)
 
     messages: Mapped[list["Message"]] = relationship(
         back_populates="conversation",
@@ -283,6 +285,8 @@ class QuestionLog(Base):
     # Búsqueda limitada a unos documentos (#58): cuáles y por qué (`ScopeSource`).
     scope_document_ids: Mapped[list[str] | None] = mapped_column(JSON)
     scope_source: Mapped[str | None] = mapped_column(String(16))
+    # Categorías elegidas en el chat (#85); sus documentos están en `scope_document_ids`.
+    scope_category_ids: Mapped[list[int] | None] = mapped_column(JSON)
     # Tamaño del prompt (#73): estimado y el que contó el servidor (si lo devuelve), y lo que
     # se quitó para que cupiera en la ventana del modelo (ver `PromptTrim`).
     prompt_tokens_estimated: Mapped[int | None] = mapped_column(Integer)

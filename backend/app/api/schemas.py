@@ -14,6 +14,9 @@ ScopeIds = Annotated[
     list[Annotated[str, Field(min_length=1, max_length=36)]],
     Field(max_length=MAX_SCOPE_DOCUMENTS),
 ]
+# Categorías a cuyos documentos se limita la búsqueda (#85); una lista vacía la quita.
+MAX_SCOPE_CATEGORIES = 50
+ScopeCategoryIds = Annotated[list[int], Field(max_length=MAX_SCOPE_CATEGORIES)]
 
 
 class ConversationOut(BaseModel):
@@ -25,6 +28,8 @@ class ConversationOut(BaseModel):
     updated_at: datetime
     # Documentos a los que se limita la búsqueda (vacía: todos).
     document_ids: Annotated[list[str], BeforeValidator(lambda value: value or [])] = []
+    # Categorías a cuyos documentos se limita (#85).
+    category_ids: Annotated[list[int], BeforeValidator(lambda value: value or [])] = []
 
 
 class ConversationCreate(BaseModel):
@@ -32,10 +37,11 @@ class ConversationCreate(BaseModel):
 
 
 class ConversationUpdate(BaseModel):
-    """Cambia el título o los documentos a los que se limita la búsqueda."""
+    """Cambia el título o los documentos y categorías a los que se limita la búsqueda."""
 
     title: str | None = Field(default=None, min_length=1, max_length=200)
     document_ids: ScopeIds | None = None
+    category_ids: ScopeCategoryIds | None = None
 
 
 class SourceOut(BaseModel):
@@ -61,10 +67,17 @@ class ScopeDocumentOut(BaseModel):
     title: str = ""
 
 
+class ScopeCategoryOut(BaseModel):
+    id: int
+    # Nombre actual de la categoría; si se borró, el que tenía.
+    name: str
+
+
 class ScopeOut(BaseModel):
-    """Documentos a los que se limitó la búsqueda de una respuesta (#58)."""
+    """Documentos y categorías a los que se limitó la búsqueda de una respuesta (#58, #85)."""
 
     documents: list[ScopeDocumentOut]
+    categories: list[ScopeCategoryOut] = []
     # `selector`: elegidos en el chat; `detected`: nombrados en la pregunta.
     source: Literal["selector", "detected"]
 
@@ -94,6 +107,7 @@ class ChatRequest(BaseModel):
     message: str = Field(min_length=1)
     # Sin indicar: se mantiene la limitación guardada en la conversación.
     document_ids: ScopeIds | None = None
+    category_ids: ScopeCategoryIds | None = None
 
 
 class PublicDocumentOut(BaseModel):
@@ -106,3 +120,4 @@ class PublicDocumentOut(BaseModel):
     title: str
     kind: DocumentKind
     category: str | None = None
+    category_id: int | None = None

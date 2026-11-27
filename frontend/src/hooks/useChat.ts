@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { streamChat } from '../api/chat'
-import { ApiError, listMessages, type Scope, type Source } from '../api/client'
+import { ApiError, listMessages, type Scope, type SearchScope, type Source } from '../api/client'
 import { t } from '../i18n/es'
 
 export interface PendingExchange {
@@ -39,7 +39,7 @@ export function useChat({ conversationId, onConversationCreated }: Options) {
   useEffect(() => () => abortRef.current?.abort(), [])
 
   const send = useCallback(
-    async (question: string, documentIds?: string[]) => {
+    async (question: string, scope?: SearchScope) => {
       const controller = new AbortController()
       abortRef.current = controller
       streamingFor.current = conversationId
@@ -48,7 +48,7 @@ export function useChat({ conversationId, onConversationCreated }: Options) {
       let activeId = conversationId
       let finished = false
       try {
-        const events = streamChat(question, conversationId, controller.signal, documentIds)
+        const events = streamChat(question, conversationId, controller.signal, scope)
         for await (const event of events) {
           if (event.event === 'conversation') {
             activeId = event.data.id
