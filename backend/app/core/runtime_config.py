@@ -176,6 +176,8 @@ class RagConfig(ConfigGroup):
     locate_sections: bool
     # Si falla la búsqueda: responder sin documentación con un aviso, o no responder (#97).
     on_retrieval_failure: Literal["answer", "refuse"]
+    # Sin fuentes para la pregunta (y con documentos indexados), se avisa al modelo (#96).
+    no_sources_note: bool
 
 
 class ChatLimits(ConfigGroup):

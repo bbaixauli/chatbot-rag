@@ -270,6 +270,7 @@ export const t = {
           scoped_min_score: 'Puntuación mínima al buscar en documentos concretos (0-1)',
           locate_sections: 'Añadir el apartado que cite la pregunta',
           on_retrieval_failure: 'Si no se puede consultar la documentación',
+          no_sources_note: 'Avisar al modelo si no encuentra documentación',
         },
         hints: {
           min_score: 'Similitud mínima para usar un fragmento; depende del modelo de embeddings.',
@@ -289,6 +290,8 @@ export const t = {
             '«El apartado 4.2», «el capítulo V», «la sección de altas»: si se busca en unos documentos concretos, se envía el apartado completo.',
           on_retrieval_failure:
             'Cuando fallan el servicio de embeddings o el índice. Sin documentación, el modelo responde con lo que sabe por su cuenta.',
+          no_sources_note:
+            'Si ningún fragmento es pertinente, se pide al modelo que diga que no tiene la información en lugar de suponerla. Desactívalo si el prompt de sistema ya lo indica.',
         },
       },
       chat: {

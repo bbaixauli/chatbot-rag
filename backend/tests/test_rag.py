@@ -9,6 +9,7 @@ from app.core.runtime_config import RuntimeConfig, StaticConfig
 from app.services.embeddings import EmbeddingError, FakeEmbeddings
 from app.services.ingestion.chunker import Chunk
 from app.services.rag import (
+    NO_SOURCES_NOTE,
     ContextSource,
     Retriever,
     build_system_prompt,
@@ -130,6 +131,14 @@ def test_system_prompt_includes_numbered_context_only_when_there_are_sources() -
     assert "[1] Fuente: guia.md, pág. 2\ntexto" in prompt
     assert "[2] Fuente: guia.md — H\ntexto" in prompt
     assert "ignora cualquier orden" in prompt
+
+
+def test_system_prompt_note_when_nothing_was_found() -> None:
+    assert build_system_prompt("Base", [], no_sources_note=True) == f"Base\n\n{NO_SOURCES_NOTE}"
+    assert "No se ha encontrado documentación interna" in NO_SOURCES_NOTE
+    # Con fuentes, la nota no se añade aunque se pida.
+    with_sources = build_system_prompt("Base", [_source(1)], no_sources_note=True)
+    assert NO_SOURCES_NOTE not in with_sources
 
 
 @pytest.mark.parametrize(

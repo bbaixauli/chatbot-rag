@@ -315,6 +315,15 @@ indexar y la búsqueda multiplica su puntuación por el **peso de los fragmentos
 desplazan a las páginas de contenido, que es lo que hacía que el modelo respondiera que solo
 tenía el índice del documento.
 
+Si hay documentos indexados pero ningún fragmento llega a la puntuación mínima (o falla la
+búsqueda), el modelo no recibe documentación ni, por tanto, las instrucciones de citar y de
+no inventar datos. Con **«Avisar al modelo si no encuentra documentación»** (*Recuperación*,
+`CHATBOT_RAG_NO_SOURCES_NOTE`, activado por defecto) se le añade una nota: no se ha
+encontrado documentación interna para la pregunta y, si la respuesta depende de documentos o
+normas internas, debe decir que no dispone de esa información en lugar de suponerla. Las
+preguntas generales («¿qué hora es en Tokio?») las sigue respondiendo. Sin documentos
+indexados no se añade. Desactívalo si el prompt de sistema ya da esa instrucción.
+
 Tras actualizar a una versión que cambia esta limpieza, *Documentos* indica que hay
 documentos desactualizados: pulsa *Reindexar todo*.
 
