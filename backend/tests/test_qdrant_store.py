@@ -1,9 +1,11 @@
 import asyncio
 from collections.abc import AsyncIterator
+from typing import Any
 
 import pytest
 from qdrant_client import AsyncQdrantClient
 
+from app.services import vectorstore
 from app.services.embeddings import FakeEmbeddings
 from app.services.ingestion.chunker import Chunk
 from app.services.qdrant_store import QdrantVectorStore, point_id
@@ -269,3 +271,29 @@ async def test_document_chunks_without_vectors(store: QdrantVectorStore) -> None
         (1, [], "d1.md"),
         (2, [], "d1.md"),
     ]
+
+
+async def test_unlimited_search_is_exact_in_a_small_index(
+    store: QdrantVectorStore, client: AsyncQdrantClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    chunks = [Chunk(0, "Vacaciones anuales", None, None), Chunk(1, "Permisos", None, None)]
+    embeddings = await _add(store, "d1", chunks)
+    calls: list[Any] = []
+    query_points = client.query_points
+
+    async def spy(*args: Any, **kwargs: Any) -> Any:
+        calls.append(kwargs.get("search_params"))
+        return await query_points(*args, **kwargs)
+
+    monkeypatch.setattr(client, "query_points", spy)
+    [vector] = await embeddings.embed(["Vacaciones anuales"])
+
+    hits = await store.search(vector, 5)
+
+    assert hits[0].text == "Vacaciones anuales"
+    # Índice pequeño sin limitar: búsqueda exacta (#112).
+    assert calls[-1] is not None
+    assert calls[-1].exact is True
+    monkeypatch.setattr(vectorstore, "EXACT_SEARCH_MAX_CHUNKS", 1)
+    await store.search(vector, 5)
+    assert calls[-1] is None

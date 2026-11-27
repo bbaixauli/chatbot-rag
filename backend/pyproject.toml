@@ -83,6 +83,8 @@ filterwarnings = [
     "ignore:(tagMap|typeMap) is deprecated:DeprecationWarning",
     # Qdrant en memoria (tests) ignora los índices de payload; el servidor sí los usa.
     "ignore:Payload indexes have no effect in the local Qdrant:UserWarning",
+    # Qdrant en memoria siempre busca de forma exacta: ignora `search_params` (#112).
+    "ignore:Local mode performs exact:UserWarning",
 ]
 
 [tool.coverage.run]
