@@ -37,9 +37,10 @@ from app.core.config import Settings
 from app.core.runtime_config import AuditConfig, ConfigSource, RuntimeConfig
 from app.db.models import AuditAlert, AuditRun, AuditRunStatus, QuestionLog, utcnow
 from app.services.audit_rules import (
-    CATEGORIES,
     INAPPROPRIATE_RESPONSE,
     MALICIOUS_USER,
+    RETRIEVAL_FAILURE,
+    REVIEW_CATEGORIES,
     SENSITIVE_INFORMATION,
     SEVERITIES,
     Finding,
@@ -59,6 +60,7 @@ CATEGORY_LABELS = {
     MALICIOUS_USER: "Usuario con posibles intenciones maliciosas",
     INAPPROPRIATE_RESPONSE: "Respuesta inapropiada",
     SENSITIVE_INFORMATION: "Información sensible en la respuesta",
+    RETRIEVAL_FAILURE: "Preguntas sin poder consultar la documentación",
 }
 
 # Empieza así para que el modelo simulado (pruebas y demos) lo reconozca.
@@ -126,7 +128,7 @@ def parse_verdict(text: str) -> list[Finding]:
         severity = "medium"
     reason = str(data.get("reason") or "").strip()[:500] or "Detectado por el modelo revisor"
     findings = []
-    for category in CATEGORIES:
+    for category in REVIEW_CATEGORIES:
         value = data.get(category)
         if not isinstance(value, bool):
             raise ReviewError(f"Falta «{category}» o no es verdadero/falso")
@@ -361,6 +363,9 @@ async def execute_run(deps: AuditDeps, run_id: int) -> AuditRun:
                     )
                     session.add(alert)
                     new_alerts.append(alert)
+            if failures := retrieval_failure_alert(rows, audit.retrieval_failure_threshold, run.id):
+                session.add(failures)
+                new_alerts.append(failures)
             run.reviewed = len(rows)
             run.alerts = len(new_alerts)
             run.to_id = rows[-1].id if rows else run.from_id
@@ -389,6 +394,31 @@ async def execute_run(deps: AuditDeps, run_id: int) -> AuditRun:
             failed.error = f"{type(exc).__name__}: {exc}"[:2000]
             await session.commit()
             return failed
+
+
+def retrieval_failure_alert(
+    rows: Sequence[QuestionLog], threshold: int, run_id: int
+) -> AuditAlert | None:
+    """Alerta si en las preguntas revisadas hay al menos `threshold` en las que no se pudo
+    consultar la documentación (#99): no es un problema de una pregunta, sino del servicio de
+    embeddings o del índice. Se asocia a la última pregunta afectada. `threshold` 0: nunca."""
+    failed = [row for row in rows if row.retrieval_failed]
+    if not threshold or len(failed) < threshold:
+        return None
+    return AuditAlert(
+        run_id=run_id,
+        question_log_id=failed[-1].id,
+        category=RETRIEVAL_FAILURE,
+        severity="medium",
+        source="rule",
+        reason=(
+            f"En {len(failed)} de las {len(rows)} preguntas revisadas no se pudo consultar la "
+            f"documentación (umbral: {threshold}). Comprueba el servicio de embeddings y el "
+            "índice vectorial: su estado está en /api/v1/health y el detalle, en el log."
+        ),
+        excerpt=None,
+        status="new",
+    )
 
 
 @dataclass(slots=True)

@@ -272,6 +272,9 @@ class AuditConfig(ConfigGroup):
     max_per_run: int = Field(ge=1, le=10_000)
     llm_history_days: int = Field(ge=0)
     retention_days: int = Field(ge=0)
+    # Alerta si una revisión encuentra al menos estas preguntas sin documentación por un fallo
+    # de la búsqueda (#99); 0 = sin alerta.
+    retrieval_failure_threshold: int = Field(ge=0)
     notify_enabled: bool
     notify_min_severity: Literal["low", "medium", "high"]
     notify_to: str | None

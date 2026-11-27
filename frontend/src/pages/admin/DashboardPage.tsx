@@ -83,6 +83,15 @@ export function DashboardPage() {
           aria-busy={summary.isPlaceholderData}
           className={`flex flex-col gap-6 ${summary.isPlaceholderData ? 'opacity-60' : ''}`}
         >
+          {summary.data.retrieval_failed > 0 && (
+            <p
+              role="note"
+              className="flex gap-2 rounded border border-aviso bg-aviso-suave px-4 py-3 text-sm text-aviso"
+            >
+              <AlertTriangle aria-hidden size={18} className="mt-0.5 shrink-0" />
+              {t.dashboard.retrievalFailed(formatNumber(summary.data.retrieval_failed))}
+            </p>
+          )}
           <Figures summary={summary.data} />
           <Activity summary={summary.data} />
           <Questions range={range} />
@@ -254,6 +263,9 @@ function Activity({ summary }: { summary: DashboardSummary }) {
                     {t.dashboard.series[s.key]}
                   </th>
                 ))}
+                <th scope="col" className="px-3 py-2 text-right font-semibold">
+                  {t.dashboard.retrievalFailedColumn}
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -267,6 +279,9 @@ function Activity({ summary }: { summary: DashboardSummary }) {
                       {formatNumber(d[s.key])}
                     </td>
                   ))}
+                  <td className="px-3 py-1.5 text-right tabular-nums">
+                    {formatNumber(d.retrieval_failed)}
+                  </td>
                 </tr>
               ))}
             </tbody>

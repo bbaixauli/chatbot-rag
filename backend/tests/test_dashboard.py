@@ -350,7 +350,13 @@ async def test_summary_counts_sessions_users_questions_and_times(
             "answer": None,
             "response_ms": 9000,
         },
-        {"asked_at": local(day2, 23), "session_id": "c", "user_id": "ana", "sources_retrieved": 0},
+        {
+            "asked_at": local(day2, 23),
+            "session_id": "c",
+            "user_id": "ana",
+            "sources_retrieved": 0,
+            "retrieval_failed": True,
+        },
         # Fuera del rango (día anterior, en hora de Madrid).
         {"asked_at": local(date(2026, 2, 9), 23), "session_id": "z", "user_id": "zoe"},
     )
@@ -364,14 +370,15 @@ async def test_summary_counts_sessions_users_questions_and_times(
     assert (body["answered"], body["no_info"], body["errors"]) == (3, 1, 1)
     assert body["answered_ratio"] == pytest.approx(3 / 5)
     assert body["without_sources"] == 1
+    assert body["retrieval_failed"] == 1
     # Media y mediana de las respondidas (los errores no cuentan): 1000, 3000, 1000, 1000.
     assert (body["avg_response_ms"], body["median_response_ms"]) == (1500, 1000)
     assert body["avg_first_token_ms"] == 200
     assert body["timezone"] == "Europe/Madrid"
     assert body["days"] == [
-        {"day": "2026-02-10", "sessions": 2, "users": 2, "questions": 3},
-        {"day": "2026-02-11", "sessions": 1, "users": 1, "questions": 2},
-        {"day": "2026-02-12", "sessions": 0, "users": 0, "questions": 0},
+        {"day": "2026-02-10", "sessions": 2, "users": 2, "questions": 3, "retrieval_failed": 0},
+        {"day": "2026-02-11", "sessions": 1, "users": 1, "questions": 2, "retrieval_failed": 1},
+        {"day": "2026-02-12", "sessions": 0, "users": 0, "questions": 0, "retrieval_failed": 0},
     ]
 
 
@@ -429,7 +436,12 @@ async def test_exports(app: FastAPI, admin_client: AsyncClient) -> None:
             "answer": "Son 23 días.",
             "response_ms": 1234,
         },
-        {"asked_at": local(date(2026, 4, 1), 10), "status": "error", "answer": None},
+        {
+            "asked_at": local(date(2026, 4, 1), 10),
+            "status": "error",
+            "answer": None,
+            "retrieval_failed": True,
+        },
         {"asked_at": local(date(2026, 4, 1), 11), "status": "ok", "no_info": True},
     )
     params = {"from": "2026-04-01", "to": "2026-04-01"}
@@ -452,6 +464,7 @@ async def test_exports(app: FastAPI, admin_client: AsyncClient) -> None:
         "0.2",
         "Error del modelo",
         "1",
+        "Sí",
     ]
     assert rows[3] == [
         "01/04/2026 09:00:00",
@@ -461,6 +474,7 @@ async def test_exports(app: FastAPI, admin_client: AsyncClient) -> None:
         "0.2",
         "Respondida",
         "1",
+        "No",
     ]
 
     xlsx = await admin_client.get("/api/v1/admin/dashboard/questions.xlsx", params=params)
@@ -475,6 +489,7 @@ async def test_exports(app: FastAPI, admin_client: AsyncClient) -> None:
     # La fórmula se guarda como texto: no se ejecuta al abrir el fichero.
     assert (question.value, question.data_type) == ("'=1+1", "s")
     assert sheet["D4"].value == 1.23
+    assert (sheet["H3"].value, sheet["H4"].value) == ("Sí", "No")
 
 
 async def test_dashboard_is_only_for_admins(client: AsyncClient) -> None:

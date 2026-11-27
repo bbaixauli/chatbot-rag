@@ -1,7 +1,8 @@
 import { API_BASE, apiGet, apiRequest } from './client'
 
 export type AlertStatus = 'new' | 'reviewed' | 'dismissed'
-export type AlertCategory = 'malicious_user' | 'inappropriate_response' | 'sensitive_information'
+export type AlertCategory =
+  'malicious_user' | 'inappropriate_response' | 'sensitive_information' | 'retrieval_failure'
 export type Severity = 'low' | 'medium' | 'high'
 
 export interface AuditRun {

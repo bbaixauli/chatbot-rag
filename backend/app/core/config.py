@@ -122,6 +122,9 @@ class Settings(BaseSettings):
     audit_llm_history_days: int = Field(default=7, ge=0)
     # Pasados estos días se anonimizan usuario, IP y navegador (0 = nunca).
     audit_retention_days: int = Field(default=365, ge=0)
+    # Alerta si en una revisión hay al menos estas preguntas sin poder consultar la
+    # documentación (embeddings o índice caídos, #99). 0 = sin alerta.
+    audit_retrieval_failure_threshold: int = Field(default=10, ge=0)
     audit_notify_enabled: bool = False
     audit_notify_min_severity: Literal["low", "medium", "high"] = "medium"
     # Destinatarios separados por comas.

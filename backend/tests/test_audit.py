@@ -713,6 +713,11 @@ async def test_api_run_alerts_and_review(
         "/api/v1/admin/audit/alerts", params={"category": "sensitive_information"}
     )
     assert filtered.json()["total"] == 0
+    failures = await admin_client.get(
+        "/api/v1/admin/audit/alerts", params={"category": "retrieval_failure"}
+    )
+    assert failures.status_code == 200
+    assert failures.json()["total"] == 0
     # Quién consulta la auditoría queda en el log.
     assert "Acceso a la auditoría" in caplog.text
 
@@ -778,3 +783,43 @@ async def test_a_running_review_blocks_another(
     response = await admin_client.post("/api/v1/admin/audit/runs")
     assert response.status_code == 409
     assert "en curso" in response.json()["detail"]
+
+
+async def test_alert_when_many_questions_could_not_use_the_documentation(
+    app: FastAPI, settings: Settings
+) -> None:
+    ids = await insert(
+        app,
+        {"retrieval_failed": True},
+        {},
+        {"retrieval_failed": True},
+        {"retrieval_failed": True},
+    )
+    mails: list[EmailMessage] = []
+    mail = {**MAIL, "notify_min_severity": "medium"}
+    deps = deps_for(
+        app, settings, mails=mails, use_llm=False, retrieval_failure_threshold=3, **mail
+    )
+
+    run = await run_audit(deps, "manual")
+
+    assert run.alerts == 1
+    async with app.state.sessionmaker() as db:
+        [alert] = list(await db.scalars(select(AuditAlert).where(AuditAlert.run_id == run.id)))
+    # Una sola alerta por revisión, asociada a la última pregunta afectada (#99).
+    assert alert.category == "retrieval_failure"
+    assert (alert.severity, alert.source) == ("medium", "rule")
+    assert alert.question_log_id == ids[-1]
+    assert "En 3 de las 4 preguntas revisadas" in alert.reason
+    [message] = mails
+    assert "Preguntas sin poder consultar la documentación" in message.get_content()
+
+
+@pytest.mark.parametrize("threshold", [0, 4])
+async def test_no_alert_below_the_threshold_or_when_disabled(
+    app: FastAPI, settings: Settings, threshold: int
+) -> None:
+    await insert(app, *({"retrieval_failed": True} for _ in range(3)))
+
+    deps = deps_for(app, settings, use_llm=False, retrieval_failure_threshold=threshold)
+    assert (await run_audit(deps, "manual")).alerts == 0

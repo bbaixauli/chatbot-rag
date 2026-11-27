@@ -34,13 +34,14 @@ function summary(overrides: Partial<DashboardSummary> = {}): DashboardSummary {
     errors: 1,
     without_sources: 2,
     trimmed: 1,
+    retrieval_failed: 0,
     avg_response_ms: 1500,
     median_response_ms: 1200,
     avg_first_token_ms: 300,
     days: [
-      { day: '2026-02-10', sessions: 2, users: 2, questions: 6 },
-      { day: '2026-02-11', sessions: 1, users: 1, questions: 4 },
-      { day: '2026-02-12', sessions: 0, users: 0, questions: 0 },
+      { day: '2026-02-10', sessions: 2, users: 2, questions: 6, retrieval_failed: 0 },
+      { day: '2026-02-11', sessions: 1, users: 1, questions: 4, retrieval_failed: 0 },
+      { day: '2026-02-12', sessions: 0, users: 0, questions: 0, retrieval_failed: 0 },
     ],
     ...overrides,
   }
@@ -125,8 +126,8 @@ describe('utilidades del cuadro de mando', () => {
     const { container } = render(
       <DailyChart
         days={[
-          { day: '2026-02-10', sessions: 1, users: 1, questions: 2 },
-          { day: '2026-02-11', sessions: 1, users: 1, questions: 30 },
+          { day: '2026-02-10', sessions: 1, users: 1, questions: 2, retrieval_failed: 0 },
+          { day: '2026-02-11', sessions: 1, users: 1, questions: 30, retrieval_failed: 0 },
         ]}
       />,
     )
@@ -165,6 +166,31 @@ describe('DashboardPage', () => {
         /1 sin información · 1 con error · 2 sin documentación encontrada · 1 con el prompt recortado/,
       ),
     ).toBeVisible()
+    // Sin fallos de la búsqueda no hay aviso.
+    expect(screen.queryByRole('note')).toBeNull()
+  })
+
+  it('avisa de las preguntas sin documentación por un fallo de la búsqueda', async () => {
+    api({
+      'GET /admin/dashboard/summary*': () =>
+        jsonResponse(
+          summary({
+            retrieval_failed: 3,
+            days: [{ day: '2026-02-10', sessions: 2, users: 2, questions: 6, retrieval_failed: 3 }],
+          }),
+        ),
+    })
+    renderApp('/admin/dashboard?from=2026-02-10&to=2026-02-12')
+
+    expect(await screen.findByRole('note')).toHaveTextContent(
+      'En 3 preguntas no se pudo consultar la documentación',
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Ver como tabla' }))
+    const table = screen.getByRole('table', { name: 'Actividad diaria por día' })
+    expect(
+      within(table).getByRole('columnheader', { name: 'Sin documentación por un fallo' }),
+    ).toBeInTheDocument()
+    expect(within(table).getAllByRole('row')[1]).toHaveTextContent('10/02/20266223')
   })
 
   it('los atajos y el rango a medida cambian las cifras', async () => {
@@ -241,7 +267,7 @@ describe('DashboardPage', () => {
     const rows = within(table)
       .getAllByRole('row')
       .map((r) => r.textContent)
-    expect(rows[1]).toBe('10/02/2026622')
+    expect(rows[1]).toBe('10/02/20266220')
     expect(screen.getByRole('button', { name: 'Ver como gráfica' })).toHaveAttribute(
       'aria-pressed',
       'true',

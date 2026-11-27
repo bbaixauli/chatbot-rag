@@ -119,6 +119,7 @@ function appConfig(): AppConfig {
         max_per_run: 500,
         llm_history_days: 7,
         retention_days: 365,
+        retrieval_failure_threshold: 10,
         notify_enabled: false,
         notify_min_severity: 'medium',
         notify_to: null,
@@ -491,6 +492,21 @@ describe('ConfigPage', () => {
       ldap_nested_groups: false,
     })
     expect(sent[0].body).not.toHaveProperty('test_username')
+  })
+
+  it('configura el umbral de la alerta por preguntas sin documentación', async () => {
+    const { sent } = configApi()
+    renderApp('/admin/config')
+    const audit = await section('Auditoría')
+    const threshold = audit.getByLabelText('Alerta por preguntas sin documentación')
+    expect(threshold).toHaveValue(10)
+
+    await userEvent.clear(threshold)
+    await userEvent.type(threshold, '0')
+    await userEvent.click(audit.getByRole('button', { name: 'Guardar' }))
+
+    expect(await audit.findByText('Cambios guardados.')).toBeInTheDocument()
+    expect(sent[0].body.retrieval_failure_threshold).toBe(0)
   })
 
   it('muestra un error si no se puede cargar', async () => {

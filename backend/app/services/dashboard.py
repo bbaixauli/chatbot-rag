@@ -284,6 +284,8 @@ class DayStats:
     sessions: int = 0
     users: int = 0
     questions: int = 0
+    # Preguntas en las que no se pudo consultar la documentación (#99).
+    retrieval_failed: int = 0
 
 
 @dataclass(slots=True)
@@ -300,6 +302,9 @@ class Summary:
     avg_first_token_ms: int | None
     # Preguntas cuyo prompt se recortó para caber en la ventana del modelo (#73).
     trimmed: int = 0
+    # Preguntas en las que falló la búsqueda en la documentación (embeddings o índice, #99),
+    # respondidas sin ella o rechazadas (#97).
+    retrieval_failed: int = 0
     days: list[DayStats] = field(default_factory=list)
 
     @property
@@ -343,21 +348,27 @@ async def summary(session: AsyncSession, rng: DateRange) -> Summary:
                 QuestionLog.first_token_ms,
                 QuestionLog.sources_retrieved,
                 QuestionLog.prompt_trim,
+                QuestionLog.retrieval_failed,
             ).where(_in_range(rng))
         )
     ).all()
-    # Por día: sesiones y usuarios distintos, y número de preguntas.
+    # Por día: sesiones y usuarios distintos, número de preguntas y fallos de la búsqueda.
     per_day: dict[date, tuple[set[str], set[str], list[None]]] = {
         day: (set(), set(), []) for day in rng.days()
     }
+    failed_per_day: dict[date, int] = dict.fromkeys(rng.days(), 0)
     sessions: set[str] = set()
     users: set[str] = set()
-    answered = no_info = errors = without_sources = trimmed = 0
+    answered = no_info = errors = without_sources = trimmed = retrieval_failed = 0
     times: list[int] = []
     first_tokens: list[int] = []
     for row in rows:
-        day_sessions, day_users, day_questions = per_day[rng.local_day(row.asked_at)]
+        day = rng.local_day(row.asked_at)
+        day_sessions, day_users, day_questions = per_day[day]
         day_questions.append(None)
+        if row.retrieval_failed:
+            retrieval_failed += 1
+            failed_per_day[day] += 1
         if row.session_id:
             sessions.add(row.session_id)
             day_sessions.add(row.session_id)
@@ -388,11 +399,18 @@ async def summary(session: AsyncSession, rng: DateRange) -> Summary:
         errors=errors,
         without_sources=without_sources,
         trimmed=trimmed,
+        retrieval_failed=retrieval_failed,
         avg_response_ms=round(statistics.fmean(times)) if times else None,
         median_response_ms=round(statistics.median(times)) if times else None,
         avg_first_token_ms=round(statistics.fmean(first_tokens)) if first_tokens else None,
         days=[
-            DayStats(day=day, sessions=len(s), users=len(u), questions=len(q))
+            DayStats(
+                day=day,
+                sessions=len(s),
+                users=len(u),
+                questions=len(q),
+                retrieval_failed=failed_per_day[day],
+            )
             for day, (s, u, q) in per_day.items()
         ],
     )
@@ -434,6 +452,7 @@ EXPORT_HEADERS = [
     "Primer fragmento (s)",
     "Resultado",
     "Fuentes citadas",
+    "Fallo de la búsqueda",
 ]
 STATUS_LABELS = {
     QuestionStatus.OK.value: "Respondida",
@@ -455,6 +474,10 @@ def result_label(row: QuestionLog) -> str:
     if row.status == QuestionStatus.OK.value and row.no_info:
         return "Sin información"
     return STATUS_LABELS.get(row.status, row.status)
+
+
+def _yes_no(value: bool) -> str:
+    return "Sí" if value else "No"
 
 
 def _seconds(ms: int | None) -> float | None:
@@ -481,6 +504,7 @@ def to_csv(rows: Sequence[QuestionLog], zone: ZoneInfo) -> bytes:
                 _seconds(row.first_token_ms) if row.first_token_ms is not None else "",
                 result_label(row),
                 row.sources_cited,
+                _yes_no(row.retrieval_failed),
             ]
         )
     return buffer.getvalue().encode("utf-8")
@@ -508,11 +532,12 @@ def to_xlsx(rows: Sequence[QuestionLog], zone: ZoneInfo) -> bytes:
                 _seconds(row.first_token_ms),
                 result_label(row),
                 row.sources_cited,
+                _yes_no(row.retrieval_failed),
             ]
         )
     for (cell,) in sheet.iter_rows(min_row=2, max_col=1):
         cell.number_format = "dd/mm/yyyy hh:mm:ss"
-    for column, width in zip("ABCDEFG", (19, 60, 80, 14, 14, 18, 10), strict=True):
+    for column, width in zip("ABCDEFGH", (19, 60, 80, 14, 14, 18, 10, 12), strict=True):
         sheet.column_dimensions[column].width = width
     for cells in sheet.iter_rows(min_row=2, min_col=2, max_col=3):
         for cell in cells:
