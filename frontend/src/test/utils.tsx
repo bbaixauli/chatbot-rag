@@ -52,4 +52,11 @@ export function mockApi(routes: Record<string, Handler>) {
 }
 
 export const health = () =>
-  jsonResponse({ status: 'ok', app: 'Chatbot RAG', version: '0.1.0', database: 'ok' })
+  jsonResponse({
+    status: 'ok',
+    app: 'Chatbot RAG',
+    version: '0.1.0',
+    database: 'ok',
+    vector_store: 'ok',
+    embeddings: 'ok',
+  })

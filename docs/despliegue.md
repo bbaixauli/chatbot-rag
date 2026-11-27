@@ -956,6 +956,7 @@ aceptar una falsificada). También se ejecuta en el CI.
 | Las sesiones de administración se pierden al reiniciar (fuera de Docker) | Falta `CHATBOT_SESSION_SECRET` |
 | Todos los usuarios reciben `429` a la vez | Hay un proxy delante sin configurar `real_ip` (ver HTTPS) |
 | El modelo dice que los documentos no contienen la respuesta | Revisa el índice y la recuperación con `app.diagnose` (abajo) |
+| La cabecera muestra «Documentación no disponible» | `/api/v1/health` no alcanza el índice vectorial o el servicio de embeddings: el chat responde sin documentación y lo avisa en cada respuesta. Revisa `docker compose logs backend` («Estado: falla…») y la configuración de embeddings. El estado se comprueba como mucho una vez por minuto; el healthcheck de Docker no reinicia el contenedor por esto |
 
 ### Diagnóstico del índice y de la recuperación
 

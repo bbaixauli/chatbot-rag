@@ -15,6 +15,8 @@ export const t = {
     checking: 'Comprobando conexión…',
     ok: 'Servicio disponible',
     degraded: 'Servicio degradado',
+    // Fallan el índice o los embeddings, pero no la base de datos (#98).
+    documentation: 'Documentación no disponible',
     offline: 'Sin conexión con el servidor',
   },
   nav: {

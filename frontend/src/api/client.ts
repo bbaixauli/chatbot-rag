@@ -47,6 +47,9 @@ export interface HealthResponse {
   app: string
   version: string
   database: 'ok' | 'error'
+  /** Sin ellos, el chat responde sin documentación (#98). */
+  vector_store: 'ok' | 'error'
+  embeddings: 'ok' | 'error'
 }
 
 export const getHealth = (signal?: AbortSignal) => apiGet<HealthResponse>('/health', { signal })

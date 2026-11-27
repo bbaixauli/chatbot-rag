@@ -358,7 +358,7 @@ Documentación interactiva en http://localhost:8000/docs. Endpoints principales:
 
 | Método | Ruta | Descripción |
 |---|---|---|
-| GET | `/api/v1/health` | Estado de la API y de la BD |
+| GET | `/api/v1/health` | Estado de la API, la BD, el índice vectorial y el servicio de embeddings (estos dos, como mucho una vez por minuto); responde 200 también con `degraded` |
 | GET/POST | `/api/v1/conversations` | Listar / crear conversaciones |
 | PATCH/DELETE | `/api/v1/conversations/{id}` | Renombrar o limitar la búsqueda a unos documentos (`document_ids`) o categorías (`category_ids`) / eliminar |
 | GET | `/api/v1/conversations/{id}/messages` | Mensajes de una conversación |

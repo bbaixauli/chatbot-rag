@@ -22,6 +22,7 @@ from app.services.audit import AuditDeps
 from app.services.backends import build_task_runner, build_vector_store, close_vector_store
 from app.services.documents import DocumentService
 from app.services.embeddings import ConfigurableEmbeddings
+from app.services.health import HealthChecker
 from app.services.llm import ConfigurableLLM
 from app.services.rag import Retriever
 from app.services.runtime_config import ConfigStore
@@ -58,6 +59,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.embeddings = ConfigurableEmbeddings(config)
         app.state.vector_store = build_vector_store(settings)
         app.state.retriever = Retriever(app.state.embeddings, app.state.vector_store, config)
+        app.state.health = HealthChecker(app.state.vector_store, app.state.embeddings)
         tasks = await build_task_runner(settings)
         app.state.tasks = tasks
         app.state.documents = DocumentService(
