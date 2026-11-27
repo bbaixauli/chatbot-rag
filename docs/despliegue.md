@@ -297,6 +297,17 @@ confunda con lo que se repite en todas las páginas. Cada paso se puede desactiv
   fragmento se calcula con «Documento: <nombre del fichero>» y la sección delante, así que
   las preguntas que nombran el documento («¿qué dice el NOR-013?») encuentran sus
   fragmentos. Las fuentes que se muestran conservan el texto original.
+- **Apartados de los PDF** (`CHATBOT_INDEXING_PDF_HEADINGS`): en un PDF cada página es una
+  sección sin título; se detectan las líneas de encabezado numeradas («4.2 Altas de
+  usuarios», o el número en una línea y el título en la siguiente) o con palabra clave
+  («CAPÍTULO V», «Anexo II», «Artículo 5») y cada fragmento guarda el apartado al que
+  pertenece, como en Markdown, HTML o Word. Para no confundirlos con listas numeradas, solo
+  cuentan los que siguen la numeración (tras el 4.2 vienen el 4.2.1, el 4.3 o el 5) y no
+  terminan en punto; los anexos la reinician y las páginas de índice se ignoran. El apartado
+  entra en el vector del fragmento, la fuente lo muestra («NOR-013, pág. 5 — 4.2 Altas de
+  usuarios») y se puede preguntar por él (ver [Apartados citados en la
+  pregunta](#apartados-citados-en-la-pregunta)). Activarlo o desactivarlo solo deja
+  desactualizados los PDF.
 
 Además, los fragmentos que parecen el índice del documento (tabla de contenidos) se marcan al
 indexar y la búsqueda multiplica su puntuación por el **peso de los fragmentos de índice**
@@ -358,6 +369,33 @@ prompt de sistema y el historial: por ejemplo, 60000 caracteres son unos 17000 t
 pregunta sobre un documento completo es más lenta y consume más tokens. `app.diagnose query`
 indica si se enviaría el documento completo y su tamaño. Con la ventana de contexto
 configurada (ver abajo), si no cabe se envían sus fragmentos.
+
+#### Apartados citados en la pregunta
+
+«¿Qué dice el apartado 4.2 del NOR-013?» depende de la búsqueda por similitud, y el número del
+apartado apenas influye en ella: el fragmento que lo contiene puede quedarse fuera. Con
+**«Añadir el apartado que cite la pregunta»** (*Recuperación*, `CHATBOT_RAG_LOCATE_SECTIONS`,
+activado por defecto), cuando la búsqueda está limitada a unos documentos (elegidos en el chat
+o nombrados en la pregunta) y no se envían completos, se buscan sus encabezados y se añade
+**el apartado citado completo**, hasta el siguiente del mismo nivel o superior, aunque ocupe
+varias páginas. Va delante de los fragmentos más parecidos, dentro del máximo de contexto y
+de la ventana del modelo; si no cabe entero, se envía su principio.
+
+Se reconocen, en la pregunta o en su reformulación y sin tener en cuenta mayúsculas ni
+acentos:
+
+- **Por número**, siempre con una palabra delante: «apartado 4.2», «punto 3», «sección
+  2.1.3», «capítulo 5» o «capítulo V», «anexo II», «artículo 12», «epígrafe 4», «cláusula 7».
+  Un número suelto («4.2 millones») no cuenta.
+- **Por título**: entre comillas («Bajas de usuarios») o en la forma «el apartado / el punto /
+  la sección de altas de usuarios». Solo cuenta si coincide con un encabezado del documento.
+
+Los encabezados son los apartados de Markdown, HTML, Word y OpenDocument, y los de los PDF
+detectados al indexar (ver [Limpieza del texto](#limpieza-del-texto-antes-de-indexar)); en los
+PDF indexados antes, se buscan en el texto de sus páginas. Los fragmentos de índice no cuentan.
+En Word, la numeración automática no forma parte del texto del encabezado: ahí solo funcionan
+las referencias por título. El log indica los apartados citados y los añadidos, y
+`app.diagnose query` los muestra; `app.diagnose index` lista los apartados de cada documento.
 
 #### Ventana de contexto del modelo
 

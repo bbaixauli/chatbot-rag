@@ -106,6 +106,7 @@ const GROUPS: GroupSpec[] = [
       },
       { name: 'clean_toc_leaders', kind: 'boolean' },
       { name: 'context_prefix', kind: 'boolean' },
+      { name: 'pdf_headings', kind: 'boolean' },
     ],
   },
   {
@@ -121,6 +122,7 @@ const GROUPS: GroupSpec[] = [
       { name: 'condense_history_messages', kind: 'number', min: 1, integer: true },
       { name: 'toc_score_factor', kind: 'number', min: 0, max: 1, step: 0.05 },
       { name: 'detect_document_names', kind: 'boolean' },
+      { name: 'locate_sections', kind: 'boolean' },
       { name: 'scoped_min_score', kind: 'number', min: 0, max: 1, step: 0.01 },
     ],
   },

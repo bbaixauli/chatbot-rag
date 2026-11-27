@@ -120,6 +120,7 @@ class IndexingConfig(ConfigGroup):
         "repeated_line_min_ratio": "indexing_repeated_line_min_ratio",
         "clean_toc_leaders": "indexing_clean_toc_leaders",
         "context_prefix": "indexing_context_prefix",
+        "pdf_headings": "indexing_pdf_headings",
     }
     REINDEX_FIELDS = (
         "chunk_size_chars",
@@ -128,6 +129,7 @@ class IndexingConfig(ConfigGroup):
         "repeated_line_min_ratio",
         "clean_toc_leaders",
         "context_prefix",
+        "pdf_headings",
     )
 
     upload_max_mb: int = Field(gt=0)
@@ -142,6 +144,8 @@ class IndexingConfig(ConfigGroup):
     clean_toc_leaders: bool
     # Antepone el título del documento y la sección al calcular el vector de cada fragmento.
     context_prefix: bool
+    # Encabezados numerados de los PDF como sección de los fragmentos (#74).
+    pdf_headings: bool
 
 
 class RagConfig(ConfigGroup):
@@ -168,6 +172,8 @@ class RagConfig(ConfigGroup):
     neighbor_chunks: int = Field(ge=0, le=3)
     # Documento completo si la búsqueda se limita a uno que cabe en estos caracteres (0: no).
     full_document_max_chars: int = Field(ge=0)
+    # Añade el apartado citado en la pregunta en las búsquedas limitadas (#74).
+    locate_sections: bool
 
 
 class ChatLimits(ConfigGroup):

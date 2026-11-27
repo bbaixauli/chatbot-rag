@@ -1,12 +1,17 @@
 import { isSlides, sourceUrl, type Source } from '../api/client'
 import { t } from '../i18n/es'
 
-/** «documento · pág. N» (o «diap. N»), o «documento — sección», con el título del documento. */
+/**
+ * «documento · pág. N» (o «diap. N»), o «documento — sección», con el título del documento.
+ * En las páginas con apartado (PDF, #74) o diapositivas con título, se añade el último:
+ * «documento · pág. N — 4.2 Altas».
+ */
 export function sourceLabel(source: Source): string {
   const name = source.title || source.filename
   if (source.page) {
     const location = isSlides(source.filename) ? t.chat.slide : t.chat.page
-    return `${name} · ${location(source.page)}`
+    const section = source.heading?.split(' > ').at(-1)
+    return `${name} · ${location(source.page)}${section ? ` — ${section}` : ''}`
   }
   // La sección no se repite si es el propio título.
   if (source.heading && source.heading !== name) return `${name} — ${source.heading}`

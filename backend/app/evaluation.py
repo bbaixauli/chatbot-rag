@@ -233,6 +233,7 @@ _NO_PREPROCESSING = IndexingConfig(
     repeated_line_min_ratio=1,
     clean_toc_leaders=False,
     context_prefix=False,
+    pdf_headings=False,
 )
 
 
@@ -287,7 +288,7 @@ async def _build_index(
             skipped[document.filename] = str(exc)
             progress(f"{label} documento {number}/{len(documents)}: omitido {document.filename}")
             continue
-        chunks = build_chunks(sections, indexing)
+        chunks = build_chunks(sections, indexing, document.kind)
         vectors = await embeddings.embed(
             embedding_texts(chunks, document_title(document.filename), indexing)
         )

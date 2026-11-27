@@ -10,7 +10,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path, PurePosixPath
 from typing import Protocol
 
-from sqlalchemy import ColumnElement, and_, func, or_, select
+from sqlalchemy import ColumnElement, and_, case, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -601,7 +601,7 @@ class DocumentService:
         model_name = self._embeddings.model_name
         try:
             sections = await asyncio.to_thread(parse_document, path, kind)
-            chunks = build_chunks(sections, indexing)
+            chunks = build_chunks(sections, indexing, kind)
             texts = embedding_texts(
                 chunks,
                 document_label(title, filename),
@@ -635,7 +635,7 @@ class DocumentService:
             document.embedding_model = None if error else model_name
             document.chunk_size_chars = None if error else indexing.chunk_size_chars
             document.chunk_overlap_chars = None if error else indexing.chunk_overlap_chars
-            document.preprocessing = None if error else preprocessing_signature(indexing)
+            document.preprocessing = None if error else preprocessing_signature(indexing, kind)
             document.indexed_title = None if error else title
             document.indexed_category = None if error else category
             document.updated_at = utcnow()
@@ -760,7 +760,15 @@ class DocumentService:
             Document.embedding_model.is_distinct_from(model_name),
             Document.chunk_size_chars != indexing.chunk_size_chars,
             Document.chunk_overlap_chars != indexing.chunk_overlap_chars,
-            Document.preprocessing.is_distinct_from(preprocessing_signature(indexing)),
+            Document.preprocessing.is_distinct_from(
+                case(
+                    (
+                        Document.kind == DocumentKind.PDF.value,
+                        preprocessing_signature(indexing, DocumentKind.PDF.value),
+                    ),
+                    else_=preprocessing_signature(indexing),
+                )
+            ),
         ]
         if indexing.context_prefix:
             changed += [

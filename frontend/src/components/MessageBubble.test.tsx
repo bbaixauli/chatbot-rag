@@ -26,6 +26,10 @@ function renderBubble(content: string, sources: Source[]) {
 describe('sourceLabel', () => {
   it('muestra página, sección o solo el fichero', () => {
     expect(sourceLabel(source(1, { page: 3 }))).toBe('manual.pdf · pág. 3')
+    // Apartado de un PDF (#74): el último encabezado.
+    expect(sourceLabel(source(1, { page: 4, heading: '3 Accesos > 3.2 Bajas' }))).toBe(
+      'manual.pdf · pág. 4 — 3.2 Bajas',
+    )
     expect(sourceLabel(source(1, { heading: 'A > B' }))).toBe('manual.pdf — A > B')
     expect(sourceLabel(source(1))).toBe('manual.pdf')
   })

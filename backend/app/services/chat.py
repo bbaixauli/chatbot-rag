@@ -41,6 +41,7 @@ from app.services.prompt_budget import (
 from app.services.prompts import PromptRepository
 from app.services.rag import (
     ContextSource,
+    Retrieval,
     Retriever,
     build_system_prompt,
     extract_citations,
@@ -404,9 +405,11 @@ class ChatService:
         if limit is None:
             sources: list[ContextSource] = []
             if self._retriever is not None and query is not None:
-                sources = await self._with_titles(
-                    await self._retriever.retrieve(query, scope_ids or None)
+                retrieval = await self._retriever.retrieve_within(
+                    query, scope_ids or None, questions=[prepared.question]
                 )
+                self._log_sections(prepared, retrieval)
+                sources = await self._with_titles(retrieval.sources)
             system = ChatMessage("system", build_system_prompt(prepared.system_prompt, sources))
             return [system, *prepared.history], sources
 
@@ -424,8 +427,12 @@ class ChatService:
         sources = []
         if self._retriever is not None and query is not None:
             retrieval = await self._retriever.retrieve_within(
-                query, scope_ids or None, documents_budget(limit, minimal + messages_tokens(last))
+                query,
+                scope_ids or None,
+                documents_budget(limit, minimal + messages_tokens(last)),
+                questions=[prepared.question],
             )
+            self._log_sections(prepared, retrieval)
             trim.full_document = retrieval.full_document_skipped
             trim.sources = retrieval.dropped
             sources = await self._with_titles(retrieval.sources)
@@ -454,6 +461,19 @@ class ChatService:
                 extra={"conversation_id": prepared.conversation_id},
             )
         return prompt, sources
+
+    @staticmethod
+    def _log_sections(prepared: PreparedChat, retrieval: Retrieval) -> None:
+        """Apartados citados en la pregunta y los que se han añadido completos (#74)."""
+        if not retrieval.references:
+            return
+        logger.info(
+            "Apartados citados en la conversación %s: %s; añadidos: %s",
+            prepared.conversation_id,
+            ", ".join(reference.text for reference in retrieval.references),
+            ", ".join(f"{s.section} ({s.label})" for s in retrieval.located) or "ninguno",
+            extra={"conversation_id": prepared.conversation_id},
+        )
 
     def _check_server_count(
         self, prepared: PreparedChat, record: QuestionRecord, trim: PromptTrim, usage: TokenUsage

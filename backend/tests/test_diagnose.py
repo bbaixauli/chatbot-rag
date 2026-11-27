@@ -467,3 +467,24 @@ def test_cli_query_compares_the_prompt_with_the_window(
     output = capsys.readouterr().out
     assert "Límite: 100 tokens (ventana de 200 menos 100 para la respuesta)" in output
     assert "fragmentos no caben y se quedarían fuera" in output
+
+
+def test_cli_shows_the_cited_sections(
+    settings: Settings, capsys: pytest.CaptureFixture[str]
+) -> None:
+    norma = (
+        "# 1 Objeto\n\nRegula el acceso.\n\n# 2 Altas\n\nSe piden al CAU.\n\n"
+        "## 2.1 Plazos\n\nDos días.\n\n# 3 Bajas\n\nEn 24 horas."
+    )
+    asyncio.run(_prepare(settings, {"norma.md": norma}))
+
+    assert main(["query", "¿Qué dice el apartado 2?", "--scope", "norma.md"], settings) == 0
+    output = capsys.readouterr().out
+    assert "Apartados citados: apartado 2" in output
+    assert "[1] apartado 2: norma.md — 2 Altas (" in output
+
+    assert main(["query", "¿Y el apartado 9?", "--scope", "norma.md"], settings) == 0
+    assert "No se han encontrado en los documentos de la búsqueda." in capsys.readouterr().out
+
+    assert main(["index", "norma"], settings) == 0
+    assert "Apartados (4): 1 Objeto, 2 Altas, 2.1 Plazos, 3 Bajas" in capsys.readouterr().out

@@ -235,6 +235,7 @@ export const t = {
           clean_toc_leaders: 'Quitar los puntos de relleno de los índices',
           context_prefix:
             'Añadir el título, el fichero, la categoría y la sección del documento a cada fragmento',
+          pdf_headings: 'Detectar los apartados numerados de los PDF',
         },
         hints: {
           upload_max_mb: 'El proxy (CHATBOT_MAX_BODY_SIZE) debe admitir peticiones mayores.',
@@ -244,6 +245,8 @@ export const t = {
             'Se quitan las líneas que aparecen en al menos esa parte de las páginas (mínimo 3).',
           context_prefix:
             'Solo para buscar: ayuda con preguntas que nombran el documento. El texto mostrado no cambia.',
+          pdf_headings:
+            'Encabezados como «4.2 Altas de usuarios»: las fuentes indican el apartado y se puede preguntar por él. Cambiarlo solo obliga a reindexar los PDF.',
         },
       },
       rag: {
@@ -261,6 +264,7 @@ export const t = {
           toc_score_factor: 'Peso de los fragmentos de índice (0-1)',
           detect_document_names: 'Buscar solo en los documentos que nombre la pregunta',
           scoped_min_score: 'Puntuación mínima al buscar en documentos concretos (0-1)',
+          locate_sections: 'Añadir el apartado que cite la pregunta',
         },
         hints: {
           min_score: 'Similitud mínima para usar un fragmento; depende del modelo de embeddings.',
@@ -276,6 +280,8 @@ export const t = {
             'Por su código («NOR-013») o su título completo. El chat indica en qué documentos busca.',
           scoped_min_score:
             'Cuando se limita la búsqueda a unos documentos; con 0 basta con el top-k.',
+          locate_sections:
+            '«El apartado 4.2», «el capítulo V», «la sección de altas»: si se busca en unos documentos concretos, se envía el apartado completo.',
         },
       },
       chat: {
