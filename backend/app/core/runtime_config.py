@@ -174,6 +174,8 @@ class RagConfig(ConfigGroup):
     full_document_max_chars: int = Field(ge=0)
     # Añade el apartado citado en la pregunta en las búsquedas limitadas (#74).
     locate_sections: bool
+    # Si falla la búsqueda: responder sin documentación con un aviso, o no responder (#97).
+    on_retrieval_failure: Literal["answer", "refuse"]
 
 
 class ChatLimits(ConfigGroup):

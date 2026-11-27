@@ -178,6 +178,8 @@ export const t = {
       starttls: 'STARTTLS (puerto 587)',
       ssl: 'SSL/TLS (puerto 465)',
       plain: 'Sin cifrar (solo en la red interna)',
+      answer: 'Responder sin documentación, con un aviso',
+      refuse: 'No responder y mostrar un error',
     } as Record<string, string>,
     providers: {
       openai: 'Servidor compatible con la API de OpenAI',
@@ -267,6 +269,7 @@ export const t = {
           detect_document_names: 'Buscar solo en los documentos que nombre la pregunta',
           scoped_min_score: 'Puntuación mínima al buscar en documentos concretos (0-1)',
           locate_sections: 'Añadir el apartado que cite la pregunta',
+          on_retrieval_failure: 'Si no se puede consultar la documentación',
         },
         hints: {
           min_score: 'Similitud mínima para usar un fragmento; depende del modelo de embeddings.',
@@ -284,6 +287,8 @@ export const t = {
             'Cuando se limita la búsqueda a unos documentos; con 0 basta con el top-k.',
           locate_sections:
             '«El apartado 4.2», «el capítulo V», «la sección de altas»: si se busca en unos documentos concretos, se envía el apartado completo.',
+          on_retrieval_failure:
+            'Cuando fallan el servicio de embeddings o el índice. Sin documentación, el modelo responde con lo que sabe por su cuenta.',
         },
       },
       chat: {

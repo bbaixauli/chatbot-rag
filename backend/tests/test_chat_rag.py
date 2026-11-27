@@ -280,3 +280,39 @@ async def test_successful_search_is_not_flagged(app: FastAPI, client: AsyncClien
     row = await last_log(app)
     assert row.retrieval_failed is False
     assert row.sources_retrieved > 0
+
+
+async def test_failed_search_can_refuse_to_answer(
+    app: FastAPI, client: AsyncClient, llm: ScriptedLLM, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await set_config(app, "rag", on_retrieval_failure="refuse")
+    await index(app, "guia.md", MARKDOWN.encode())
+
+    async def broken(*args: Any, **kwargs: Any) -> Any:
+        raise VectorStoreError("índice caído")
+
+    monkeypatch.setattr(app.state.vector_store, "search", broken)
+    events = await ask(client, "¿Cuántos días de vacaciones tengo al año?")
+
+    # No se llama al modelo ni se guarda respuesta: solo el error (#97).
+    assert [kind for kind, _ in events] == ["conversation", "error"]
+    assert "No se puede consultar la documentación" in events[-1][1]["detail"]
+    assert llm.calls == []
+    messages = (await client.get(f"/api/v1/conversations/{events[0][1]['id']}/messages")).json()
+    assert [m["role"] for m in messages] == ["user"]
+    row = await last_log(app)
+    assert row.status == "error"
+    assert row.retrieval_failed is True
+    assert "impide responder" in (row.error_detail or "")
+
+
+async def test_refuse_policy_answers_when_the_search_works(
+    app: FastAPI, client: AsyncClient, llm: ScriptedLLM
+) -> None:
+    await set_config(app, "rag", on_retrieval_failure="refuse")
+    await index(app, "guia.md", MARKDOWN.encode())
+
+    events = await ask(client, "¿Cuántos días de vacaciones tengo al año?")
+
+    assert events[-1][0] == "done"
+    assert len(llm.calls) == 1
