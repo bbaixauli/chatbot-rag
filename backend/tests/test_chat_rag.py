@@ -5,10 +5,13 @@ from typing import Any
 import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient
+from sqlalchemy import select
 
 from app.core.config import Settings
+from app.db.models import QuestionLog
 from app.services.llm import ChatMessage, FakeLLMClient
-from tests.conftest import ScriptedLLM, parse_sse
+from app.services.vectorstore import VectorStoreError
+from tests.conftest import ScriptedLLM, parse_sse, set_config
 from tests.factories import HTML, MARKDOWN, pdf_bytes
 
 
@@ -213,3 +216,67 @@ async def test_document_deleted_while_answering_keeps_the_answer(
     messages = (await client.get(f"/api/v1/conversations/{events[0][1]['id']}/messages")).json()
     assert messages[1]["content"] == "Vacaciones [1]."
     assert messages[1]["sources"][0]["document_id"] is None
+
+
+async def last_log(app: FastAPI) -> QuestionLog:
+    async with app.state.sessionmaker() as session:
+        row: QuestionLog | None = await session.scalar(
+            select(QuestionLog).order_by(QuestionLog.id.desc())
+        )
+    assert row is not None
+    return row
+
+
+async def test_failed_search_is_announced_saved_and_logged(
+    app: FastAPI, client: AsyncClient, llm: ScriptedLLM, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await index(app, "guia.md", MARKDOWN.encode())
+
+    async def broken(*args: Any, **kwargs: Any) -> Any:
+        raise VectorStoreError("índice caído")
+
+    monkeypatch.setattr(app.state.vector_store, "search", broken)
+    events = await ask(client, "¿Cuántos días de vacaciones tengo al año?")
+
+    kinds = [kind for kind, _ in events]
+    # El aviso llega antes de la respuesta, y la respuesta se da igualmente (#95).
+    assert kinds.index("retrieval_failed") < kinds.index("token")
+    assert (
+        "No se ha podido consultar la documentación" in dict(events)["retrieval_failed"]["detail"]
+    )
+    assert kinds[-1] == "done"
+    assert "sources" not in kinds
+    messages = (await client.get(f"/api/v1/conversations/{events[0][1]['id']}/messages")).json()
+    assert [m["retrieval_failed"] for m in messages] == [False, True]
+    row = await last_log(app)
+    assert row.retrieval_failed is True
+    assert row.sources_retrieved == 0
+
+
+async def test_failed_search_is_flagged_with_prompt_budget(
+    app: FastAPI, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await set_config(app, "llm", context_window_tokens=8000)
+    await index(app, "guia.md", MARKDOWN.encode())
+
+    async def broken(*args: Any, **kwargs: Any) -> Any:
+        raise VectorStoreError("índice caído")
+
+    monkeypatch.setattr(app.state.vector_store, "search", broken)
+    events = await ask(client, "¿Cuántos días de vacaciones tengo al año?")
+
+    assert "retrieval_failed" in [kind for kind, _ in events]
+    assert (await last_log(app)).retrieval_failed is True
+
+
+async def test_successful_search_is_not_flagged(app: FastAPI, client: AsyncClient) -> None:
+    await index(app, "guia.md", MARKDOWN.encode())
+
+    events = await ask(client, "¿Cuántos días de vacaciones tengo al año?")
+
+    assert "retrieval_failed" not in [kind for kind, _ in events]
+    messages = (await client.get(f"/api/v1/conversations/{events[0][1]['id']}/messages")).json()
+    assert messages[1]["retrieval_failed"] is False
+    row = await last_log(app)
+    assert row.retrieval_failed is False
+    assert row.sources_retrieved > 0

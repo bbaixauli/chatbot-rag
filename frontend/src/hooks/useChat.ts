@@ -12,6 +12,8 @@ export interface PendingExchange {
   sources: Source[]
   /** Documentos a los que se limitó la búsqueda, si se limitó. */
   scope: Scope | null
+  /** No se pudo consultar la documentación (#95). */
+  retrievalFailed: boolean
 }
 
 interface Options {
@@ -44,7 +46,14 @@ export function useChat({ conversationId, onConversationCreated }: Options) {
       abortRef.current = controller
       streamingFor.current = conversationId
       setError(null)
-      setPending({ question, answer: '', userMessageId: null, sources: [], scope: null })
+      setPending({
+        question,
+        answer: '',
+        userMessageId: null,
+        sources: [],
+        scope: null,
+        retrievalFailed: false,
+      })
       let activeId = conversationId
       let finished = false
       try {
@@ -62,6 +71,8 @@ export function useChat({ conversationId, onConversationCreated }: Options) {
           } else if (event.event === 'scope') {
             const scope = event.data
             setPending((p) => p && { ...p, scope })
+          } else if (event.event === 'retrieval_failed') {
+            setPending((p) => p && { ...p, retrievalFailed: true })
           } else if (event.event === 'token') {
             const delta = event.data.content
             setPending((p) => p && { ...p, answer: p.answer + delta })

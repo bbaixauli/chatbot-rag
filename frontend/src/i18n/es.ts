@@ -645,8 +645,10 @@ export const t = {
       error: 'Motivo del error',
       promptSize: 'Tamaño del prompt',
       promptTrim: 'Recortes del prompt',
+      retrievalFailed: 'Documentación',
       searchedIn: 'Búsqueda limitada a',
     },
+    retrievalFailed: 'No se pudo consultar (falló la búsqueda)',
     everywhere: 'Todos los documentos',
     searchedIn: (where: SearchedIn) =>
       (where.categories.length
@@ -933,6 +935,8 @@ export const t = {
     notFound: 'La conversación no existe.',
     sources: 'Fuentes',
     consultedSources: 'Fuentes consultadas',
+    retrievalFailed:
+      'No se ha podido consultar la documentación: esta respuesta puede no basarse en los documentos.',
     page: (n: number) => `pág. ${n}`,
     slide: (n: number) => `diap. ${n}`,
     deletedDocument: 'documento eliminado',

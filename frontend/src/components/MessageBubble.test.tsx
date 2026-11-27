@@ -135,6 +135,21 @@ describe('MessageBubble con fuentes', () => {
     expect(screen.queryByRole('region')).toBeNull()
   })
 
+  it('avisa antes de la respuesta si no se pudo consultar la documentación', () => {
+    render(
+      <ul>
+        <MessageBubble role="assistant" content="Respuesta sin documentos" retrievalFailed />
+        <MessageBubble role="assistant" content="Respuesta normal" />
+      </ul>,
+    )
+    const notes = screen.getAllByRole('note')
+    expect(notes).toHaveLength(1)
+    expect(notes[0]).toHaveTextContent('No se ha podido consultar la documentación')
+    // El aviso va antes del texto de la respuesta.
+    const answer = screen.getByText('Respuesta sin documentos')
+    expect(notes[0].compareDocumentPosition(answer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
   it('indica las categorías y los documentos en los que se buscó', () => {
     render(
       <ul>

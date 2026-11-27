@@ -64,6 +64,9 @@ def _elapsed_ms(started: float) -> int:
 TOO_LARGE_MESSAGE = (
     "La pregunta es demasiado larga para el modelo configurado. Acórtala o avisa al administrador."
 )
+RETRIEVAL_FAILED_MESSAGE = (
+    "No se ha podido consultar la documentación: esta respuesta puede no basarse en los documentos."
+)
 
 
 class ConversationNotFoundError(Exception):
@@ -278,7 +281,9 @@ class ChatService:
                 yield sse_event("scope", scope_payload)
         trim = PromptTrim()
         try:
-            prompt, sources = await self._fit_prompt(prepared, query, scope_ids, trim)
+            prompt, sources, retrieval_failed = await self._fit_prompt(
+                prepared, query, scope_ids, trim
+            )
         except PromptTooLargeError as exc:
             record.status = QuestionStatus.ERROR
             record.error_detail = str(exc)
@@ -291,6 +296,10 @@ class ChatService:
             yield sse_event("error", {"detail": TOO_LARGE_MESSAGE})
             return
         record.sources_retrieved = len(sources)
+        record.retrieval_failed = retrieval_failed
+        if retrieval_failed:
+            # Antes de la respuesta, para que se vea mientras se genera (#95).
+            yield sse_event("retrieval_failed", {"detail": RETRIEVAL_FAILED_MESSAGE})
         record.prompt_tokens_estimated = messages_tokens(prompt)
         record.prompt_trim = trim.payload
         usage = TokenUsage()
@@ -354,6 +363,7 @@ class ChatService:
                 return
             message = await repo.add_message(conversation, MessageRole.ASSISTANT, answer)
             message.scope = scope_payload
+            message.retrieval_failed = retrieval_failed
             # Un documento puede borrarse mientras se genera la respuesta: su referencia se
             # guarda sin enlace (si no, la clave foránea impediría guardar la respuesta).
             existing = set(
@@ -399,10 +409,12 @@ class ChatService:
         query: str | None,
         scope_ids: list[str],
         trim: PromptTrim,
-    ) -> tuple[list[ChatMessage], list[ContextSource]]:
-        """Prompt (sistema con la documentación, historial y pregunta) y fuentes, dentro de
-        la ventana del modelo si está configurada (ver `services/prompt_budget.py`)."""
+    ) -> tuple[list[ChatMessage], list[ContextSource], bool]:
+        """Prompt (sistema con la documentación, historial y pregunta), fuentes y si falló la
+        búsqueda en la documentación (#95), dentro de la ventana del modelo si está
+        configurada (ver `services/prompt_budget.py`)."""
         limit = self._config.llm.prompt_max_tokens
+        failed = False
         if limit is None:
             sources: list[ContextSource] = []
             if self._retriever is not None and query is not None:
@@ -410,9 +422,10 @@ class ChatService:
                     query, scope_ids or None, questions=[prepared.question]
                 )
                 self._log_sections(prepared, retrieval)
+                failed = retrieval.failed
                 sources = await self._with_titles(retrieval.sources)
             system = ChatMessage("system", build_system_prompt(prepared.system_prompt, sources))
-            return [system, *prepared.history], sources
+            return [system, *prepared.history], sources, failed
 
         *previous, question = prepared.history
         minimal = message_tokens(ChatMessage("system", prepared.system_prompt))
@@ -434,6 +447,7 @@ class ChatService:
                 questions=[prepared.question],
             )
             self._log_sections(prepared, retrieval)
+            failed = retrieval.failed
             trim.full_document = retrieval.full_document_skipped
             trim.sources = retrieval.dropped
             sources = await self._with_titles(retrieval.sources)
@@ -461,7 +475,7 @@ class ChatService:
                 trim.payload,
                 extra={"conversation_id": prepared.conversation_id},
             )
-        return prompt, sources
+        return prompt, sources, failed
 
     @staticmethod
     def _log_sections(prepared: PreparedChat, retrieval: Retrieval) -> None:

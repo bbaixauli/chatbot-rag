@@ -122,6 +122,7 @@ export function ChatPage() {
                 content={m.content}
                 sources={m.sources}
                 scope={m.scope}
+                retrievalFailed={m.retrieval_failed}
               />
             ))}
             {pending && (
@@ -132,6 +133,7 @@ export function ChatPage() {
                   content={pending.answer}
                   sources={pending.sources}
                   scope={pending.scope}
+                  retrievalFailed={pending.retrievalFailed}
                   streaming
                 />
               </>

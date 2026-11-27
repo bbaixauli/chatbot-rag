@@ -133,6 +133,8 @@ class EntryOut(BaseModel):
     prompt_tokens_estimated: int | None = None
     prompt_tokens: int | None = None
     prompt_trim: dict[str, Any] | None = None
+    # Falló la búsqueda en la documentación (#95).
+    retrieval_failed: bool = False
     # Dónde se buscó, si la búsqueda se limitó a unos documentos o categorías (#58, #85).
     searched_in: SearchedInOut | None = None
 
@@ -204,6 +206,7 @@ def _entry(
         prompt_tokens_estimated=row.prompt_tokens_estimated,
         prompt_tokens=row.prompt_tokens,
         prompt_trim=row.prompt_trim,
+        retrieval_failed=row.retrieval_failed,
         searched_in=SearchedInOut(**asdict(where)) if where else None,
     )
 
