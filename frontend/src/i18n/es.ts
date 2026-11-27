@@ -200,6 +200,7 @@ export const t = {
           max_retries: 'Reintentos',
           context_window_tokens: 'Ventana de contexto (tokens)',
           response_reserve_tokens: 'Reserva para la respuesta (tokens)',
+          chars_per_token: 'Caracteres por token (0 = automático)',
         },
         hints: {
           base_url: 'Por ejemplo, http://servidor-ia:4000/v1',
@@ -207,6 +208,8 @@ export const t = {
           context_window_tokens:
             'La configurada en el servidor del modelo: num_ctx en Ollama, --max-model-len en vLLM, max_input_tokens en LiteLLM. Si el prompt no cabe, se ajusta antes de enviarlo (el documento completo pasa a fragmentos y se quitan el historial antiguo y los fragmentos menos parecidos). 0: no se comprueba, y algunos servidores recortan el prompt sin avisar.',
           response_reserve_tokens: 'Parte de la ventana que se deja libre para la respuesta.',
+          chars_per_token:
+            'Para estimar el tamaño del prompt sin el tokenizador del modelo. Con 0 se calibra para cada modelo con lo que cuenta el servidor (3,5 hasta tener 30 preguntas de los últimos 30 días). Un valor fijo, entre 1 y 8, lo sustituye: «python -m app.diagnose tokens» muestra cuál cubriría el 95 % de los prompts.',
         },
       },
       embeddings: {

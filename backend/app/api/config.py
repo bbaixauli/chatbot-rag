@@ -42,7 +42,7 @@ from app.services.documents import DocumentService
 from app.services.embeddings import Embeddings, build_embeddings
 from app.services.llm import ChatMessage as LLMMessage
 from app.services.llm import LLMError, build_llm_client
-from app.services.prompt_budget import chars_to_tokens
+from app.services.prompt_budget import CHARS_PER_TOKEN, TokenEstimator
 from app.services.runtime_config import ConfigStore
 
 router = APIRouter(prefix="/admin/config", tags=["admin"])
@@ -247,13 +247,15 @@ async def update_config(
 
 
 def _window_warnings(config: RuntimeConfig) -> list[str]:
-    """Avisa si el documento completo no cabe en la ventana del modelo (#73)."""
+    """Avisa si el documento completo no cabe en la ventana del modelo (#73). Con los
+    caracteres por token fijados en la configuración o, si son automáticos, con 3,5 (#102)."""
     limit = config.llm.prompt_max_tokens
     full = config.rag.full_document_max_chars
-    if limit is None or not full or chars_to_tokens(full) <= limit:
+    tokens = TokenEstimator(config.llm.chars_per_token or CHARS_PER_TOKEN).chars_to_tokens(full)
+    if limit is None or not full or tokens <= limit:
         return []
     return [
-        f"«Documento completo hasta» ({full} caracteres, unos {chars_to_tokens(full)} tokens) "
+        f"«Documento completo hasta» ({full} caracteres, unos {tokens} tokens) "
         f"no cabe en la ventana del modelo ({limit} tokens para el prompt): los documentos más "
         "largos se enviarán por fragmentos. Reduce ese valor o amplía la ventana."
     ]
