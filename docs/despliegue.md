@@ -447,6 +447,14 @@ log («probablemente lo ha recortado») y en la auditoría como «recortado por 
 Esta comprobación funciona aunque la ventana no esté configurada. `app.diagnose query` muestra
 el tamaño estimado del prompt, por partes, frente al límite.
 
+Para saber si la estimación es fiable con tu modelo, `app.diagnose tokens` compara lo estimado
+con lo que contó el servidor en las preguntas de los últimos 30 días (`--days N` para otro
+periodo), por modelo: la mediana y el percentil 95 de la relación real / estimado, cuántas
+preguntas superaron lo estimado y el límite actual, y cuántos caracteres por token cubrirían el
+95 % de los prompts. Si el percentil 95 pasa de 1, la estimación se queda corta en más del 5 %
+de los prompts y el servidor podría recortarlos: deja más reserva para la respuesta o una
+ventana algo menor de la real. Termina con código 2 en ese caso.
+
 Para consultarla o, si una configuración deja la aplicación inservible, volver a los valores de
 `.env`:
 
@@ -961,6 +969,9 @@ docker compose exec backend python -m app.diagnose query "resúmeme el procedimi
 
 # ¿Recorta el servidor de embeddings los fragmentos largos?
 docker compose exec backend python -m app.diagnose index manual-empleado --truncation-check --max-chunks 10
+
+# ¿Es fiable la estimación del tamaño del prompt con cada modelo? (últimos 30 días)
+docker compose exec backend python -m app.diagnose tokens
 ```
 
 `index` compara, por documento:

@@ -9,11 +9,13 @@ Uso (desde `backend/`, o con `docker compose exec backend` en Docker):
     python -m app.diagnose index DOCUMENTO [DOCUMENTO ...] [--batch-check] [--truncation-check]
     python -m app.diagnose index --all [--max-chunks N]
     python -m app.diagnose query "pregunta" [--top N] [--document DOCUMENTO]
+    python -m app.diagnose tokens [--days N]
 
-DOCUMENTO es el id del documento o parte de su nombre de fichero. Solo lee: no modifica la
-base de datos ni el índice. Cada fragmento se vuelve a enviar al servicio de embeddings, de
-uno en uno (y otra vez por cada comprobación opcional): en documentos grandes, limita la
-prueba con `--max-chunks`.
+DOCUMENTO es el id del documento o parte de su nombre de fichero. `tokens` compara, por
+modelo, el tamaño estimado del prompt con el que contó el servidor (#100). Solo lee: no
+modifica la base de datos ni el índice. Cada fragmento se vuelve a enviar al servicio de
+embeddings, de uno en uno (y otra vez por cada comprobación opcional): en documentos grandes,
+limita la prueba con `--max-chunks`.
 
 Código de salida: 0 sin anomalías, 1 por error y 2 si se detecta alguna anomalía.
 """
@@ -24,6 +26,7 @@ import math
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from typing import TextIO
 
 import numpy as np
@@ -48,7 +51,7 @@ from app.services.ingestion.preprocess import (
     preprocessing_signature,
 )
 from app.services.llm import ChatMessage
-from app.services.prompt_budget import documents_budget, message_tokens
+from app.services.prompt_budget import CHARS_PER_TOKEN, documents_budget, message_tokens
 from app.services.prompts import PromptRepository
 from app.services.rag import (
     Retrieval,
@@ -62,6 +65,7 @@ from app.services.rag import (
 from app.services.runtime_config import load_runtime_config
 from app.services.scope import indexed_documents
 from app.services.sections import document_headings
+from app.services.token_estimates import ModelEstimate, model_estimates
 from app.services.vectorstore import SearchHit, StoredChunk, VectorStore, VectorStoreError
 
 # Por debajo de esta similitud, el vector guardado no es el que calcula ahora el servicio.
@@ -632,7 +636,90 @@ async def print_prompt_estimate(
     print(file=out)
 
 
+def _decimal(value: float) -> str:
+    return f"{value:.2f}".replace(".", ",")
+
+
+def _share(count: int, total: int) -> str:
+    return f"{count} ({_decimal(100 * count / total)} %)" if total else str(count)
+
+
+def print_token_estimates(
+    estimates: Sequence[ModelEstimate], days: int, limit: int | None, out: TextIO
+) -> None:
+    """Informe de la precisión de la estimación de tokens por modelo (#100)."""
+    print(
+        f"Precisión de la estimación de tokens del prompt (últimos {days} días; "
+        f"{_decimal(CHARS_PER_TOKEN)} caracteres por token):",
+        file=out,
+    )
+    if not estimates:
+        print("   No hay preguntas con el tamaño del prompt estimado en ese periodo.", file=out)
+        return
+    for estimate in estimates:
+        print(f"\n{estimate.model}", file=out)
+        print(
+            f"   {estimate.samples} preguntas con recuento del servidor, "
+            f"{estimate.without_count} sin recuento",
+            file=out,
+        )
+        if estimate.median is None or estimate.p95 is None or estimate.max is None:
+            print(
+                "   El servidor no ha devuelto el recuento de tokens: no se puede comparar "
+                "(¿admite `stream_options`?).",
+                file=out,
+            )
+            continue
+        print(
+            f"   Real / estimado: mediana {_decimal(estimate.median)} · "
+            f"p95 {_decimal(estimate.p95)} · máx. {_decimal(estimate.max)}",
+            file=out,
+        )
+        print(
+            f"   Real por encima de lo estimado: "
+            f"{_share(estimate.underestimated, estimate.samples)}",
+            file=out,
+        )
+        if limit is not None:
+            print(
+                f"   Real por encima del límite actual ({limit} tokens): "
+                f"{_share(estimate.over_limit, estimate.samples)}",
+                file=out,
+            )
+        if estimate.server_trimmed:
+            print(f"   Recortes detectados por el servidor: {estimate.server_trimmed}", file=out)
+        chars = _decimal(estimate.safe_chars_per_token or CHARS_PER_TOKEN)
+        if estimate.safe:
+            print(
+                "   La estimación es segura: el 95 % de los prompts ocupan como mucho lo "
+                f"estimado (bastarían {chars} caracteres por token).",
+                file=out,
+            )
+        else:
+            print(
+                "   La estimación se queda corta en más del 5 % de los prompts: para cubrir el "
+                f"95 % harían falta {chars} caracteres por token.",
+                file=out,
+            )
+
+
+async def run_tokens(args: argparse.Namespace, settings: Settings, out: TextIO) -> int:
+    """Subcomando `tokens`: 2 si la estimación no es segura con algún modelo."""
+    config = await load_runtime_config(settings)
+    engine = build_engine(settings.resolved_database_url)
+    try:
+        since = datetime.now(UTC) - timedelta(days=args.days)
+        async with build_sessionmaker(engine)() as session:
+            estimates = await model_estimates(session, since, config.llm.prompt_max_tokens)
+    finally:
+        await engine.dispose()
+    print_token_estimates(estimates, args.days, config.llm.prompt_max_tokens, out)
+    return 2 if any(estimate.safe is False for estimate in estimates) else 0
+
+
 async def run(args: argparse.Namespace, settings: Settings, out: TextIO) -> int:
+    if args.command == "tokens":
+        return await run_tokens(args, settings, out)
     config = await load_runtime_config(settings)
     engine = build_engine(settings.resolved_database_url)
     store = build_vector_store(settings)
@@ -771,6 +858,13 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         metavar="DOCUMENTO",
         help="Busca solo en este documento, como el chat al limitar la búsqueda (se puede repetir)",
+    )
+    tokens = commands.add_parser(
+        "tokens",
+        help="Compara el tamaño estimado del prompt con el que contó el servidor, por modelo",
+    )
+    tokens.add_argument(
+        "--days", type=int, default=30, help="Preguntas de los últimos N días (por defecto 30)"
     )
     return parser
 
