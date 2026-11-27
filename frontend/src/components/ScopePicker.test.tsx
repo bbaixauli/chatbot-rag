@@ -1,8 +1,9 @@
 import { QueryClientProvider } from '@tanstack/react-query'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 import { describe, expect, it } from 'vitest'
+import { ALL_DOCUMENTS, type SearchScope } from '../api/client'
 import { createQueryClient } from '../queryClient'
 import { jsonResponse, mockApi } from '../test/utils'
 import { ScopePicker } from './ScopePicker'
@@ -22,22 +23,30 @@ const DOCUMENTS = [
   ...[3, 4, 5, 6, 7].map((n) => indexed(`d${n}`, `Anexo ${n}.pdf`)),
 ]
 
-function Harness({ initial = [] as string[] }) {
-  const [selected, setSelected] = useState(initial)
+function Harness({ initial = [] as string[], categories = [] as number[] }) {
+  const [selected, setSelected] = useState<SearchScope>({
+    documentIds: initial,
+    categoryIds: categories,
+  })
   return (
     <>
       <ScopePicker selected={selected} onChange={setSelected} />
-      <output aria-label="elegidos">{selected.join(',')}</output>
+      <output aria-label="elegidos">{selected.documentIds.join(',')}</output>
+      <output aria-label="categorías elegidas">{selected.categoryIds.join(',')}</output>
     </>
   )
 }
 
-function renderPicker(initial: string[] = [], documents: object[] = DOCUMENTS) {
+function renderPicker(
+  initial: string[] = [],
+  documents: object[] = DOCUMENTS,
+  categories: number[] = [],
+) {
   mockApi({ 'GET /documents': () => jsonResponse(documents) })
   const queryClient = createQueryClient({ defaultOptions: { queries: { retry: false } } })
   render(
     <QueryClientProvider client={queryClient}>
-      <Harness initial={initial} />
+      <Harness initial={initial} categories={categories} />
     </QueryClientProvider>,
   )
 }
@@ -84,22 +93,32 @@ describe('ScopePicker', () => {
     renderPicker(
       [],
       [
-        indexed('d1', 'nor13.pdf', { title: 'Normativa de acceso', category: 'Seguridad' }),
+        indexed('d1', 'nor13.pdf', {
+          title: 'Normativa de acceso',
+          category: 'Seguridad',
+          category_id: 2,
+        }),
         indexed('d2', 'dietas.md', { title: 'Gastos de viaje' }),
-        indexed('d3', 'Guía.md', { category: 'Recursos humanos' }),
+        indexed('d3', 'Guía.md', { category: 'Recursos humanos', category_id: 1 }),
       ],
     )
     await userEvent.click(button())
 
-    const boxes = await screen.findAllByRole('checkbox')
+    await screen.findAllByRole('checkbox')
+    const group = (name: string) => screen.getByRole('group', { name })
+    const labels = (name: string) =>
+      within(group(name))
+        .getAllByRole('checkbox')
+        .map((b) => b.closest('label')!.textContent)
     // Por título.
-    expect(boxes.map((b) => b.closest('label')!.textContent)).toEqual([
+    expect(labels('Documentos')).toEqual([
       'Gastos de viajedietas.md',
       'Guía.mdRecursos humanos',
       'Normativa de accesoSeguridad · nor13.pdf',
     ])
+    expect(labels('Categorías')).toEqual(['Recursos humanos1 documento', 'Seguridad1 documento'])
     const filter = screen.getByLabelText('Filtrar documentos')
-    for (const text of ['segur', 'NOR13', 'normativa']) {
+    for (const text of ['NOR13', 'normativa']) {
       await userEvent.clear(filter)
       await userEvent.type(filter, text)
       expect(screen.getAllByRole('checkbox')).toHaveLength(1)
@@ -124,6 +143,45 @@ describe('ScopePicker', () => {
     expect(button()).toHaveTextContent('Todos los documentos')
   })
 
+  it('elige categorías enteras, sin límite, junto con documentos sueltos', async () => {
+    const rrhh = (id: string, name: string) =>
+      indexed(id, name, { category: 'Recursos humanos', category_id: 1 })
+    renderPicker(
+      ['d3', 'd4', 'd5', 'd6', 'd7'],
+      [
+        ...DOCUMENTS.slice(2),
+        rrhh('d1', 'Guía de vacaciones.md'),
+        rrhh('d8', 'Dietas.md'),
+        indexed('d2', 'NOR-013.pdf'),
+      ],
+    )
+    await userEvent.click(button())
+    expect(
+      await screen.findByText(
+        'Puedes elegir hasta 5 documentos. Las categorías no tienen límite: se busca en todos sus documentos.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.getByLabelText('NOR-013.pdf')).toBeDisabled()
+
+    // Aunque ya haya 5 documentos sueltos.
+    await userEvent.type(screen.getByLabelText('Filtrar documentos'), 'recursos')
+    await userEvent.click(screen.getByRole('checkbox', { name: /^Recursos humanos/ }))
+    expect(screen.getByLabelText('categorías elegidas')).toHaveTextContent('1')
+    // Sus documentos se incluyen.
+    expect(screen.getByLabelText(/Dietas\.md/)).toBeChecked()
+    expect(screen.getByLabelText(/Dietas\.md/)).toBeDisabled()
+    expect(button()).toHaveTextContent('Buscar en: 1 categoría y 5 documentos')
+
+    await userEvent.keyboard('{Escape}')
+    const chips = screen.getByRole('list', { name: 'Se busca solo en' })
+    expect(within(chips).getAllByRole('listitem')[0]).toHaveTextContent('Recursos humanos')
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Buscar también fuera de Recursos humanos' }),
+    )
+    expect(screen.getByLabelText('categorías elegidas')).toHaveTextContent('')
+    expect(button()).toHaveTextContent('Buscar en: 5 documentos')
+  })
+
   it('se cierra al pulsar fuera e informa si no hay coincidencias o falla la carga', async () => {
     renderPicker()
     await userEvent.click(button())
@@ -137,7 +195,7 @@ describe('ScopePicker', () => {
     const queryClient = createQueryClient({ defaultOptions: { queries: { retry: false } } })
     render(
       <QueryClientProvider client={queryClient}>
-        <ScopePicker selected={[]} onChange={() => {}} />
+        <ScopePicker selected={ALL_DOCUMENTS} onChange={() => {}} />
       </QueryClientProvider>,
     )
     await userEvent.click(screen.getAllByRole('button', { name: /Buscar en:/ })[1])

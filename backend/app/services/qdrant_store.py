@@ -12,7 +12,12 @@ from typing import Any
 from qdrant_client import AsyncQdrantClient, models
 
 from app.services.ingestion.chunker import Chunk
-from app.services.vectorstore import SearchHit, StoredChunk, VectorStoreError
+from app.services.vectorstore import (
+    SearchHit,
+    StoredChunk,
+    VectorStoreError,
+    exact_search,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -169,7 +174,7 @@ class QdrantVectorStore:
             return []
         if not await self._client.collection_exists(self._collection):
             return []
-        # Limitada a unos documentos: con filtro y búsqueda exacta (pocos fragmentos).
+        # Limitada a unos documentos: con filtro, y búsqueda exacta si son pocos.
         query_filter = (
             None
             if document_ids is None
@@ -187,7 +192,7 @@ class QdrantVectorStore:
             limit=limit,
             with_payload=True,
             query_filter=query_filter,
-            search_params=None if document_ids is None else models.SearchParams(exact=True),
+            search_params=models.SearchParams(exact=True) if exact_search(document_ids) else None,
         )
         return [_hit(point.payload or {}, point.score) for point in result.points]
 

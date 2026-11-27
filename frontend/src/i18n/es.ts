@@ -1,4 +1,4 @@
-import type { PromptTrim } from '../api/audit'
+import type { PromptTrim, SearchedIn } from '../api/audit'
 
 // Textos de la interfaz centralizados para facilitar una futura traducción.
 export const t = {
@@ -645,7 +645,14 @@ export const t = {
       error: 'Motivo del error',
       promptSize: 'Tamaño del prompt',
       promptTrim: 'Recortes del prompt',
+      searchedIn: 'Búsqueda limitada a',
     },
+    everywhere: 'Todos los documentos',
+    searchedIn: (where: SearchedIn) =>
+      (where.categories.length
+        ? `${where.categories.join(', ')} (${where.document_count} ${where.document_count === 1 ? 'documento' : 'documentos'})`
+        : where.documents.join(', ')) +
+      (where.source === 'detected' ? ' (nombrados en la pregunta)' : ''),
     promptTokens: (estimated: number, counted: number | null | undefined) =>
       `unos ${estimated} tokens` + (counted == null ? '' : ` (el servidor contó ${counted})`),
     trim: (trim: PromptTrim) =>
@@ -893,7 +900,17 @@ export const t = {
     scope: {
       label: 'Buscar en',
       all: 'Todos los documentos',
-      some: (count: number) => (count === 1 ? '1 documento' : `${count} documentos`),
+      some: (categories: number, documents: number) =>
+        [
+          categories && (categories === 1 ? '1 categoría' : `${categories} categorías`),
+          documents && (documents === 1 ? '1 documento' : `${documents} documentos`),
+        ]
+          .filter(Boolean)
+          .join(' y '),
+      documentCount: (count: number) => (count === 1 ? '1 documento' : `${count} documentos`),
+      categories: 'Categorías',
+      documents: 'Documentos',
+      categoriesHint: 'Las categorías no tienen límite: se busca en todos sus documentos.',
       choose: 'Elegir en qué documentos buscar',
       filter: 'Filtrar documentos',
       max: (max: number) => `Puedes elegir hasta ${max} documentos.`,

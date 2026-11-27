@@ -679,6 +679,10 @@ function LogRow({ entry }: { entry: AuditEntry }) {
             <dd>{entry.prompt_version_id ?? t.audit.meta.defaultPrompt}</dd>
             <dt className="font-semibold">{t.audit.meta.searchQuery}</dt>
             <dd className="break-words">{entry.search_query ?? '—'}</dd>
+            <dt className="font-semibold">{t.audit.meta.searchedIn}</dt>
+            <dd className="break-words">
+              {entry.searched_in ? t.audit.searchedIn(entry.searched_in) : t.audit.everywhere}
+            </dd>
             <dt className="font-semibold">{t.audit.meta.documents}</dt>
             <dd className="break-words">{documents || '—'}</dd>
             <dt className="font-semibold">{t.audit.meta.userAgent}</dt>

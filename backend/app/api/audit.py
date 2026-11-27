@@ -6,6 +6,8 @@ Quién consulta la auditoría queda en el log (trazabilidad, manual de estilos 6
 import csv
 import io
 import logging
+from collections.abc import Sequence
+from dataclasses import asdict
 from datetime import date, datetime
 from typing import Annotated, Any, Literal
 
@@ -27,6 +29,7 @@ from app.services.audit import (
 )
 from app.services.audit_rules import CATEGORIES, SEVERITIES
 from app.services.dashboard import DashboardError, DateRange
+from app.services.scope import SearchedIn, SearchRecord, searched_in
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +103,13 @@ class SummaryOut(BaseModel):
     last_run: RunOut | None
 
 
+class SearchedInOut(BaseModel):
+    source: str
+    categories: list[str]
+    documents: list[str]
+    document_count: int
+
+
 class EntryOut(BaseModel):
     """Una pregunta del registro, con los datos de auditoría."""
 
@@ -123,6 +133,8 @@ class EntryOut(BaseModel):
     prompt_tokens_estimated: int | None = None
     prompt_tokens: int | None = None
     prompt_trim: dict[str, Any] | None = None
+    # Dónde se buscó, si la búsqueda se limitó a unos documentos o categorías (#58, #85).
+    searched_in: SearchedInOut | None = None
 
 
 class AlertOut(BaseModel):
@@ -160,7 +172,18 @@ class EntryPage(BaseModel):
     items: list[EntryOut]
 
 
-def _entry(row: QuestionLog, settings: Settings) -> EntryOut:
+def _search_record(row: QuestionLog) -> SearchRecord:
+    return (row.id, row.scope_document_ids, row.scope_category_ids, row.scope_source)
+
+
+async def _searched_in(db: DbSession, rows: Sequence[QuestionLog]) -> dict[int, SearchedIn]:
+    return await searched_in(db, [_search_record(row) for row in rows])
+
+
+def _entry(
+    row: QuestionLog, settings: Settings, searched: dict[int, SearchedIn] | None = None
+) -> EntryOut:
+    where = (searched or {}).get(row.id)
     return EntryOut(
         id=row.id,
         asked_at=dashboard.local_time(row.asked_at, settings.zone),
@@ -181,10 +204,16 @@ def _entry(row: QuestionLog, settings: Settings) -> EntryOut:
         prompt_tokens_estimated=row.prompt_tokens_estimated,
         prompt_tokens=row.prompt_tokens,
         prompt_trim=row.prompt_trim,
+        searched_in=SearchedInOut(**asdict(where)) if where else None,
     )
 
 
-def _alert(alert: AuditAlert, entry: QuestionLog, settings: Settings) -> AlertOut:
+def _alert(
+    alert: AuditAlert,
+    entry: QuestionLog,
+    settings: Settings,
+    searched: dict[int, SearchedIn] | None = None,
+) -> AlertOut:
     return AlertOut(
         id=alert.id,
         created_at=dashboard.local_time(alert.created_at, settings.zone),
@@ -198,7 +227,7 @@ def _alert(alert: AuditAlert, entry: QuestionLog, settings: Settings) -> AlertOu
         reviewed_by=alert.reviewed_by,
         reviewed_at=alert.reviewed_at,
         note=alert.note,
-        entry=_entry(entry, settings),
+        entry=_entry(entry, settings, searched),
     )
 
 
@@ -311,11 +340,12 @@ async def list_alerts(
             .limit(size)
         )
     ).all()
+    searched = await _searched_in(db, [entry for _, entry in rows])
     return AlertPage(
         total=int(total or 0),
         page=page,
         size=size,
-        items=[_alert(alert, entry, settings) for alert, entry in rows],
+        items=[_alert(alert, entry, settings, searched) for alert, entry in rows],
     )
 
 
@@ -338,7 +368,7 @@ async def update_alert(
         "Aviso de auditoría actualizado",
         extra={"user_id": auditor.username, "alert_id": alert_id, "status": body.status},
     )
-    return _alert(alert, entry, settings)
+    return _alert(alert, entry, settings, await _searched_in(db, [entry]))
 
 
 # --- Registro completo ---
@@ -384,8 +414,13 @@ async def list_log(
         .offset((page - 1) * size)
         .limit(size)
     )
+    entries = list(rows)
+    searched = await _searched_in(db, entries)
     return EntryPage(
-        total=int(total or 0), page=page, size=size, items=[_entry(r, settings) for r in rows]
+        total=int(total or 0),
+        page=page,
+        size=size,
+        items=[_entry(r, settings, searched) for r in entries],
     )
 
 
@@ -408,10 +443,13 @@ LOG_HEADERS = [
     "Tokens del prompt (estimados)",
     "Tokens del prompt (servidor)",
     "Recortes del prompt",
+    "Búsqueda limitada a",
 ]
 
 
-def _log_row(row: QuestionLog, settings: Settings, *, as_text: bool) -> list[Any]:
+def _log_row(
+    row: QuestionLog, settings: Settings, searched: dict[int, SearchedIn], *, as_text: bool
+) -> list[Any]:
     asked = dashboard.local_time(row.asked_at, settings.zone)
     documents = ", ".join(
         str(d.get("title") or d.get("filename")) for d in row.cited_documents or []
@@ -436,6 +474,7 @@ def _log_row(row: QuestionLog, settings: Settings, *, as_text: bool) -> list[Any
         row.prompt_tokens_estimated if row.prompt_tokens_estimated is not None else "",
         row.prompt_tokens if row.prompt_tokens is not None else "",
         dashboard.trim_label(row.prompt_trim),
+        safe(searched[row.id].label) if row.id in searched else "",
     ]
 
 
@@ -483,7 +522,8 @@ async def export_log_csv(
     buffer = io.StringIO()
     writer = csv.writer(buffer, lineterminator="\r\n")
     writer.writerow(LOG_HEADERS)
-    writer.writerows(_log_row(r, settings, as_text=True) for r in rows)
+    searched = await _searched_in(db, rows)
+    writer.writerows(_log_row(r, settings, searched, as_text=True) for r in rows)
     return _download(buffer.getvalue().encode("utf-8"), "text/csv; charset=utf-8", rng, "csv")
 
 
@@ -507,8 +547,9 @@ async def export_log_xlsx(
     sheet.append(LOG_HEADERS)
     for cell in sheet[1]:
         cell.font = Font(bold=True)
+    searched = await _searched_in(db, rows)
     for row in rows:
-        sheet.append(_log_row(row, settings, as_text=False))
+        sheet.append(_log_row(row, settings, searched, as_text=False))
     for (cell,) in sheet.iter_rows(min_row=2, max_col=1):
         cell.number_format = "dd/mm/yyyy hh:mm:ss"
     sheet.freeze_panes = "A2"

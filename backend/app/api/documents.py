@@ -367,13 +367,27 @@ _DOWNLOAD_TYPES: dict[str, str] = {
 async def list_indexed_documents(db: DbSession, _: CurrentUserDep) -> list[PublicDocumentOut]:
     """Documentos indexados, por título: para limitar la búsqueda del chat a algunos (#58)."""
     rows = await db.execute(
-        select(Document.id, Document.filename, Document.title, Document.kind, Category.name)
+        select(
+            Document.id,
+            Document.filename,
+            Document.title,
+            Document.kind,
+            Category.name,
+            Document.category_id,
+        )
         .outerjoin(Category, Document.category_id == Category.id)
         .where(Document.status == DocumentStatus.READY.value)
     )
     documents = [
-        PublicDocumentOut(id=id, filename=filename, title=title, kind=kind, category=category)
-        for id, filename, title, kind, category in rows.all()
+        PublicDocumentOut(
+            id=id,
+            filename=filename,
+            title=title,
+            kind=kind,
+            category=category,
+            category_id=category_id,
+        )
+        for id, filename, title, kind, category, category_id in rows.all()
     ]
     return sorted(documents, key=lambda d: d.title.casefold())
 

@@ -56,6 +56,7 @@ from app.services.rag import (
     build_system_prompt,
     candidates_limit,
     full_document_sources,
+    min_score_for,
     rank_hits,
 )
 from app.services.runtime_config import load_runtime_config
@@ -433,7 +434,7 @@ async def diagnose_query(
     esos documentos, como el chat cuando se limita la búsqueda (#58).
     """
     rag = config.rag
-    min_score = rag.min_score if scope is None else rag.scoped_min_score
+    min_score = min_score_for(rag, scope)
     [vector] = await embeddings.embed([query])
     limit = await store.count() if full_ranking else max(top, candidates_limit(rag))
     if limit == 0:

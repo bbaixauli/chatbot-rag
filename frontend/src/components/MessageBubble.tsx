@@ -51,7 +51,9 @@ export function MessageBubble({
         ) : (
           <p className="text-texto-secundario italic">{t.chat.thinking}</p>
         )}
-        {!isUser && scope && scope.documents.length > 0 && <ScopeNote scope={scope} />}
+        {!isUser && scope && (scope.documents.length > 0 || !!scope.categories?.length) && (
+          <ScopeNote scope={scope} />
+        )}
         {!isUser && sources.length > 0 && <SourceList sources={sources} />}
       </div>
     </li>
@@ -59,7 +61,10 @@ export function MessageBubble({
 }
 
 function ScopeNote({ scope }: { scope: Scope }) {
-  const names = scope.documents.map((d) => d.title || d.filename).join(', ')
+  const names = [
+    ...(scope.categories ?? []).map((c) => c.name),
+    ...scope.documents.map((d) => d.title || d.filename),
+  ].join(', ')
   return (
     <p className="mt-2 text-xs text-texto-secundario">
       <Files aria-hidden size={14} className="inline align-[-2px]" /> {t.chat.scope.searchedIn}:{' '}

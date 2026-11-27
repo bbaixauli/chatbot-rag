@@ -43,6 +43,18 @@ class StoredChunk:
     filename: str = ""
 
 
+# Hasta cuántos documentos se compara la pregunta con todos sus fragmentos en una búsqueda
+# limitada. Con más (una categoría grande, #85), la búsqueda exacta es lenta (unos 5 ms por
+# documento de 40 fragmentos) y se usa el índice con un filtro, que con tantos fragmentos ya
+# no se salta resultados.
+EXACT_SEARCH_MAX_DOCUMENTS = 50
+
+
+def exact_search(document_ids: Sequence[str] | None) -> bool:
+    """Si una búsqueda se hace comparando todos los fragmentos (ver arriba)."""
+    return document_ids is not None and len(document_ids) <= EXACT_SEARCH_MAX_DOCUMENTS
+
+
 class VectorStoreError(Exception):
     """Error del índice con un mensaje comprensible para la administración."""
 
@@ -71,7 +83,7 @@ class VectorStore(Protocol):
         document_ids: Sequence[str] | None = None,
     ) -> list[SearchHit]:
         """Los `limit` fragmentos más parecidos, de todo el índice o solo de `document_ids`
-        (en ese caso, con búsqueda exacta: son pocos fragmentos y no se pierde ninguno)."""
+        (en ese caso, con búsqueda exacta si son pocos: ver `exact_search`)."""
         ...
 
     async def document_chunks(
@@ -207,15 +219,17 @@ class ChromaVectorStore:
         limit: int,
         document_ids: Sequence[str] | None = None,
     ) -> list[SearchHit]:
-        if document_ids is not None:
-            return await self._search_documents(embedding, limit, document_ids)
+        if exact_search(document_ids):
+            return await self._search_documents(embedding, limit, document_ids or [])
         total = await self.count()
-        if total == 0:
+        if total == 0 or limit <= 0:
             return []
+        where: Any = None if document_ids is None else {"document_id": {"$in": list(document_ids)}}
         result = await asyncio.to_thread(
             self._collection.query,
             query_embeddings=cast(Any, [list(embedding)]),
             n_results=min(limit, total),
+            where=where,
             include=["documents", "metadatas", "distances"],
         )
         documents = (result["documents"] or [[]])[0]

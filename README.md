@@ -239,6 +239,12 @@ busca en esos documentos (comparando con todos sus fragmentos) y en lugar de la 
 mínima general se usa la de la búsqueda limitada (*Recuperación*, 0 por defecto: basta con el
 top-k), porque quien pregunta ya ha indicado dónde está la respuesta.
 
+También se puede limitar a **categorías enteras** («Recursos humanos»), sin límite de
+documentos, solas o junto con documentos sueltos: se busca en la unión de ambos. Se guarda la
+categoría, no sus documentos, así que cada pregunta usa los que tenga en ese momento. Con más
+de 5 documentos se vuelve a usar la puntuación mínima general. La nota de cada respuesta y la
+auditoría indican las categorías.
+
 Si la pregunta **nombra un documento**, por su código («¿qué dice el NOR-013?», también «nor
 13») o por su título completo («la normativa de control de acceso lógico en DTIC»), la búsqueda
 se limita a él solo para esa pregunta y sus preguntas de seguimiento (se reconoce también en la
@@ -354,10 +360,10 @@ Documentación interactiva en http://localhost:8000/docs. Endpoints principales:
 |---|---|---|
 | GET | `/api/v1/health` | Estado de la API y de la BD |
 | GET/POST | `/api/v1/conversations` | Listar / crear conversaciones |
-| PATCH/DELETE | `/api/v1/conversations/{id}` | Renombrar o limitar la búsqueda a unos documentos (`document_ids`) / eliminar |
+| PATCH/DELETE | `/api/v1/conversations/{id}` | Renombrar o limitar la búsqueda a unos documentos (`document_ids`) o categorías (`category_ids`) / eliminar |
 | GET | `/api/v1/conversations/{id}/messages` | Mensajes de una conversación |
 | GET | `/api/v1/chat/config` | Mensaje inicial y preguntas sugeridas |
-| POST | `/api/v1/chat` | Envía un mensaje (con `document_ids`, solo se busca en esos documentos); respuesta en streaming SSE (`conversation`, `scope`, `token`, `sources`, `done`, `error`) |
+| POST | `/api/v1/chat` | Envía un mensaje (con `document_ids` y `category_ids`, solo se busca en esos documentos y en los de esas categorías); respuesta en streaming SSE (`conversation`, `scope`, `token`, `sources`, `done`, `error`) |
 | GET/POST/DELETE | `/api/v1/auth/session` | Sesión del usuario del chat (modo LDAP) |
 | POST | `/api/v1/auth/anonymous` | Nueva sesión anónima: acceso anónimo con LDAP o sesión privada sin él (si la administración lo permite) |
 | GET/POST/DELETE | `/api/v1/admin/session` | Estado / inicio / cierre de sesión de administración |
@@ -394,7 +400,7 @@ Documentación interactiva en http://localhost:8000/docs. Endpoints principales:
 | GET | `/api/v1/admin/documents/{id}/file` | Descargar el original (admin) |
 | GET/POST | `/api/v1/admin/categories` | Categorías con su nº de documentos / crear una (admin) |
 | PATCH/DELETE | `/api/v1/admin/categories/{id}` | Renombrar / eliminar (sus documentos quedan sin categoría) (admin) |
-| GET | `/api/v1/documents` | Documentos indexados (id, título, fichero, tipo y categoría), para limitar la búsqueda del chat |
+| GET | `/api/v1/documents` | Documentos indexados (id, título, fichero, tipo y categoría con su id), para limitar la búsqueda del chat |
 | GET | `/api/v1/documents/{id}/file` | Ver el original desde una referencia del chat (PDF en línea, Markdown como texto, HTML en sandbox; Office y OpenDocument se descargan) |
 
 ## Calidad y tests

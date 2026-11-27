@@ -134,4 +134,31 @@ describe('MessageBubble con fuentes', () => {
     )
     expect(screen.queryByRole('region')).toBeNull()
   })
+
+  it('indica las categorías y los documentos en los que se buscó', () => {
+    render(
+      <ul>
+        <MessageBubble
+          role="assistant"
+          content="Respuesta"
+          sources={[]}
+          scope={{
+            documents: [{ id: 'd1', filename: 'nor13.pdf', title: 'NOR-013' }],
+            categories: [{ id: 1, name: 'Recursos humanos' }],
+            source: 'selector',
+          }}
+        />
+        <MessageBubble
+          role="assistant"
+          content="Otra"
+          sources={[]}
+          scope={{ documents: [], categories: [], source: 'selector' }}
+        />
+      </ul>,
+    )
+    expect(screen.getAllByText(/Buscado solo en/)).toHaveLength(1)
+    expect(screen.getByText(/Buscado solo en/)).toHaveTextContent(
+      'Buscado solo en: Recursos humanos, NOR-013',
+    )
+  })
 })

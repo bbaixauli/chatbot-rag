@@ -1,13 +1,19 @@
 import { useQuery } from '@tanstack/react-query'
 import { Files, X } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
-import { listIndexedDocuments, MAX_SCOPE_DOCUMENTS } from '../api/client'
+import {
+  ALL_DOCUMENTS,
+  isLimited,
+  listIndexedDocuments,
+  MAX_SCOPE_DOCUMENTS,
+  type SearchScope,
+} from '../api/client'
 import { t } from '../i18n/es'
 
 interface Props {
-  /** Ids de los documentos elegidos (vacío: se busca en todos). */
-  selected: string[]
-  onChange: (documentIds: string[]) => void
+  /** Documentos y categorías elegidos (ambos vacíos: se busca en todos). */
+  selected: SearchScope
+  onChange: (scope: SearchScope) => void
   disabled?: boolean
   /** Error al guardar la selección. */
   error?: string | null
@@ -15,22 +21,47 @@ interface Props {
 
 const collator = new Intl.Collator('es', { sensitivity: 'base' })
 
-/** Elige en qué documentos buscar: todos (por defecto) o hasta `MAX_SCOPE_DOCUMENTS`. */
+interface CategoryOption {
+  id: number
+  name: string
+  documents: number
+}
+
+/**
+ * Elige en qué buscar: en todos los documentos (por defecto), en hasta
+ * `MAX_SCOPE_DOCUMENTS` documentos sueltos y en categorías enteras (sin límite: se busca en
+ * sus documentos de cada momento).
+ */
 export function ScopePicker({ selected, onChange, disabled = false, error }: Props) {
   const [open, setOpen] = useState(false)
   const [filter, setFilter] = useState('')
   const rootRef = useRef<HTMLDivElement>(null)
   const buttonRef = useRef<HTMLButtonElement>(null)
   const panelId = useId()
+  const { documentIds, categoryIds } = selected
 
   // La lista solo hace falta al elegir o para mostrar los nombres de los elegidos.
   const documents = useQuery({
     queryKey: ['indexed-documents'],
     queryFn: listIndexedDocuments,
-    enabled: open || selected.length > 0,
+    enabled: open || isLimited(selected),
     staleTime: 60_000,
   })
   const names = new Map((documents.data ?? []).map((d) => [d.id, d.title]))
+  // Categorías con documentos indexados (las vacías no aportan nada a la búsqueda).
+  const categories = new Map<number, CategoryOption>()
+  for (const document of documents.data ?? []) {
+    if (document.category_id == null || !document.category) continue
+    const option = categories.get(document.category_id)
+    if (option) option.documents += 1
+    else
+      categories.set(document.category_id, {
+        id: document.category_id,
+        name: document.category,
+        documents: 1,
+      })
+  }
+  const categoryName = (id: number) => categories.get(id)?.name ?? '…'
 
   function close(focusButton = true) {
     setOpen(false)
@@ -48,22 +79,32 @@ export function ScopePicker({ selected, onChange, disabled = false, error }: Pro
     return () => document.removeEventListener('pointerdown', onPointerDown)
   }, [open])
 
-  function toggle(id: string) {
-    onChange(selected.includes(id) ? selected.filter((d) => d !== id) : [...selected, id])
-  }
+  const toggleDocument = (id: string) =>
+    onChange({
+      ...selected,
+      documentIds: documentIds.includes(id)
+        ? documentIds.filter((d) => d !== id)
+        : [...documentIds, id],
+    })
+  const toggleCategory = (id: number) =>
+    onChange({
+      ...selected,
+      categoryIds: categoryIds.includes(id)
+        ? categoryIds.filter((c) => c !== id)
+        : [...categoryIds, id],
+    })
 
   // Se busca en el título, el nombre del fichero y la categoría.
   const needle = filter.trim().toLocaleLowerCase('es')
+  const matches = (text: string) => text.toLocaleLowerCase('es').includes(needle)
   const visible = (documents.data ?? [])
-    .filter(
-      (d) =>
-        !needle ||
-        [d.title, d.filename, d.category ?? ''].some((text) =>
-          text.toLocaleLowerCase('es').includes(needle),
-        ),
-    )
+    .filter((d) => !needle || [d.title, d.filename, d.category ?? ''].some(matches))
     .sort((a, b) => collator.compare(a.title, b.title))
-  const full = selected.length >= MAX_SCOPE_DOCUMENTS
+  const visibleCategories = [...categories.values()]
+    .filter((c) => !needle || matches(c.name))
+    .sort((a, b) => collator.compare(a.name, b.name))
+  const full = documentIds.length >= MAX_SCOPE_DOCUMENTS
+  const empty = visible.length === 0 && visibleCategories.length === 0
 
   return (
     <div className="mb-2 flex flex-wrap items-center gap-2 text-sm">
@@ -80,7 +121,9 @@ export function ScopePicker({ selected, onChange, disabled = false, error }: Pro
         >
           <Files aria-hidden size={16} />
           {t.chat.scope.label}:{' '}
-          {selected.length ? t.chat.scope.some(selected.length) : t.chat.scope.all}
+          {isLimited(selected)
+            ? t.chat.scope.some(categoryIds.length, documentIds.length)
+            : t.chat.scope.all}
         </button>
         {open && (
           <div
@@ -104,52 +147,96 @@ export function ScopePicker({ selected, onChange, disabled = false, error }: Pro
               onChange={(event) => setFilter(event.target.value)}
               className="campo"
             />
-            <p className="text-xs text-texto-secundario">{t.chat.scope.max(MAX_SCOPE_DOCUMENTS)}</p>
+            <p className="text-xs text-texto-secundario">
+              {t.chat.scope.max(MAX_SCOPE_DOCUMENTS)}
+              {categories.size > 0 && ` ${t.chat.scope.categoriesHint}`}
+            </p>
             {documents.isLoading ? (
               <p role="status">{t.chat.scope.loading}</p>
             ) : documents.isError ? (
               <p role="alert" className="text-error">
                 {t.chat.scope.loadError}
               </p>
-            ) : visible.length === 0 ? (
+            ) : empty ? (
               <p>{documents.data?.length ? t.chat.scope.empty : t.chat.scope.none}</p>
             ) : (
-              <fieldset className="max-h-60 overflow-y-auto">
-                <legend className="sr-only">{t.chat.scope.choose}</legend>
-                {visible.map((document) => {
-                  const checked = selected.includes(document.id)
-                  return (
-                    <label
-                      key={document.id}
-                      className="flex cursor-pointer items-start gap-2 rounded px-1 py-1 break-all hover:bg-fondo-alt"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        disabled={!checked && full}
-                        onChange={() => toggle(document.id)}
-                        className="mt-1"
-                      />
-                      <span className="flex flex-col">
-                        {document.title}
-                        {(document.category || document.title !== document.filename) && (
+              <div className="flex max-h-72 flex-col gap-2 overflow-y-auto">
+                {visibleCategories.length > 0 && (
+                  <fieldset>
+                    <legend className="text-xs font-semibold text-texto-secundario">
+                      {t.chat.scope.categories}
+                    </legend>
+                    {visibleCategories.map((category) => (
+                      <label
+                        key={category.id}
+                        className="flex cursor-pointer items-start gap-2 rounded px-1 py-1 break-all hover:bg-fondo-alt"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={categoryIds.includes(category.id)}
+                          onChange={() => toggleCategory(category.id)}
+                          className="mt-1"
+                        />
+                        <span className="flex flex-col">
+                          {category.name}
                           <span className="text-xs text-texto-secundario">
-                            {[document.category, document.filename]
-                              .filter((part) => part && part !== document.title)
-                              .join(' · ')}
+                            {t.chat.scope.documentCount(category.documents)}
                           </span>
-                        )}
-                      </span>
-                    </label>
-                  )
-                })}
-              </fieldset>
+                        </span>
+                      </label>
+                    ))}
+                  </fieldset>
+                )}
+                {visible.length > 0 && (
+                  <fieldset>
+                    <legend
+                      className={
+                        categories.size > 0
+                          ? 'text-xs font-semibold text-texto-secundario'
+                          : 'sr-only'
+                      }
+                    >
+                      {categories.size > 0 ? t.chat.scope.documents : t.chat.scope.choose}
+                    </legend>
+                    {visible.map((document) => {
+                      // Incluido por su categoría: se busca en él sin elegirlo suelto.
+                      const viaCategory =
+                        document.category_id != null && categoryIds.includes(document.category_id)
+                      const checked = viaCategory || documentIds.includes(document.id)
+                      return (
+                        <label
+                          key={document.id}
+                          className="flex cursor-pointer items-start gap-2 rounded px-1 py-1 break-all hover:bg-fondo-alt"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            disabled={viaCategory || (!checked && full)}
+                            onChange={() => toggleDocument(document.id)}
+                            className="mt-1"
+                          />
+                          <span className="flex flex-col">
+                            {document.title}
+                            {(document.category || document.title !== document.filename) && (
+                              <span className="text-xs text-texto-secundario">
+                                {[document.category, document.filename]
+                                  .filter((part) => part && part !== document.title)
+                                  .join(' · ')}
+                              </span>
+                            )}
+                          </span>
+                        </label>
+                      )
+                    })}
+                  </fieldset>
+                )}
+              </div>
             )}
             <div className="flex justify-end gap-2">
               <button
                 type="button"
-                disabled={selected.length === 0}
-                onClick={() => onChange([])}
+                disabled={!isLimited(selected)}
+                onClick={() => onChange(ALL_DOCUMENTS)}
                 className="btn btn-secundario"
               >
                 {t.chat.scope.clear}
@@ -161,28 +248,28 @@ export function ScopePicker({ selected, onChange, disabled = false, error }: Pro
           </div>
         )}
       </div>
-      {selected.length > 0 && (
+      {isLimited(selected) && (
         <ul aria-label={t.chat.scope.selected} className="flex flex-wrap gap-2">
-          {selected.map((id) => {
-            const name = names.get(id) ?? '…'
-            return (
-              <li
-                key={id}
-                className="flex max-w-full items-center gap-1 rounded border border-borde-control bg-marca-suave px-2 py-0.5 text-xs break-all"
-              >
-                {name}
-                <button
-                  type="button"
-                  disabled={disabled}
-                  aria-label={t.chat.scope.remove(name)}
-                  onClick={() => onChange(selected.filter((d) => d !== id))}
-                  className="rounded p-0.5 hover:bg-fondo-alt"
-                >
-                  <X aria-hidden size={12} />
-                </button>
-              </li>
-            )
-          })}
+          {categoryIds.map((id) => (
+            <Chip
+              key={`c${id}`}
+              name={categoryName(id)}
+              disabled={disabled}
+              onRemove={() =>
+                onChange({ ...selected, categoryIds: categoryIds.filter((c) => c !== id) })
+              }
+            />
+          ))}
+          {documentIds.map((id) => (
+            <Chip
+              key={id}
+              name={names.get(id) ?? '…'}
+              disabled={disabled}
+              onRemove={() =>
+                onChange({ ...selected, documentIds: documentIds.filter((d) => d !== id) })
+              }
+            />
+          ))}
         </ul>
       )}
       {error && (
@@ -191,5 +278,30 @@ export function ScopePicker({ selected, onChange, disabled = false, error }: Pro
         </p>
       )}
     </div>
+  )
+}
+
+function Chip({
+  name,
+  disabled,
+  onRemove,
+}: {
+  name: string
+  disabled: boolean
+  onRemove: () => void
+}) {
+  return (
+    <li className="flex max-w-full items-center gap-1 rounded border border-borde-control bg-marca-suave px-2 py-0.5 text-xs break-all">
+      {name}
+      <button
+        type="button"
+        disabled={disabled}
+        aria-label={t.chat.scope.remove(name)}
+        onClick={onRemove}
+        className="rounded p-0.5 hover:bg-fondo-alt"
+      >
+        <X aria-hidden size={12} />
+      </button>
+    </li>
   )
 }

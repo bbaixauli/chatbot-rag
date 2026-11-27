@@ -184,6 +184,7 @@ class QuestionRecord:
     # Búsqueda limitada a unos documentos (#58) y su origen (`ScopeSource`).
     scope_document_ids: list[str] | None = None
     scope_source: str | None = None
+    scope_category_ids: list[int] | None = None
     # Tamaño del prompt y recortes (#73).
     prompt_tokens_estimated: int | None = None
     prompt_tokens: int | None = None
@@ -226,6 +227,7 @@ async def record_question(
                     error_detail=record.error_detail,
                     scope_document_ids=record.scope_document_ids,
                     scope_source=record.scope_source,
+                    scope_category_ids=record.scope_category_ids,
                     prompt_tokens_estimated=record.prompt_tokens_estimated,
                     prompt_tokens=record.prompt_tokens,
                     prompt_trim=record.prompt_trim,

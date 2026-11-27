@@ -2,12 +2,16 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
 import {
+  ALL_DOCUMENTS,
   ApiError,
+  conversationScope,
   getChatConfig,
+  isLimited,
   listConversations,
   listMessages,
   updateConversationScope,
   type Conversation,
+  type SearchScope,
 } from '../api/client'
 import { Composer } from '../components/Composer'
 import { MessageBubble } from '../components/MessageBubble'
@@ -58,27 +62,31 @@ export function ChatPage() {
   // En qué documentos buscar: en una conversación, lo guardado en ella; en una nueva, lo
   // elegido hasta enviar la primera pregunta (que lo guarda).
   const queryClient = useQueryClient()
-  const [draftScope, setDraftScope] = useState<string[]>([])
+  const [draftScope, setDraftScope] = useState<SearchScope>(ALL_DOCUMENTS)
   // Al volver a «Nueva conversación» se empieza buscando en todos.
   const [shownConversation, setShownConversation] = useState(conversationId)
   if (conversationId !== shownConversation) {
     setShownConversation(conversationId)
-    if (conversationId === null) setDraftScope([])
+    if (conversationId === null) setDraftScope(ALL_DOCUMENTS)
   }
-  const scope = conversationId ? (conversation?.document_ids ?? []) : draftScope
+  const scope = conversationId ? conversationScope(conversation) : draftScope
   const saveScope = useMutation({
-    mutationFn: ({ id, documentIds }: { id: string; documentIds: string[] }) =>
-      updateConversationScope(id, documentIds),
-    onMutate: ({ id, documentIds }) => {
+    mutationFn: ({ id, scope }: { id: string; scope: SearchScope }) =>
+      updateConversationScope(id, scope),
+    onMutate: ({ id, scope }) => {
       queryClient.setQueryData<Conversation[]>(['conversations'], (list) =>
-        list?.map((c) => (c.id === id ? { ...c, document_ids: documentIds } : c)),
+        list?.map((c) =>
+          c.id === id
+            ? { ...c, document_ids: scope.documentIds, category_ids: scope.categoryIds }
+            : c,
+        ),
       )
     },
     onError: () => void queryClient.invalidateQueries({ queryKey: ['conversations'] }),
   })
-  const changeScope = (documentIds: string[]) => {
-    if (conversationId) saveScope.mutate({ id: conversationId, documentIds })
-    else setDraftScope(documentIds)
+  const changeScope = (scope: SearchScope) => {
+    if (conversationId) saveScope.mutate({ id: conversationId, scope })
+    else setDraftScope(scope)
   }
   usePageTitle(title)
   const { ai_notice: aiNotice } = useAppearance()
@@ -141,7 +149,7 @@ export function ChatPage() {
         disabled={isStreaming || notFound}
         onSend={(text) =>
           // En una conversación nueva se envía lo elegido; en una existente ya está guardado.
-          void send(text, !conversationId && draftScope.length ? draftScope : undefined)
+          void send(text, !conversationId && isLimited(draftScope) ? draftScope : undefined)
         }
         suggestions={suggestions}
         aiNotice={aiNotice}

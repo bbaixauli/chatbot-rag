@@ -73,6 +73,7 @@ async def test_scope_limits_the_search_and_is_kept_in_the_conversation(
 
     assert _event(events, "scope") == {
         "documents": [{"id": dietas, "filename": "dietas.md", "title": "Gastos de viaje"}],
+        "categories": [],
         "source": "selector",
     }
     assert _source_documents(events) == {dietas}
@@ -203,7 +204,7 @@ async def test_public_list_of_indexed_documents(app: FastAPI, client: AsyncClien
         ("dietas.md", "Gastos de viaje"),
         ("Normativa.md", "Guía de vacaciones"),
     ]
-    assert set(listed[0]) == {"id", "filename", "title", "kind", "category"}
+    assert set(listed[0]) == {"id", "filename", "title", "kind", "category", "category_id"}
     assert broken.document.id not in {d["id"] for d in listed}
 
 
@@ -223,6 +224,7 @@ async def test_answers_keep_where_they_searched(app: FastAPI, client: AsyncClien
             "assistant",
             {
                 "documents": [{"id": dietas, "filename": "dietas.md", "title": "Gastos de viaje"}],
+                "categories": [],
                 "source": "selector",
             },
         ),
