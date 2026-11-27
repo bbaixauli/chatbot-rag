@@ -363,7 +363,7 @@ Documentación interactiva en http://localhost:8000/docs. Endpoints principales:
 | PATCH/DELETE | `/api/v1/conversations/{id}` | Renombrar o limitar la búsqueda a unos documentos (`document_ids`) o categorías (`category_ids`) / eliminar |
 | GET | `/api/v1/conversations/{id}/messages` | Mensajes de una conversación |
 | GET | `/api/v1/chat/config` | Mensaje inicial y preguntas sugeridas |
-| POST | `/api/v1/chat` | Envía un mensaje (con `document_ids` y `category_ids`, solo se busca en esos documentos y en los de esas categorías); respuesta en streaming SSE (`conversation`, `scope`, `token`, `sources`, `done`, `error`) |
+| POST | `/api/v1/chat` | Envía un mensaje (con `document_ids` y `category_ids`, solo se busca en esos documentos y en los de esas categorías); respuesta en streaming SSE (`conversation`, `scope`, `retrieval_failed`, `token`, `sources`, `done`, `error`; `retrieval_failed` avisa de que no se pudo consultar la documentación) |
 | GET/POST/DELETE | `/api/v1/auth/session` | Sesión del usuario del chat (modo LDAP) |
 | POST | `/api/v1/auth/anonymous` | Nueva sesión anónima: acceso anónimo con LDAP o sesión privada sin él (si la administración lo permite) |
 | GET/POST/DELETE | `/api/v1/admin/session` | Estado / inicio / cierre de sesión de administración |
