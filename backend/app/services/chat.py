@@ -30,6 +30,7 @@ from app.services.dashboard import QuestionRecord, record_question
 from app.services.document_names import detect_documents
 from app.services.llm import ChatMessage, LLMClient, LLMError, TokenUsage
 from app.services.prompt_budget import (
+    WINDOW_FULL_RATIO,
     PromptTooLargeError,
     PromptTrim,
     documents_budget,
@@ -37,6 +38,7 @@ from app.services.prompt_budget import (
     message_tokens,
     messages_tokens,
     server_trimmed,
+    underestimated,
 )
 from app.services.prompts import PromptRepository
 from app.services.rag import (
@@ -493,21 +495,45 @@ class ChatService:
     def _check_server_count(
         self, prepared: PreparedChat, record: QuestionRecord, trim: PromptTrim, usage: TokenUsage
     ) -> None:
-        """Guarda los tokens que contó el servidor y avisa si parece que recortó el prompt."""
-        record.prompt_tokens = usage.prompt_tokens
+        """Guarda los tokens que contó el servidor y avisa si parece que recortó el prompt o
+        si la estimación se quedó corta (#101)."""
+        counted = usage.prompt_tokens
+        record.prompt_tokens = counted
         estimated = record.prompt_tokens_estimated or 0
-        if not server_trimmed(estimated, usage.prompt_tokens):
+        llm = self._config.llm
+        window = llm.context_window_tokens or None
+        limit = llm.prompt_max_tokens
+        trim.server = server_trimmed(estimated, counted, window)
+        trim.underestimated = underestimated(counted, limit)
+        if not (trim.server or trim.underestimated):
             return
-        trim.server = True
         record.prompt_trim = trim.payload
-        logger.warning(
-            "El servidor del modelo ha contado %s tokens en un prompt de unos %d: "
-            "probablemente lo ha recortado. Revisa la ventana de contexto del modelo "
-            "(Configuración → Modelo de lenguaje).",
-            usage.prompt_tokens,
-            estimated,
-            extra={"conversation_id": prepared.conversation_id},
-        )
+        extra = {"conversation_id": prepared.conversation_id}
+        if trim.underestimated:
+            logger.warning(
+                "El servidor del modelo ha contado %s tokens en un prompt estimado en unos %d: "
+                "supera el límite de %d (ventana menos la reserva para la respuesta). La "
+                "estimación se ha quedado corta; comprueba con `python -m app.diagnose tokens` "
+                "si pasa a menudo con este modelo.",
+                counted,
+                estimated,
+                limit,
+                extra=extra,
+            )
+        if trim.server:
+            if window and counted is not None and counted >= window * WINDOW_FULL_RATIO:
+                reason = f"ha llenado la ventana de {window}"
+            else:
+                reason = "son bastantes menos de los estimados"
+            logger.warning(
+                "El servidor del modelo ha contado %s tokens en un prompt de unos %d (%s): "
+                "probablemente lo ha recortado. Revisa la ventana de contexto del modelo "
+                "(Configuración → Modelo de lenguaje).",
+                counted,
+                estimated,
+                reason,
+                extra=extra,
+            )
 
     async def _detect_scope(self, question: str, query: str) -> list[ScopeDocument]:
         """Documentos que nombra la pregunta, si la detección está activada."""

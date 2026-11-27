@@ -290,7 +290,7 @@ describe('AuditPage', () => {
       ...alert(1).entry,
       prompt_tokens_estimated: 7100,
       prompt_tokens: 4096,
-      prompt_trim: { full_document: true, history: 4, server: true },
+      prompt_trim: { full_document: true, history: 4, server: true, underestimated: true },
     }
     api(both, {
       'GET /admin/audit/log*': () => jsonResponse({ total: 1, page: 1, size: 25, items: [entry] }),
@@ -301,7 +301,7 @@ describe('AuditPage', () => {
     expect(within(table).getByText('unos 7100 tokens (el servidor contó 4096)')).toBeInTheDocument()
     expect(
       within(table).getByText(
-        'documento completo sustituido por fragmentos; 4 mensajes del historial; recortado por el servidor',
+        'documento completo sustituido por fragmentos; 4 mensajes del historial; recortado por el servidor; estimación por debajo del real',
       ),
     ).toBeInTheDocument()
   })

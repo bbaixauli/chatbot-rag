@@ -441,11 +441,24 @@ preguntas: la **auditoría** muestra el tamaño del prompt y lo que se quitó, y
 mando** cuenta las preguntas con el prompt recortado. Al guardar, la administración avisa si
 «Documento completo hasta» no cabe en la ventana.
 
-Además, se pide al servidor que devuelva cuántos tokens ha contado (`usage`). Si cuenta
-bastantes menos de los estimados, lo más probable es que haya recortado el prompt: queda en el
-log («probablemente lo ha recortado») y en la auditoría como «recortado por el servidor».
-Esta comprobación funciona aunque la ventana no esté configurada. `app.diagnose query` muestra
-el tamaño estimado del prompt, por partes, frente al límite.
+Además, se pide al servidor que devuelva cuántos tokens ha contado (`usage`), y se compara con
+lo estimado:
+
+- Si cuenta **bastantes menos** de los estimados, lo más probable es que haya recortado el
+  prompt porque la ventana configurada es mayor que la del servidor. Esta comprobación
+  funciona aunque la ventana no esté configurada.
+- Con la ventana configurada, si cuenta **casi toda la ventana** (el 98 % o más), lo más
+  probable es que la estimación se quedara corta y el servidor recortara el prompt al tope.
+- Con la ventana configurada, si cuenta **más que el límite** (la ventana menos la reserva
+  para la respuesta), la estimación se quedó corta: el prompt ocupó parte de la reserva o no
+  cabía.
+
+Los dos primeros casos quedan en el log («probablemente lo ha recortado») y en la auditoría
+como «recortado por el servidor». El tercero queda en el log («la estimación se ha quedado
+corta») y en la auditoría como «estimación por debajo del real». Las dos marcas cuentan en el
+cuadro de mando entre las preguntas con el prompt recortado.
+
+`app.diagnose query` muestra el tamaño estimado del prompt, por partes, frente al límite.
 
 Para saber si la estimación es fiable con tu modelo, `app.diagnose tokens` compara lo estimado
 con lo que contó el servidor en las preguntas de los últimos 30 días (`--days N` para otro

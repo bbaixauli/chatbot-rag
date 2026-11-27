@@ -79,6 +79,8 @@ export interface PromptTrim {
   sources?: number
   history?: number
   server?: boolean
+  /** El servidor contó más tokens que el límite: la estimación se quedó corta (#101). */
+  underestimated?: boolean
 }
 
 export interface AuditAlert {

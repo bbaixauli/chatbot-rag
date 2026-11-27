@@ -320,6 +320,8 @@ def trim_label(trim: dict[str, Any] | None) -> str:
         parts.append(f"{history} {'mensaje' if history == 1 else 'mensajes'} del historial")
     if trim.get("server"):
         parts.append("recortado por el servidor")
+    if trim.get("underestimated"):
+        parts.append("estimación por debajo del real")
     return "; ".join(parts)
 
 
