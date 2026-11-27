@@ -3,6 +3,7 @@ import { API_BASE, ApiError, type Scope, type SearchScope, type Source } from '.
 export type ChatEvent =
   | { event: 'conversation'; data: { id: string; title: string; user_message_id: number } }
   | { event: 'scope'; data: Scope }
+  | { event: 'retrieval_failed'; data: { detail: string } }
   | { event: 'token'; data: { content: string } }
   | { event: 'sources'; data: { sources: Source[] } }
   | { event: 'done'; data: { message_id: number } }

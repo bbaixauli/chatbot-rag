@@ -58,6 +58,8 @@ export interface AuditEntry {
   prompt_tokens_estimated?: number | null
   prompt_tokens?: number | null
   prompt_trim?: PromptTrim | null
+  /** Falló la búsqueda en la documentación (#95). */
+  retrieval_failed?: boolean
   /** Dónde se buscó, si se limitó la búsqueda (#58, #85). */
   searched_in?: SearchedIn | null
 }

@@ -386,6 +386,42 @@ describe('ChatPage', () => {
     ).toBeInTheDocument()
   })
 
+  it('avisa si no se pudo consultar la documentación, también al recargar', async () => {
+    let created = false
+    mockApi({
+      'GET /health': health,
+      'GET /conversations': () =>
+        jsonResponse(
+          created ? [{ id: 'n1', title: 'Horario', created_at: '', updated_at: '' }] : [],
+        ),
+      'POST /chat': () => {
+        created = true
+        return sseResponse([
+          ['conversation', { id: 'n1', title: 'Horario', user_message_id: 1 }],
+          ['retrieval_failed', { detail: 'No se ha podido consultar la documentación' }],
+          ['token', { content: 'De 8 a 15.' }],
+          ['done', { message_id: 2 }],
+        ])
+      },
+      'GET /conversations/n1/messages': () =>
+        jsonResponse([
+          msg(1, 'user', 'Horario'),
+          { ...msg(2, 'assistant', 'De 8 a 15.'), retrieval_failed: true },
+        ]),
+    })
+    renderApp()
+
+    await ask('Horario')
+
+    const list = await screen.findByRole('list', { name: 'Mensajes' })
+    await waitFor(() => expect(list.querySelectorAll('li')).toHaveLength(2))
+    // Tras sustituir el intercambio en curso por los mensajes guardados, el aviso sigue.
+    expect(await within(list).findByRole('note')).toHaveTextContent(
+      'No se ha podido consultar la documentación',
+    )
+    expect(within(list).getByText('De 8 a 15.')).toBeInTheDocument()
+  })
+
   it('cambia en qué documentos busca una conversación existente', async () => {
     const sent: unknown[] = []
     mockApi({

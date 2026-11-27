@@ -137,6 +137,8 @@ export interface Message {
   created_at: string
   sources?: Source[]
   scope?: Scope | null
+  /** Falló la búsqueda en la documentación al generar la respuesta (#95). */
+  retrieval_failed?: boolean
 }
 
 /** URL para ver el original de una fuente (los PDF se abren en la página citada). */

@@ -1,4 +1,4 @@
-import { FileText, Files } from 'lucide-react'
+import { AlertTriangle, FileText, Files } from 'lucide-react'
 import type { ComponentProps } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -12,6 +12,8 @@ interface Props {
   sources?: Source[]
   /** Documentos a los que se limitó la búsqueda de la respuesta. */
   scope?: Scope | null
+  /** No se pudo consultar la documentación para la respuesta (#95). */
+  retrievalFailed?: boolean
   streaming?: boolean
 }
 
@@ -25,6 +27,7 @@ export function MessageBubble({
   content,
   sources = [],
   scope = null,
+  retrievalFailed = false,
   streaming = false,
 }: Props) {
   const isUser = role === 'user'
@@ -40,6 +43,16 @@ export function MessageBubble({
         }`}
       >
         <span className="sr-only">{isUser ? t.chat.you : t.chat.assistant}: </span>
+        {!isUser && retrievalFailed && (
+          // Antes de la respuesta: hay que leerla sabiendo que no se apoya en los documentos.
+          <p
+            role="note"
+            className="mb-2 flex gap-2 rounded border border-aviso bg-aviso-suave px-3 py-2 text-sm text-aviso"
+          >
+            <AlertTriangle aria-hidden size={16} className="mt-0.5 shrink-0" />
+            {t.chat.retrievalFailed}
+          </p>
+        )}
         {isUser ? (
           <p className="whitespace-pre-wrap">{content}</p>
         ) : content ? (

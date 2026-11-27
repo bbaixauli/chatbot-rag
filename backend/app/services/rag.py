@@ -115,6 +115,9 @@ class Retrieval:
     # Apartados citados en la pregunta (#74) y las fuentes que se han añadido por ellos.
     references: list[SectionReference] = field(default_factory=list)
     located: list[ContextSource] = field(default_factory=list)
+    # Falló la búsqueda (embeddings o índice): la respuesta no se apoya en la documentación,
+    # salvo en los apartados citados que se hayan localizado (#95).
+    failed: bool = False
 
 
 def sources_chars(sources: Sequence[ContextSource]) -> int:
@@ -248,13 +251,17 @@ class Retriever:
                     located = await self._locate(references, document_ids)
                 except Exception:
                     logger.warning("No se pudieron localizar los apartados", exc_info=True)
+        failed = False
         try:
             [vector] = await self._embeddings.embed([query])
             hits = await self._store.search(vector, candidates_limit(rag), document_ids)
         except Exception:
             logger.warning("No se pudo recuperar contexto; se responde sin RAG", exc_info=True)
             if not located:
-                return Retrieval([], full_document_skipped=skipped, references=references)
+                return Retrieval(
+                    [], full_document_skipped=skipped, references=references, failed=True
+                )
+            failed = True
             hits = []
 
         cap = rag.max_context_chars if max_chars is None else min(rag.max_context_chars, max_chars)
@@ -303,6 +310,7 @@ class Retriever:
             len(unlimited) - len(selected),
             references=references,
             located=located_sources,
+            failed=failed,
         )
 
     async def _locate(

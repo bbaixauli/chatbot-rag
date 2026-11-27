@@ -79,6 +79,23 @@ async def test_disabled_empty_query_and_failures_return_nothing(store: ChromaVec
     )
 
 
+async def test_retrieval_reports_whether_the_search_failed(store: ChromaVectorStore) -> None:
+    class Broken(FakeEmbeddings):
+        async def embed(self, texts: Sequence[str]) -> list[list[float]]:
+            raise EmbeddingError("caído")
+
+    config = StaticConfig.from_settings(Settings())
+    failed = await Retriever(Broken(), store, config).retrieve_within("vacaciones")
+    assert failed.failed is True
+    assert failed.sources == []
+
+    assert (await _retriever(store).retrieve_within("vacaciones")).failed is False
+    # Sin RAG o sin consulta no se busca: no es un fallo.
+    assert (
+        await _retriever(store, rag_enabled=False).retrieve_within("vacaciones")
+    ).failed is False
+
+
 def _source(number: int, **overrides: Any) -> ContextSource:
     values: dict[str, Any] = {
         "number": number,

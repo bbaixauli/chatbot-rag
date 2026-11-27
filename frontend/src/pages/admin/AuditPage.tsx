@@ -699,6 +699,12 @@ function LogRow({ entry }: { entry: AuditEntry }) {
                 <dd>{t.audit.trim(entry.prompt_trim)}</dd>
               </>
             )}
+            {entry.retrieval_failed && (
+              <>
+                <dt className="font-semibold">{t.audit.meta.retrievalFailed}</dt>
+                <dd className="text-aviso">{t.audit.retrievalFailed}</dd>
+              </>
+            )}
             {entry.error_detail && (
               <>
                 <dt className="font-semibold">{t.audit.meta.error}</dt>

@@ -91,6 +91,8 @@ class MessageOut(BaseModel):
     created_at: datetime
     sources: list[SourceOut] = []
     scope: ScopeOut | None = None
+    # Falló la búsqueda en la documentación al generar la respuesta (#95).
+    retrieval_failed: bool = False
 
 
 class ChatConfigOut(BaseModel):

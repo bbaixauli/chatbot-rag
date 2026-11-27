@@ -15,6 +15,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    false,
     text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -188,6 +189,8 @@ class Message(Base):
     # Respuestas: documentos a los que se limitó la búsqueda (#58), como el evento `scope`:
     # {"documents": [{"id", "filename", "title"}], "source": "selector" | "detected"}.
     scope: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    # Respuestas: falló la búsqueda en la documentación (embeddings o índice, #95).
+    retrieval_failed: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
 
     conversation: Mapped[Conversation] = relationship(back_populates="messages")
     sources: Mapped[list["MessageSource"]] = relationship(
@@ -270,6 +273,9 @@ class QuestionLog(Base):
     response_ms: Mapped[int | None] = mapped_column(Integer)
     sources_retrieved: Mapped[int] = mapped_column(Integer, default=0)
     sources_cited: Mapped[int] = mapped_column(Integer, default=0)
+    # Falló la búsqueda en la documentación (#95): distingue «no se pudo buscar» de «no había
+    # nada relevante» (los dos con `sources_retrieved` a 0).
+    retrieval_failed: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     # Auditoría (#50): quién, desde dónde y con qué se respondió. La IP, el navegador y el
     # nombre se anonimizan pasado el plazo configurado.
     client_ip: Mapped[str | None] = mapped_column(String(45), index=True)
