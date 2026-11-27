@@ -26,6 +26,7 @@ from app.services.prompt_budget import (
     messages_tokens,
     server_trimmed,
     tokens_to_chars,
+    underestimated,
 )
 from app.services.rag import FULL_DOCUMENT_NOTE, SOURCE_OVERHEAD_CHARS, Retriever
 from app.services.vectorstore import ChromaVectorStore
@@ -114,6 +115,25 @@ def test_trim_payload_and_server_count() -> None:
     assert not server_trimmed(1000, 800)
     assert not server_trimmed(1000, None)
     assert not server_trimmed(0, 10)
+    assert PromptTrim(server=True, underestimated=True).payload == {
+        "server": True,
+        "underestimated": True,
+    }
+
+
+def test_window_full_and_underestimate() -> None:
+    # Con la ventana configurada, llenarla es un recorte aunque se contara más de lo estimado
+    # (la estimación se quedó corta, #101).
+    assert server_trimmed(7000, 8100, window=8192)
+    assert server_trimmed(7000, 8029, window=8192)  # 98 % de 8192: 8028,16
+    assert not server_trimmed(7000, 8000, window=8192)
+    assert not server_trimmed(7000, 8100)
+    assert not server_trimmed(7000, None, window=8192)
+    # Por encima del límite (ventana menos reserva), la estimación se quedó corta.
+    assert underestimated(7200, 7168)
+    assert not underestimated(7168, 7168)
+    assert not underestimated(7200, None)
+    assert not underestimated(None, 7168)
 
 
 def test_window_configuration() -> None:
@@ -282,6 +302,34 @@ async def test_the_server_count_reveals_a_silent_trim(
     assert (await _last_log(app)).prompt_trim is None
 
 
+async def test_the_server_count_reveals_an_underestimate(
+    app: FastAPI, client: AsyncClient, llm: ScriptedLLM, caplog: pytest.LogCaptureFixture
+) -> None:
+    limit = await _window(app, 8192, reserve=1024)
+
+    # Más que el límite, pero cabe en la ventana: ocupó parte de la reserva (#101).
+    llm.prompt_tokens = limit + 300
+    with caplog.at_level(logging.WARNING):
+        await _ask(client, "¿Cuántos días de vacaciones tengo?")
+    log = await _last_log(app)
+    assert log.prompt_trim == {"underestimated": True}
+    assert "La estimación se ha quedado corta" in caplog.text
+    assert "probablemente lo ha recortado" not in caplog.text
+
+    # Llenó la ventana: además, probablemente la recortó.
+    caplog.clear()
+    llm.prompt_tokens = 8150
+    with caplog.at_level(logging.WARNING):
+        await _ask(client, "¿Cuántos días de vacaciones tengo?")
+    assert (await _last_log(app)).prompt_trim == {"server": True, "underestimated": True}
+    assert "ha llenado la ventana de 8192" in caplog.text
+
+    # Dentro del límite no se avisa.
+    llm.prompt_tokens = limit
+    await _ask(client, "¿Cuántos días de vacaciones tengo?")
+    assert (await _last_log(app)).prompt_trim is None
+
+
 # --- Administración -----------------------------------------------------------------------
 
 
@@ -312,6 +360,9 @@ def test_trim_labels() -> None:
         "recortado por el servidor"
     )
     assert trim_label({"sources": 3, "history": 1}) == "3 fragmentos; 1 mensaje del historial"
+    assert trim_label({"server": True, "underestimated": True}) == (
+        "recortado por el servidor; estimación por debajo del real"
+    )
 
 
 async def test_trims_in_the_audit_and_the_dashboard(

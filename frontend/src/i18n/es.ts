@@ -665,6 +665,7 @@ export const t = {
           ? `${trim.history} ${trim.history === 1 ? 'mensaje' : 'mensajes'} del historial`
           : '',
         trim.server ? 'recortado por el servidor' : '',
+        trim.underestimated ? 'estimación por debajo del real' : '',
       ]
         .filter(Boolean)
         .join('; '),

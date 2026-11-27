@@ -26,8 +26,14 @@ from app.services.rag import RAG_INSTRUCTIONS
 CHARS_PER_TOKEN = 3.5
 MESSAGE_OVERHEAD_TOKENS = 8
 # Si el servidor cuenta menos de esta proporción de los tokens estimados, lo más probable es
-# que haya recortado el prompt (la estimación ya es conservadora: suele contar ~0,8).
+# que haya recortado el prompt (la estimación ya es conservadora: suele contar ~0,8). Así se
+# detecta una ventana configurada mayor que la del servidor.
 SERVER_TRIM_RATIO = 0.6
+# Si el servidor cuenta al menos esta proporción de la ventana, lo más probable es que haya
+# recortado el prompt al tope de la ventana: la estimación se quedó corta y el prompt real no
+# cabía (#101). La comparación anterior no lo detecta, porque lo contado (≈ la ventana) supera
+# lo estimado.
+WINDOW_FULL_RATIO = 0.98
 
 
 def chars_to_tokens(chars: int) -> int:
@@ -82,8 +88,12 @@ class PromptTrim:
     sources: int = 0
     # Mensajes del historial que no se enviaron.
     history: int = 0
-    # El servidor contó bastantes menos tokens de los estimados: recortó el prompt.
+    # Por el recuento del servidor, lo más probable es que recortara el prompt: contó bastantes
+    # menos tokens de los estimados o llenó la ventana (ver `server_trimmed`).
     server: bool = False
+    # El servidor contó más tokens que el límite (ventana menos la reserva para la respuesta):
+    # la estimación se quedó corta y el prompt ocupó parte de la reserva o no cabía (#101).
+    underestimated: bool = False
 
     @property
     def payload(self) -> dict[str, Any] | None:
@@ -93,6 +103,7 @@ class PromptTrim:
             "sources": self.sources,
             "history": self.history,
             "server": self.server,
+            "underestimated": self.underestimated,
         }
         present = {key: value for key, value in values.items() if value}
         return present or None
@@ -110,6 +121,17 @@ class PromptTooLargeError(Exception):
         self.limit = limit
 
 
-def server_trimmed(estimated: int, counted: int | None) -> bool:
-    """Si el servidor contó bastantes menos tokens de los estimados."""
-    return counted is not None and estimated > 0 and counted < estimated * SERVER_TRIM_RATIO
+def server_trimmed(estimated: int, counted: int | None, window: int | None = None) -> bool:
+    """Si, por el recuento del servidor, lo más probable es que recortara el prompt: contó
+    bastantes menos tokens de los estimados o, con la ventana configurada, la llenó."""
+    if counted is None:
+        return False
+    if window and counted >= window * WINDOW_FULL_RATIO:
+        return True
+    return estimated > 0 and counted < estimated * SERVER_TRIM_RATIO
+
+
+def underestimated(counted: int | None, limit: int | None) -> bool:
+    """Si el servidor contó más tokens que el límite del prompt (la estimación se quedó
+    corta). Sin ventana configurada (`limit` es `None`) no hay con qué comparar."""
+    return counted is not None and limit is not None and counted > limit
