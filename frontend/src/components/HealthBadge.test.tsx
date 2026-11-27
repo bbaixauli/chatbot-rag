@@ -19,7 +19,14 @@ const okResponse = (body: unknown): Partial<Response> => ({
 describe('HealthBadge', () => {
   it('muestra el estado disponible', async () => {
     const fetchSpy = mockFetch(
-      okResponse({ status: 'ok', app: 'Chatbot RAG', version: '0.1.0', database: 'ok' }),
+      okResponse({
+        status: 'ok',
+        app: 'Chatbot RAG',
+        version: '0.1.0',
+        database: 'ok',
+        vector_store: 'ok',
+        embeddings: 'ok',
+      }),
     )
     render(<HealthBadge />)
 
@@ -28,9 +35,34 @@ describe('HealthBadge', () => {
   })
 
   it('muestra servicio degradado', async () => {
-    mockFetch(okResponse({ status: 'degraded', app: 'x', version: '0', database: 'error' }))
+    mockFetch(
+      okResponse({
+        status: 'degraded',
+        app: 'x',
+        version: '0',
+        database: 'error',
+        vector_store: 'error',
+        embeddings: 'ok',
+      }),
+    )
     render(<HealthBadge />)
     expect(await screen.findByText('Servicio degradado')).toBeInTheDocument()
+  })
+
+  it('indica si solo falla la documentación (índice o embeddings)', async () => {
+    mockFetch(
+      okResponse({
+        status: 'degraded',
+        app: 'x',
+        version: '0',
+        database: 'ok',
+        vector_store: 'ok',
+        embeddings: 'error',
+      }),
+    )
+    render(<HealthBadge />)
+    const status = await screen.findByText('Documentación no disponible')
+    expect(status).toHaveAttribute('data-state', 'degraded')
   })
 
   it('muestra sin conexión si la API devuelve error HTTP', async () => {
